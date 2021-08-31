@@ -15,6 +15,7 @@ from openmdao.recorders.tests.sqlite_recorder_test_utils import \
     assertDriverIterDataRecorded, assertProblemDataRecorded
 from openmdao.recorders.tests.recorder_test_utils import run_driver
 from openmdao.utils.assert_utils import assert_warnings
+from openmdao.utils.testing_utils import use_tempdirs
 
 if MPI:
     from openmdao.api import PETScVector
@@ -93,6 +94,7 @@ class Mygroup(om.Group):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@use_tempdirs
 class DistributedRecorderTest(unittest.TestCase):
 
     N_PROCS = 2
