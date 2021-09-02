@@ -77,6 +77,8 @@ def get_func_info(func):
     # TODO: get func source and re-exec with redifined globals to replace numpy with jax numpy so
     # functions defined with regular numpy stuff internally will still work.
     ins = {}
+
+    # first, retrieve inputs from the function signature
     params = inspect.signature(func).parameters
     for name, p in params.items():
         ins[name] = meta = {}
@@ -87,6 +89,7 @@ def get_func_info(func):
             else:
                 meta['shape'] = meta['val'].shape
 
+    # grab any annotations
     inmeta, outmeta = _get_annotations(func)
     for name, meta in inmeta.items():
         if name in ins:
@@ -95,6 +98,8 @@ def get_func_info(func):
         else:
             ins[name] = meta
 
+    # Parse the function code to possibly identify the names of the return values.
+    # This only succeeds if simple varible names are returned, e.g.,   return a, b, c
     outlist = []
     try:
         onames = _get_outnames_from_code(func)
@@ -102,7 +107,7 @@ def get_func_info(func):
         pass
     else:
         for o in onames:
-            if '.' in o:
+            if '.' in o:  # don't allow dots in return value names
                 o = None
             outlist.append([o, {}])
 
@@ -141,7 +146,7 @@ def get_func_info(func):
             elif need_shape:
                 args.append(ShapedArray(shp, dtype=np.float32))
 
-    if need_shape:
+    if need_shape:  # output shapes weren't provided in annotations
         jxpr = make_jaxpr(func)
         v = jxpr(*args)
         for val, name in zip(v.out_avals, outs):
