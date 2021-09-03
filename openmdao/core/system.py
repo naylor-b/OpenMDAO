@@ -102,27 +102,6 @@ resp_size_checks = {
 resp_types = {'con': 'constraint', 'obj': 'objective'}
 
 
-def _allowed_meta_iter(dct):
-    """
-    Yield only those entries from the given dict that are allowed metadata.
-
-    Parameters
-    ----------
-    dct : dict
-        The dictionary to be filtered.
-
-    Yields
-    ------
-    str
-        Name of metadata entry.
-    object
-        Value of metadata entry.
-    """
-    for name, data in dct.items():
-        if name in allowed_meta_names:
-            yield name, data
-
-
 class _MatchType(IntEnum):
     """
     Class used to define different types of promoted name matches.

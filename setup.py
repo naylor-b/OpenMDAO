@@ -208,6 +208,7 @@ setup(
             'splinecomp=openmdao.components.spline_comp:SplineComp',
             'vectormagnitudecomp=openmdao.components.vector_magnitude_comp:VectorMagnitudeComp',
             'indepvarcomp=openmdao.core.indepvarcomp:IndepVarComp',
+            'adexplicitfunccomp=openmdao.components.jaxcomp:ADExplicitFuncComp'
         ],
         'openmdao_driver': [
             'doedriver=openmdao.drivers.doe_driver:DOEDriver',

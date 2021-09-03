@@ -41,7 +41,13 @@ class _ReturnNamesCollector(ast.NodeVisitor):
     An ast.NodeVisitor that records names of returned values (if any).
 
     Each instance of this is single-use.  If needed multiple times create a new instance
-    each time.
+    each time.  It also assumes that the AST to be visited contains only a single function
+    definition.
+
+    Attributes
+    ----------
+    _ret_names : list
+        List containing name (or None) for each function return value.
     """
 
     def __init__(self):
@@ -49,6 +55,14 @@ class _ReturnNamesCollector(ast.NodeVisitor):
         self._ret_names = []
 
     def visit_Return(self, node):
+        """
+        Visit a Return node.
+
+        Parameters
+        ----------
+        node : ASTnode
+            The return node being visited.
+        """
         if self._ret_names:
             raise RuntimeError("_ReturnNamesCollector does not support multiple returns in a "
                                "single function.  Either the given function contains multiple "
