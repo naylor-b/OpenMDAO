@@ -130,10 +130,6 @@ class DefaultVector(Vector):
     def _initialize_views(self):
         """
         Internally assemble views onto the vectors.
-
-        Sets the following attributes:
-        _views
-        _views_flat
         """
         system = self._system()
         io = self._typ
@@ -145,17 +141,18 @@ class DefaultVector(Vector):
             scaling = self._scaling
 
         self._views = views = {}
-        self._views_flat = views_flat = {}
 
         start = end = 0
         for abs_name, meta in system._var_abs2meta[io].items():
             end = start + meta['size']
             shape = meta['shape']
-            views_flat[abs_name] = v = self._data[start:end]
-            if shape != v.shape:
-                v = v.view()
+            vf = self._data[start:end]
+            if shape == vf.shape:
+                v = vf
+            else:
+                v = vf.view()
                 v.shape = shape
-            views[abs_name] = v
+            views[abs_name] = (v, vf)
 
             if do_scaling:
                 factor_tuple = factors[abs_name][kind]
@@ -489,8 +486,8 @@ class DefaultVector(Vector):
         if self._slices is None:
             slices = {}
             start = end = 0
-            for name, arr in self._views_flat.items():
-                end += arr.size
+            for name, (_, vflat) in self._views.items():
+                end += vflat.size
                 slices[name] = slice(start, end)
                 start = end
             self._slices = slices

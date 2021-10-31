@@ -1,6 +1,5 @@
 """Define the base Vector and Transfer classes."""
 from copy import deepcopy
-import os
 import weakref
 
 import numpy as np
@@ -56,9 +55,7 @@ class Vector(object):
     _length : int
         Length of flattened vector.
     _views : dict
-        Dictionary mapping absolute variable names to the ndarray views.
-    _views_flat : dict
-        Dictionary mapping absolute variable names to the flattened ndarray views.
+        Dictionary mapping absolute variable names to (view, flat_view).
     _names : set([str, ...])
         Set of variables that are relevant in the current context.
     _root_vector : Vector
@@ -105,7 +102,6 @@ class Vector(object):
         self._system = weakref.ref(system)
 
         self._views = {}
-        self._views_flat = {}
 
         # self._names will either contain the same names as self._views or to the
         # set of variables relevant to the current matvec product.
@@ -174,7 +170,7 @@ class Vector(object):
         dict
             Dictionary containing the _views.
         """
-        return deepcopy(self._views)
+        return {n: deepcopy(t[0]) for n, t in self._views.items()}
 
     def keys(self):
         """
@@ -197,11 +193,11 @@ class Vector(object):
             Value of each variable.
         """
         if self._under_complex_step:
-            for n, v in self._views.items():
+            for n, (v, _) in self._views.items():
                 if n in self._names:
                     yield v
         else:
-            for n, v in self._views.items():
+            for n, (v, _) in self._views.items():
                 if n in self._names:
                     yield v.real
 
@@ -263,14 +259,18 @@ class Vector(object):
         ndarray or float
             Value of each variable.
         """
-        arrs = self._views_flat if flat else self._views
-
         if self._under_complex_step:
-            for tup in arrs.items():
-                yield tup
+            for name, (v, vflat) in self._views.items():
+                if flat:
+                    yield name, vflat
+                else:
+                    yield name, v
         else:
-            for name, val in arrs.items():
-                yield name, val.real
+            for name, (v, vflat) in self._views.items():
+                if flat:
+                    yield name, vflat.real
+                else:
+                    yield name, v.real
 
     def _abs_iter(self):
         """
@@ -354,9 +354,9 @@ class Vector(object):
             variable value.
         """
         if flat:
-            val = self._views_flat[name]
+            val = self._views[name][1]
         else:
-            val = self._views[name]
+            val = self._views[name][0]
 
         if self._under_complex_step:
             return val
@@ -549,12 +549,12 @@ class Vector(object):
 
         if flat:
             if isinstance(val, float):
-                self._views_flat[abs_name][idxs.flat()] = val
+                self._views[abs_name][1][idxs.flat()] = val
             else:
-                self._views_flat[abs_name][idxs.flat()] = np.asarray(val).flat
+                self._views[abs_name][1][idxs.flat()] = np.asarray(val).flat
         else:
             value = np.asarray(val)
-            view = self._views[abs_name]
+            view, viewflat = self._views[abs_name]
             try:
                 if view.shape:
                     view[idxs()] = value
@@ -562,7 +562,7 @@ class Vector(object):
                     # view is a scalar so we can't update it without breaking its connection
                     # to the underlying array, so set the value into the
                     # array using the flat view, which is an array of size 1.
-                    self._views_flat[abs_name][0] = value
+                    viewflat[0] = value
             except Exception as err:
                 try:
                     value = value.reshape(view[idxs()].shape)
