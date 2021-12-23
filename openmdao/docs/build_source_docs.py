@@ -1,7 +1,6 @@
 import os
+import shutil
 import json
-
-IGNORE_LIST = []
 
 packages = [
     'approximation_schemes',
@@ -24,14 +23,9 @@ packages = [
     'visualization',
 ]
 
-index_top = """
-# Source Docs
-
-"""
 
 def header(filename, path):
-
-    header = """# %s
+    return ("""# %s
 
 ```{eval-rst}
     .. automodule:: %s
@@ -41,53 +35,49 @@ def header(filename, path):
         :inherited-members:
         :noindex:
 ```
-""" % (filename, path)
-    return header
+""" % (filename, path)).splitlines(keepends=True)
 
 
 def _header_cell():
-    template = """{
- "cells": [
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    ""
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.8.1"
-  },
-  "orphan": true
- },
- "nbformat": 4,
- "nbformat_minor": 4
-}"""
-    return template
+    return {
+        "cells": [
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": [
+                    ""
+                ]
+            }
+        ],
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "codemirror_mode": {
+                    "name": "ipython",
+                    "version": 3
+                },
+                "file_extension": ".py",
+                "mimetype": "text/x-python",
+                "name": "python",
+                "nbconvert_exporter": "python",
+                "pygments_lexer": "ipython3",
+                "version": "3.8.1"
+            },
+            "orphan": True
+        },
+        "nbformat": 4,
+        "nbformat_minor": 4
+    }
 
 
-def build_src_docs(top, src_dir, project_name='openmdao'):
-    # docs_dir = os.path.dirname(src_dir)
+def build_src_docs(top, src_dir, project_name='openmdao', clean=False):
 
     doc_dir = os.path.join(top, "_srcdocs")
-    if os.path.isdir(doc_dir):
-        import shutil
+    if clean and os.path.isdir(doc_dir):
         shutil.rmtree(doc_dir)
 
     if not os.path.isdir(doc_dir):
@@ -98,8 +88,7 @@ def build_src_docs(top, src_dir, project_name='openmdao'):
         os.mkdir(packages_dir)
 
     index_filename = os.path.join(doc_dir, "index.ipynb")
-    index = open(index_filename, "w")
-    index_data = index_top
+    index_data = ["\n# Source Docs\n\n"]
 
     for package in packages:
         # a package is e.g. openmdao.core, that contains source files
@@ -124,69 +113,49 @@ def build_src_docs(top, src_dir, project_name='openmdao'):
 
             # specifically don't use os.path.join here.  Even windows wants the
             # stuff in the file to have fwd slashes.
-            title = f"[{package}]"
-            link = f"(packages/{package}.md)\n"
-            index_data += f"- {title}{link}"
+            index_data.append(f"- [{package}](packages/{package}.md)\n\n")
 
             # make subpkg directory (e.g. _srcdocs/packages/core) for ref sheets
             package_dir = os.path.join(packages_dir, package)
-            os.mkdir(package_dir)
+            if not os.path.isdir(package_dir):
+                os.mkdir(package_dir)
 
             # create/write a package index file: (e.g. "_srcdocs/packages/openmdao.core.ipynb")
-            package_file = open(package_filename, "w")
-            package_data = f"# {package_name}\n\n"
+            package_data = [f"# {package_name}\n\n"]
 
+            SKIP_SUBPACKAGES = ['__pycache__']
             for sub_package in sub_packages:
-                SKIP_SUBPACKAGES = ['__pycache__']
                 # this line writes subpackage name e.g. "core/component.py"
                 # into the corresponding package index file (e.g. "openmdao.core.ipynb")
                 if sub_package not in SKIP_SUBPACKAGES:
                     # specifically don't use os.path.join here.  Even windows wants the
                     # stuff in the file to have fwd slashes.
-                    title = f"[{sub_package}]"
-                    link = f"({package}/{sub_package}.md)\n"
-                    package_data += f"- {title}{link}"
+                    package_data.append(f"- [{sub_package}]({package}/{sub_package}.md)\n\n")
 
                     # creates and writes out one reference sheet (e.g. core/component.ipynb)
                     ref_sheet_filename = os.path.join(package_dir, sub_package + ".ipynb")
-                    ref_sheet = open(ref_sheet_filename, "w")
 
-                    # get the meat of the ref sheet code done
-                    filename = sub_package + ".py"
-                    ref_sheet.write(_header_cell())
-                    ref_sheet.close()
+                    data = _header_cell()
+                    data['cells'][0]['source'] = header(sub_package + ".py",
+                                                        package_name + "." + sub_package)
 
-                    # Open the json file and fill in the template details
-                    with open(ref_sheet_filename, 'r+') as f:
-                        data = json.load(f)
-                        data['cells'][0]['source'] = header(filename,
-                                                            package_name + "." + sub_package)
-                        f.seek(0)
+                    # Create the json file
+                    with open(ref_sheet_filename, 'w') as f:
                         json.dump(data, f, indent=4)
-                        f.truncate()
 
             # finish and close each package file
-            package_file.write(_header_cell())
-            package_file.close()
-            with open(package_filename, 'r+') as f:
-                data = json.load(f)
-                data['cells'][0]['source'] = package_data
-                f.seek(0)
+            data = _header_cell()
+            data['cells'][0]['source'] = package_data
+            with open(package_filename, 'w') as f:
                 json.dump(data, f, indent=4)
-                f.truncate()
-            package_file.close()
 
     # finish and close top-level index file
-    index.write(_header_cell())
-    index.close()
-    with open(index_filename, 'r+') as f:
-        data = json.load(f)
+    data = _header_cell()
+    with open(index_filename, 'w') as f:
         data['cells'][0]['source'] = index_data
-        f.seek(0)
         json.dump(data, f, indent=4)
-        f.truncate()
-    index.close()
 
 
 if __name__ == '__main__':
-    build_src_docs("openmdao_book/", "..")
+    import sys
+    build_src_docs("openmdao_book/", "..", clean='clean' in sys.argv)
