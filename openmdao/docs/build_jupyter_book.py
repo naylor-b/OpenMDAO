@@ -23,6 +23,7 @@ def build_book(book_dir, clean, keep_going, config):
     """
     save_cwd = os.getcwd()
     os.chdir(DOC_ROOT)
+
     if clean:
         print("Cleaning out old _srcdocs, _build, and output artifacts...")
         try:
@@ -35,8 +36,8 @@ def build_book(book_dir, clean, keep_going, config):
             pass
         subprocess.run(['jupyter-book', 'clean', book_dir])  # nosec: trusted input
 
-        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(book_dir)))
-        build_src_docs(book_dir, repo_dir, clean=clean)
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(book_dir)))
+    build_src_docs(book_dir, repo_dir, clean=clean)
 
     cmd = ['jupyter-book', 'build', '-W']
     if keep_going:
