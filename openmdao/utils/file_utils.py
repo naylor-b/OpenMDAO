@@ -4,11 +4,9 @@ Utilities for working with files.
 
 import sys
 import os
-import importlib
-import unittest
-from inspect import getmembers, isclass, ismethod, isfunction
+from importlib import import_module
 from fnmatch import fnmatch
-from os.path import join, basename, dirname, isfile, split, splitext, abspath, expanduser
+from os.path import join, basename, dirname, isfile, split, splitext, abspath
 
 
 def get_module_path(fpath):
@@ -80,10 +78,9 @@ def package_iter(start_dir='.', dir_includes=None, dir_excludes=(), file_include
     dir_excludes = set() if dir_excludes is None else set(dir_excludes)
     dir_excludes.update(('test', 'tests'))
 
-    for f in files_iter(start_dir, dir_includes=dir_includes, dir_excludes=dir_excludes,
-                        file_includes=file_includes, file_excludes=file_excludes,
-                        package_only=True):
-        yield f
+    yield from files_iter(start_dir, dir_includes=dir_includes, dir_excludes=dir_excludes,
+                          file_includes=file_includes, file_excludes=file_excludes,
+                          package_only=True)
 
 
 def files_iter(start_dir='.', dir_includes=None, dir_excludes=(),
@@ -139,6 +136,32 @@ def files_iter(start_dir='.', dir_includes=None, dir_excludes=(),
                     yield join(root, f)
 
 
+def list_package_pyfiles(package, file_excludes=(), dir_excludes=()):
+    """
+    Return the full path of all python files contained in the given package, recursively.
+
+    Parameters
+    ----------
+    package : str
+        Module path of the package.
+    file_excludes : iter of str
+        Glob patterns to exclude files (local names only).
+    dir_excludes : iter of str
+        Glob patters to exclude sub-packages.
+
+    Returns
+    -------
+    list
+        List of file pathnames of all python files found in the given package and its subpackages.
+    """
+    mod = import_module(package)
+    package_path = dirname(abspath(mod.__file__))
+
+    return [f for f in files_iter(package_path, file_excludes=file_excludes,
+                                  dir_excludes=dir_excludes, package_only=True)
+            if f.endswith('.py')]
+
+
 def _to_filename(spec):
     """
     Return the filename part of the given testspec or the full string if the string is a filename.
@@ -157,7 +180,7 @@ def _to_filename(spec):
         fname, rest = spec.rsplit(':', 1)
         if not fname.endswith('.py'):
             try:
-                mod = importlib.import_module(fname)
+                mod = import_module(fname)
                 return mod.__file__
             except ImportError:
                 return spec
@@ -214,7 +237,7 @@ def _load_and_run_test(testspec):
         modpath = get_module_path(modpath)
 
     sys.path.append('.')
-    mod = importlib.import_module(modpath)
+    mod = import_module(modpath)
 
     try:
         return _run_test_func(mod, funcpath)

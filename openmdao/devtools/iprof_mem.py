@@ -1,18 +1,15 @@
 
 import sys
 import os
-import argparse
 import time
 import gc
-from importlib import import_module
-from collections import defaultdict
-from os.path import abspath, isfile, dirname, join
+from os.path import abspath
 from contextlib import contextmanager
 
-from openmdao.devtools.iprof_utils import find_qualified_name, func_group, \
-     _collect_methods, _setup_func_group, _get_methods, _Options
+from openmdao.devtools.iprof_utils import find_qualified_name, _Options
 from openmdao.utils.mpi import MPI
 from openmdao.devtools.debug import _get_color_printer
+from openmdao.utils.file_utils import list_package_pyfiles
 
 
 _registered = False
@@ -56,7 +53,7 @@ def _setup(options):
         # build up the set of all python files that we will (possibly) trace
         fileset = set()
         for p in options.packages:
-            fileset.update(_list_package_pyfiles(p))
+            fileset.update(list_package_pyfiles(p))
 
         if options.outfile is sys.stdout:
             _out_stream = sys.stdout
@@ -97,23 +94,6 @@ def stop():
     global _out_stream
     sys.setprofile(None)
     _out_stream.close()
-
-
-def _list_package_pyfiles(package):
-    """
-    Return the full path of all python files contained in the given package.
-    """
-    mod = import_module(package)
-    package_path = dirname(abspath(mod.__file__))
-
-    pyfiles = []
-    for path, dirlist, filelist in os.walk(package_path):
-        if isfile(join(path, '__init__.py')):  # only include valid package dirs
-            for f in filelist:
-                if f.endswith('.py'):
-                    pyfiles.append(join(path, f))
-
-    return pyfiles
 
 
 def _mem_prof_setup_parser(parser):

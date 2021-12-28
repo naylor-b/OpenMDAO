@@ -25,8 +25,14 @@ def build_book(book_dir, clean, keep_going, config):
     os.chdir(DOC_ROOT)
     if clean:
         print("Cleaning out old _srcdocs, _build, and output artifacts...")
-        shutil.rmtree(os.path.join(book_dir, '_srcdocs'))
-        shutil.rmtree(os.path.join(book_dir, '_build'))
+        try:
+            shutil.rmtree(os.path.join(book_dir, '_srcdocs'))
+        except FileNotFoundError:
+            pass
+        try:
+            shutil.rmtree(os.path.join(book_dir, '_build'))
+        except FileNotFoundError:
+            pass
         subprocess.run(['jupyter-book', 'clean', book_dir])  # nosec: trusted input
 
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(book_dir)))
