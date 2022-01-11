@@ -13,37 +13,39 @@ DOC_ROOT = _this_file.parent
 BOOK_DIR = pathlib.Path(DOC_ROOT, 'openmdao_book')
 
 
-def build_book(book_dir, clean, keep_going, config):
+def build_book(book_dir, package, clean, keep_going):
     """
     Clean (if requested), build, and copy over necessary files for the JupyterBook to be created.
+
     Parameters
     ----------
-    book_dir
-    clean
+    book_dir : str
+        Directory where book is to be created
+    package : str
+        Name of the package to be documented.
+    clean : bool
+        If True, remove any old generated files before building book.
+    keep_going : bool
+        If True, keep going even if there are warnings/errors.
     """
     save_cwd = os.getcwd()
     os.chdir(DOC_ROOT)
 
     if clean:
         print("Cleaning out old _srcdocs, _build, and output artifacts...")
-        try:
-            shutil.rmtree(os.path.join(book_dir, '_srcdocs'))
-        except FileNotFoundError:
-            pass
-        try:
-            shutil.rmtree(os.path.join(book_dir, '_build'))
-        except FileNotFoundError:
-            pass
+        for dirname in ('_srcdocs', '_build'):
+            try:
+                shutil.rmtree(pathlib.Path(book_dir, dirname))
+            except FileNotFoundError:
+                pass
+
         subprocess.run(['jupyter-book', 'clean', book_dir])  # nosec: trusted input
 
-    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(book_dir)))
-    build_src_docs(book_dir, repo_dir, clean=clean)
+    build_src_docs(book_dir, package=package, clean=clean)
 
     cmd = ['jupyter-book', 'build', '-W']
     if keep_going:
         cmd.append('--keep-going')
-    if config:
-        cmd.append(f'--config={config}')
     cmd.append(book_dir)
 
     try:
@@ -63,10 +65,11 @@ if __name__ == '__main__':
                         help='Keep going after errors.')
     parser.add_argument('-b', '--book', action='store', default='openmdao_book',
                         help="The name of the book to be built (default is 'openmdao_book').")
-    parser.add_argument('--config', action='store',
-                        help="Specify and alternate config file.")
+    parser.add_argument('-p', '--package', action='store', default='openmdao',
+                        help="The name of the package to document (default is 'openmdao').")
     args = parser.parse_args()
 
-    build_book(book_dir=args.book, clean=args.clean, keep_going=args.keep_going, config=args.config)
+    build_book(book_dir=args.book, package=args.package, clean=args.clean,
+               keep_going=args.keep_going)
 
 

@@ -1,8 +1,10 @@
 import os
 import shutil
 import json
+from pathlib import Path
+from hashlib import blake2b
+
 from openmdao.utils.file_utils import list_package_pyfiles, get_module_path
-import pathlib
 
 
 def header(basename, modpath):
@@ -65,22 +67,32 @@ skip_packages = {
 }
 
 
-def build_src_docs(doc_top, src_dir, project_name='openmdao', clean=False):
+def _get_hash(s):
+    h = blake2b()
+    h.update(s)
+    return h.hexdigest()
 
-    doc_dir = os.path.join(doc_top, "_srcdocs")
-    if clean and os.path.isdir(doc_dir):
+
+def _hash_changed(fpath, newhash):
+    with open(fpath, 'rb') as f:
+        contents = f.read()
+    return newhash != _get_hash(contents)
+
+
+def build_src_docs(doc_top, project_name='openmdao', clean=False):
+
+    doc_dir = Path(doc_top, "_srcdocs")
+    if clean and doc_dir.is_dir():
         shutil.rmtree(doc_dir)
 
-    if not os.path.isdir(doc_dir):
-        os.mkdir(doc_dir)
+    doc_dir.mkdir(parents=True, exist_ok=True)
 
-    packages_dir = os.path.join(doc_dir, "packages")
-    if not os.path.isdir(packages_dir):
-        os.mkdir(packages_dir)
+    packages_dir = doc_dir.joinpath("packages")
+    packages_dir.mkdir(parents=True, exist_ok=True)
 
     # entries are (index_file, index_lines, pyfiles)
     packages = {
-        project_name: (os.path.join(doc_dir, "index.ipynb"), ["\n# Source Docs\n\n"], [])
+        project_name: (doc_dir.joinpath("index.ipynb"), ["\n# Source Docs\n\n"], [])
     }
     IDX_LINES, PYFILES = 1, 2
 
@@ -94,9 +106,10 @@ def build_src_docs(doc_top, src_dir, project_name='openmdao', clean=False):
         if package in hide_pkgs:
             continue
         if package not in packages:
-            package_name = project_name + "." + package
-            packages[package] = (os.path.join(packages_dir, package + ".ipynb"), [f"# {package_name}\n\n"], [])
-        packages[package][PYFILES].append(pyfile)
+            package_name = '.'.join((project_name, package))
+            packages[package] = (packages_dir.joinpath(package + ".ipynb"),
+                                 [f"# {package_name}\n\n"], [])
+        packages[package][PYFILES].append(Path(pyfile))
 
     for package, (_, idxlines, pyfiles) in sorted(packages.items(), key=lambda x: x[0]):
         parts = package.split('.')
@@ -106,7 +119,7 @@ def build_src_docs(doc_top, src_dir, project_name='openmdao', clean=False):
             parent = project_name
 
         if package != project_name:
-            # specifically don't use os.path.join here.  Even windows wants the
+            # specifically don't use a path join here.  Even windows wants the
             # stuff in the file to have fwd slashes.
             if parent == project_name:
                 packages[parent][IDX_LINES].append(f"- [{package}](packages/{package}.ipynb)\n\n")
@@ -114,49 +127,84 @@ def build_src_docs(doc_top, src_dir, project_name='openmdao', clean=False):
                 packages[parent][IDX_LINES].append(f"- [{package}]({package}.ipynb)\n\n")
 
         for f in pyfiles:
-            pname = os.path.splitext(os.path.basename(f))[0]
+            pname = f.stem
             if package == project_name:
                 idxlines.append(f"- [{pname}](packages/{pname}.ipynb)\n\n")
             else:
                 idxlines.append(f"- [{pname}]({package}/{pname}.ipynb)\n\n")
 
+    top_level_old_nbs = set(os.path.join(packages_dir, f) for f in os.listdir(packages_dir) if f.endswith('.ipynb'))
+    top_level_current = set()
+
     for package, (idxfile, idxlines, pyfiles) in packages.items():
         # make subpkg directory (e.g. _srcdocs/packages/core) for ref sheets
-        package_dir = os.path.join(packages_dir, package)
-        if package_dir != project_name and not os.path.isdir(package_dir):
-            os.mkdir(package_dir)
+        if package == project_name:
+            continue
 
+        package_dir = packages_dir.joinpath(package)
+        package_dir.mkdir(exist_ok=True)
+
+        old_nbs = set(os.path.join(package_dir, f) for f in os.listdir(package_dir) if f.endswith('.ipynb'))
+        new_nbs = set()
+        
         max_pkg_mtime = 0
         for pyfile in pyfiles:
-            fpath = pathlib.Path(pyfile)
-            py_mtime = fpath.stat().st_mtime
+            py_mtime = pyfile.stat().st_mtime
             if py_mtime > max_pkg_mtime:
                 max_pkg_mtime = py_mtime
 
-            pybase = os.path.basename(pyfile)
-            pname = os.path.splitext(pybase)[0]
-            notebook = os.path.join(package_dir, pname + ".ipynb")
-            nbpath = pathlib.Path(notebook)
+            pybase = pyfile.name
+            pname = pyfile.stem
+            nbpath = package_dir.joinpath(pname + ".ipynb")
+            new_nbs.add(str(nbpath))
 
             # only write the file if it doesn't exist or is older than the corresponding src file
+            # we use mtime for the source file since we don't have its old hash, and we can't 
+            # compare the hash of the new notebook file to the that of the old notebook file
+            # because the code in there is dynamic sphinx code and could generate different docs 
+            # based on changes in the original source file, so this is the best we can do.
             if not nbpath.exists() or nbpath.stat().st_mtime < py_mtime:
                 data = _header_cell()
                 data['cells'][0]['source'] = header(pybase,
                                                     '.'.join((project_name, package, pname)))
-                print("writing", notebook)
-                with open(notebook, 'w') as f:
-                    json.dump(data, f, indent=4)
+                print("writing notebook", str(nbpath))
+                nbpath.write_text(json.dumps(data, indent=4))
 
-        # finish and close each package file
-        nbpath = pathlib.Path(idxfile)
-        if not nbpath.exists() or nbpath.stat().st_mtime < max_pkg_mtime:
-            data = _header_cell()
-            data['cells'][0]['source'] = idxlines
-            print("writing", idxfile)
-            with open(idxfile, 'w') as f:
-                json.dump(data, f, indent=4)
+        old_remaining = old_nbs - new_nbs
+        for f in old_remaining:
+            print("removing old noteboook", f)
+            os.remove(f)
+
+        # finish and close each package index file
+        nbpath = Path(idxfile)
+        if nbpath.parent == packages_dir:
+            top_level_current.add(str(nbpath))
+            
+        data = _header_cell()
+        data['cells'][0]['source'] = idxlines
+        contents = json.dumps(data, indent=4)
+        # for index files we compare hash of old to new
+        if not nbpath.exists() or _hash_changed(nbpath, _get_hash(contents.encode('utf-8'))):
+            print("writing index notebook", idxfile)
+            nbpath.write_text(contents)
+
+    old_remaining = top_level_old_nbs - top_level_current
+    for f in old_remaining:
+        print("removing old noteboook", f)
+        os.remove(f)
+        
+    # do the top level index file last
+    idxfile, idxlines, pyfiles = packages[project_name]
+    nbpath = Path(idxfile)
+    data = _header_cell()
+    data['cells'][0]['source'] = idxlines
+    contents = json.dumps(data, indent=4)
+    # for index files we compare hash of old to new
+    if not nbpath.exists() or _hash_changed(nbpath, _get_hash(contents.encode('utf-8'))):
+        print("writing index notebook", idxfile)
+        nbpath.write_text(contents)
 
 
 if __name__ == '__main__':
     import sys
-    build_src_docs("openmdao_book/", "..", clean='clean' in sys.argv)
+    build_src_docs("openmdao_book", clean='clean' in sys.argv)

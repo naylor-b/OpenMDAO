@@ -14,12 +14,12 @@ def copy_build_artifacts(book_dir='openmdao_book'):
     SUFFIXES_TO_COPY = ('.png', '.html')
     EXCLUDE_DIRS = {'_build', '.ipynb_checkpoints', '_srcdocs'}
 
-    print("Copying build artifacts from", book_dir, 'to', os.path.join(book_dir, '_build', 'html'))
+    dest_parent = PurePath(book_dir, '_build', 'html')
 
     for dirpath, dirs, files in os.walk(book_dir, topdown=True):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
-        rel_path = PurePath(dirpath).parts[1:]
-        target_path = PurePath(book_dir, '_build', 'html', *rel_path)
+        target_path = dest_parent.joinpath(*PurePath(dirpath).parts[1:])
+
         for f in files:
             for suffix in SUFFIXES_TO_COPY:
                 if f.endswith(suffix):
@@ -29,8 +29,9 @@ def copy_build_artifacts(book_dir='openmdao_book'):
 
             src = PurePath(dirpath, f)
             dst = PurePath(target_path, f)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copyfile(src, dst)
+            if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
 
 
 if __name__ == '__main__':

@@ -177,7 +177,7 @@ def _to_filename(spec):
         The filename.
     """
     if ':' in spec and not os.path.isfile(spec):
-        fname, rest = spec.rsplit(':', 1)
+        fname = spec.rsplit(':', 1)[0]
         if not fname.endswith('.py'):
             try:
                 mod = import_module(fname)
