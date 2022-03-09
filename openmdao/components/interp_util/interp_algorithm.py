@@ -220,9 +220,7 @@ class InterpAlgorithm(object):
         if self.subtable is not None:
             self.subtable._compute_d_dvalues = self._compute_d_dvalues
 
-        result, d_dx, d_values, d_grid = self.interpolate(x, idx, slice_idx)
-
-        return result, d_dx, d_values, d_grid
+        return self.interpolate(x, idx, slice_idx)
 
     def interpolate(self, x, idx, slice_idx):
         """
@@ -386,12 +384,12 @@ class InterpAlgorithmFixed(object):
             Extrapolation flag, -1 if the bracket is below the first table element, 1 if the
             bracket is above the last table element, 0 for normal interpolation.
         """
-        for j in range(self.dim):
-            if self.vectorized(x):
+        if self.vectorized(x):
+            for j in range(self.dim):
                 self.last_index[j] = np.searchsorted(self.grid[j], x[..., j], side='left') - 1
-            else:
-                self.last_index[j], _ = self._bracket_dim(self.grid[j], x[j],
-                                                          self.last_index[j])
+        else:
+            for j in range(self.dim):
+                self.last_index[j], _ = self._bracket_dim(self.grid[j], x[j], self.last_index[j])
 
         return self.last_index, None
 
@@ -409,7 +407,8 @@ class InterpAlgorithmFixed(object):
             Cached index of last interpolated value at this dimension.
 
         """
-        last_index = max(last_index, 0)
+        if last_index < 0:
+            last_index = 0
         high = last_index + 1
         highbound = len(grid) - 1
         inc = 1
@@ -476,9 +475,7 @@ class InterpAlgorithmFixed(object):
             Derivative of interpolated values with respect to grid.
         """
         idx, _ = self.bracket(x)
-        result, d_dx, d_values, d_grid = self.interpolate(x, idx)
-
-        return result, d_dx, d_values, d_grid
+        return self.interpolate(x, idx)
 
     def evaluate_vectorized(self, x, slice_idx=None):
         """
@@ -503,9 +500,7 @@ class InterpAlgorithmFixed(object):
             Derivative of interpolated values with respect to grid.
         """
         idx, _ = self.bracket(x)
-        result, d_dx, d_values, d_grid = self.interpolate_vectorized(x, idx)
-
-        return result, d_dx, d_values, d_grid
+        return self.interpolate_vectorized(x, idx)
 
     def interpolate(self, x, idx):
         """

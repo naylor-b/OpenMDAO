@@ -299,8 +299,8 @@ class Interp1DSlinear(InterpAlgorithmFixed):
         """
         x = x[0]
         grid = self.grid[0]
-        idx_key = tuple(idx)
-        idx = idx[0]
+        # idx_key = tuple(idx)
+        idx_key = idx = idx[0]
 
         # Complex Step
         if self.values.dtype == complex:
@@ -311,17 +311,17 @@ class Interp1DSlinear(InterpAlgorithmFixed):
         # Extrapolation
         n = len(grid)
         if idx == n - 1:
-            idx = n - 2
+            idx -= 1
         elif idx == -1:
             idx = 0
 
         if idx_key not in self.coeffs:
             self.coeffs[idx_key] = self.compute_coeffs(idx, dtype)
-        a = self.coeffs[idx_key]
+        a0, a1 = self.coeffs[idx_key]
 
-        val = a[0] + a[1] * (x - grid[idx])
+        val = a0 + a1 * (x - grid[idx])
 
-        d_x = np.array([a[1]], dtype=dtype)
+        d_x = np.array([a1], dtype=dtype)
 
         return val, d_x, None, None
 
@@ -541,13 +541,13 @@ class Interp2DSlinear(InterpAlgorithmFixed):
 
         if idx_key not in self.coeffs:
             self.coeffs[idx_key] = self.compute_coeffs(idx, dtype)
-        a = self.coeffs[idx_key]
+        a0, a1, a2, a3 = self.coeffs[idx_key]
 
-        val = a[0] + (a[1] + a[3] * y) * x + a[2] * y
+        val = a0 + (a1 + a3 * y) * x + a2 * y
 
         d_x = np.empty((2, ), dtype=dtype)
-        d_x[0] = a[1] + y * a[3]
-        d_x[1] = a[2] + x * a[3]
+        d_x[0] = a1 + y * a3
+        d_x[1] = a2 + x * a3
 
         return val, d_x, None, None
 
@@ -809,17 +809,14 @@ class Interp3DSlinear(InterpAlgorithmFixed):
 
         if idx_key not in self.coeffs:
             self.coeffs[idx_key] = self.compute_coeffs(idx, dtype)
-        a = self.coeffs[idx_key]
+        a0, a1, a2, a3, a4, a5, a6, a7 = self.coeffs[idx_key]
 
-        val = a[0] + \
-            (a[1] + (a[4] + a[7] * z) * y) * x + \
-            a[2] * y + \
-            (a[3] + a[5] * x + a[6] * y) * z
+        val = a0 + (a1 + (a4 + a7 * z) * y) * x + a2 * y + (a3 + a5 * x + a6 * y) * z
 
         d_x = np.empty((3, ), dtype=dtype)
-        d_x[0] = a[1] + y * a[4] + z * (a[5] + y * a[7])
-        d_x[1] = a[2] + x * a[4] + z * (a[6] + x * a[7])
-        d_x[2] = a[3] + x * a[5] + y * (a[6] + x * a[7])
+        d_x[0] = a1 + y * a4 + z * (a5 + y * a7)
+        d_x[1] = a2 + x * a4 + z * (a6 + x * a7)
+        d_x[2] = a3 + x * a5 + y * (a6 + x * a7)
 
         return val, d_x, None, None
 
