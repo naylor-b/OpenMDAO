@@ -42,7 +42,7 @@ class MetaModelTestCase(unittest.TestCase):
         # check that output with no specified surrogate gets the default
         sin_mm.options['default_surrogate'] = om.KrigingSurrogate()
         prob.setup()
-        surrogate = sin_mm._metadata('f_x').get('surrogate')
+        surrogate = sin_mm._var_rel2meta['output']['f_x'].get('surrogate')
         self.assertTrue(isinstance(surrogate, om.KrigingSurrogate),
                         'sin_mm.f_x should get the default surrogate')
 
@@ -117,7 +117,7 @@ class MetaModelTestCase(unittest.TestCase):
         sin_mm.options['default_surrogate'] = om.KrigingSurrogate()
         prob.setup()
 
-        surrogate = sin_mm._metadata('f_x').get('surrogate')
+        surrogate = sin_mm._var_rel2meta['output']['f_x'].get('surrogate')
         self.assertTrue(isinstance(surrogate, om.KrigingSurrogate),
                         'sin_mm.f_x should get the default surrogate')
 
@@ -149,7 +149,7 @@ class MetaModelTestCase(unittest.TestCase):
         prob.run_model()
 
         assert_near_equal(prob['sin_mm.f_x'], np.sin(2.1), 1e-4) # mean
-        self.assertTrue(self, sin_mm._metadata('f_x')['rmse'] < 1e-5) # std deviation
+        self.assertTrue(self, sin_mm._var_rel2meta['output']['f_x']['rmse'] < 1e-5) # std deviation
 
     def test_basics(self):
         # create a metamodel component
@@ -169,10 +169,10 @@ class MetaModelTestCase(unittest.TestCase):
         prob.setup()
 
         # check that surrogates were properly assigned
-        surrogate = mm._metadata('y1').get('surrogate')
+        surrogate = mm._var_rel2meta['output']['y1'].get('surrogate')
         self.assertTrue(isinstance(surrogate, om.ResponseSurface))
 
-        surrogate = mm._metadata('y2').get('surrogate')
+        surrogate = mm._var_rel2meta['output']['y2'].get('surrogate')
         self.assertTrue(isinstance(surrogate, om.KrigingSurrogate))
 
         # populate training data
@@ -204,7 +204,7 @@ class MetaModelTestCase(unittest.TestCase):
         mm.options['default_surrogate'] = om.KrigingSurrogate()
         prob.setup()
 
-        surrogate = mm._metadata('y1').get('surrogate')
+        surrogate = mm._var_rel2meta['output']['y1'].get('surrogate')
         self.assertTrue(isinstance(surrogate, om.KrigingSurrogate))
 
         self.assertTrue(mm.train)  # training will occur after re-setup
@@ -569,7 +569,7 @@ class MetaModelTestCase(unittest.TestCase):
         assert_near_equal(prob['trig.y'],
                          np.array(.5*np.sin(prob['trig.x'])),
                          1e-4)
-        self.assertEqual(len(prob.model.trig._metadata('y')['rmse']), 3)
+        self.assertEqual(len(prob.model.trig._var_rel2meta['output']['y']['rmse']), 3)
 
     def test_derivatives_vectorized_multiD(self):
         vec_size = 5
@@ -1185,7 +1185,7 @@ class MetaModelUnstructuredSurrogatesFeatureTestCase(unittest.TestCase):
         print("mean")
         assert_near_equal(prob.get_val('sin_mm.f_x'), .5*np.sin(prob.get_val('sin_mm.x')), 1e-4)
         print("std")
-        assert_near_equal(sin_mm._metadata('f_x')['rmse'][0, 0], 0.0, 1e-4)
+        assert_near_equal(sin_mm._var_rel2meta['output']['f_x']['rmse'][0, 0], 0.0, 1e-4)
 
     def test_nearest_neighbor_rbf_options(self):
 

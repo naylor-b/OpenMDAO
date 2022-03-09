@@ -422,10 +422,13 @@ class ExecComp(ExplicitComponent):
             else:
                 val = 1.0
 
-            if var in var_rel2meta:
+            if var in var_rel2meta['input'] or var in var_rel2meta['output']:
                 # Input/Output already exists, but we may be setting defaults for the first time.
                 # Note that there is only one submitted dictionary of defaults.
-                current_meta = var_rel2meta[var]
+                if var in var_rel2meta['input']:
+                    current_meta = var_rel2meta['input'][var]
+                else:
+                    current_meta = var_rel2meta['output'][var]
 
                 for kname, kvalue in meta.items():
                     if kvalue is not None:
@@ -591,7 +594,8 @@ class ExecComp(ExplicitComponent):
         Check that all partials are declared.
         """
         if not self._manual_decl_partials:
-            meta = self._var_rel2meta
+            rel2meta_in = self._var_rel2meta['input']
+            rel2meta_out = self._var_rel2meta['output']
             decl_partials = super().declare_partials
             for i, (outs, tup) in enumerate(self._exprs_info):
                 vs, funcs = tup
@@ -599,9 +603,9 @@ class ExecComp(ExplicitComponent):
                 for out in sorted(outs):
                     for inp in ins:
                         if self.options['has_diag_partials']:
-                            ival = meta[inp]['val']
+                            ival = rel2meta_in[inp]['val']
                             iarray = isinstance(ival, ndarray) and ival.size > 1
-                            oval = meta[out]['val']
+                            oval = rel2meta_out[out]['val']
                             if iarray and isinstance(oval, ndarray) and oval.size > 1:
                                 if oval.size != ival.size:
                                     raise RuntimeError(
@@ -698,7 +702,7 @@ class ExecComp(ExplicitComponent):
             return
 
         step = self.complex_stepsize * 1j
-        out_names = self._var_rel_names['output']
+        out_names = self._var_rel2meta['output'].keys()
         inv_stepsize = 1.0 / self.complex_stepsize
         has_diag_partials = self.options['has_diag_partials']
 

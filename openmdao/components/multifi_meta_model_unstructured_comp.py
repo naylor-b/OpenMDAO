@@ -333,7 +333,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
             self._training_output[name] = []
             self._training_output[name].extend(outputs)
 
-            surrogate = self._metadata(name_root).get('surrogate')
+            surrogate = self._var_rel2meta['output'][name_root].get('surrogate')
             if surrogate is None:
                 msg = f"{self.msginfo}: No surrogate specified for output '{name_root}'"
                 raise RuntimeError(msg)

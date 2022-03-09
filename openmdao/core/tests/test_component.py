@@ -138,8 +138,8 @@ class TestExplicitComponent(unittest.TestCase):
         comp.add_input('y', units='ft*ft/ft')
         comp.add_output('z', units='ft*ft/ft')
 
-        self.assertEqual(comp._static_var_rel2meta['y']['units'], 'ft')
-        self.assertEqual(comp._static_var_rel2meta['z']['units'], 'ft')
+        self.assertEqual(comp._static_var_rel2meta['input']['y']['units'], 'ft')
+        self.assertEqual(comp._static_var_rel2meta['output']['z']['units'], 'ft')
 
     def test_invalid_name(self):
         comp = ExplicitComponent()
@@ -305,7 +305,7 @@ class TestExplicitComponent(unittest.TestCase):
 
         prob.setup()
         with assert_warning(OMDeprecationWarning, msg):
-            comp._var_rel2meta['length']['value']
+            comp._var_rel2meta['input']['length']['value']
 
     def test_return_metadata_value_deprecation(self):
         prob = Problem()

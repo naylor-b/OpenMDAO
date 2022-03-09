@@ -60,8 +60,8 @@ class ExplicitComponent(Component):
         tuple(list, list)
             'of' and 'wrt' variable lists.
         """
-        of = list(self._var_rel_names['output'])
-        wrt = list(self._var_rel_names['input'])
+        of = list(self._var_rel2meta['output'])
+        wrt = list(self._var_rel2meta['input'])
 
         # filter out any discrete inputs or outputs
         if self._discrete_outputs:

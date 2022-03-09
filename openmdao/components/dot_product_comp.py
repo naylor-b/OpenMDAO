@@ -107,26 +107,22 @@ class DotProductComp(ExplicitComponent):
         # add inputs and outputs for all products
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
-            var_rel_names = self._static_var_rel_names
         else:
             var_rel2meta = self._var_rel2meta
-            var_rel_names = self._var_rel_names
 
-        if c_name not in var_rel2meta:
-            self.add_output(name=c_name, shape=(vec_size,), units=c_units)
-        elif c_name in var_rel_names['input']:
+        if c_name in var_rel2meta['input']:
             raise NameError(f"{self.msginfo}: '{c_name}' specified as an output, "
                             "but it has already been defined as an input.")
-        else:
+        elif c_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: Multiple definition of output '{c_name}'.")
+        else:
+            self.add_output(name=c_name, shape=(vec_size,), units=c_units)
 
-        if a_name not in var_rel2meta:
-            self.add_input(name=a_name, shape=(vec_size, length), units=a_units)
-        elif a_name in var_rel_names['output']:
+        if a_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: '{a_name}' specified as an input, "
                             "but it has already been defined as an output.")
-        else:
-            meta = var_rel2meta[a_name]
+        elif a_name in var_rel2meta['input']:
+            meta = var_rel2meta['input'][a_name]
             if a_units != meta['units']:
                 raise ValueError(f"{self.msginfo}: Conflicting units '{a_units}' specified "
                                  f"for input '{a_name}', which has already been defined "
@@ -139,14 +135,14 @@ class DotProductComp(ExplicitComponent):
                 raise ValueError(f"{self.msginfo}: Conflicting length={length} specified "
                                  f"for input '{a_name}', which has already been defined "
                                  f"with length={meta['shape'][1]}.")
+        else:
+            self.add_input(name=a_name, shape=(vec_size, length), units=a_units)
 
-        if b_name not in var_rel2meta:
-            self.add_input(name=b_name, shape=(vec_size, length), units=b_units)
-        elif b_name in var_rel_names['output']:
+        if b_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: '{b_name}' specified as an input, "
                             "but it has already been defined as an output.")
-        else:
-            meta = var_rel2meta[b_name]
+        elif b_name in var_rel2meta['input']:
+            meta = var_rel2meta['input'][b_name]
             if b_units != meta['units']:
                 raise ValueError(f"{self.msginfo}: Conflicting units '{b_units}' specified "
                                  f"for input '{b_name}', which has already been defined "
@@ -159,6 +155,8 @@ class DotProductComp(ExplicitComponent):
                 raise ValueError(f"{self.msginfo}: Conflicting length={length} specified "
                                  f"for input '{b_name}', which has already been defined "
                                  f"with length={meta['shape'][1]}.")
+        else:
+            self.add_input(name=b_name, shape=(vec_size, length), units=b_units)
 
         row_idxs = np.repeat(np.arange(vec_size), length)
         col_idxs = np.arange(vec_size * length)

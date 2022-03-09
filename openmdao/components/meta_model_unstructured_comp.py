@@ -234,8 +234,9 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         Also instantiates surrogates for the output variables that use the default surrogate.
         """
         default_surrogate = self.options['default_surrogate']
-        for name, shape in self._surrogate_output_names:
-            metadata = self._metadata(name)
+        rel2meta_out = self._var_rel2meta['output']
+        for name, _ in self._surrogate_output_names:
+            metadata = rel2meta_out[name]
             if default_surrogate is not None and metadata.get('default_surrogate'):
 
                 # Create an instance of the default surrogate for outputs that did not have a
@@ -282,8 +283,8 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                 'dependent': True,
             }
             # Dense specification of partials for non-vectorized models.
-            self._declare_partials(of=tuple([name[0] for name in self._surrogate_output_names]),
-                                   wrt=tuple([name[0] for name in self._surrogate_input_names]),
+            self._declare_partials(of=tuple([name for name, _ in self._surrogate_output_names]),
+                                   wrt=tuple([name for name, _ in self._surrogate_input_names]),
                                    dct=dct)
 
         # Support for user declaring fd partials in a child class and assigning new defaults.
@@ -295,10 +296,11 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         # Gather undeclared fd partials on surrogates that don't support analytic derivatives.
         # While we do this, declare the missing ones.
         non_declared_partials = []
+        rel2meta_out = self._var_rel2meta['output']
         for of, _ in self._surrogate_output_names:
-            surrogate = self._metadata(of).get('surrogate')
+            surrogate = rel2meta_out[of].get('surrogate')
             if surrogate and not overrides_method('linearize', surrogate, SurrogateModel):
-                wrt_list = [name[0] for name in self._surrogate_input_names]
+                wrt_list = [name for name, _ in self._surrogate_input_names]
                 self._approx_partials(of=of, wrt=wrt_list, method='fd')
 
                 for wrt in wrt_list:
@@ -331,11 +333,9 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         # All outputs must have surrogates assigned either explicitly or through the default
         # surrogate.
         if self.options['default_surrogate'] is None:
-            no_sur = []
-            for name, shape in self._surrogate_output_names:
-                surrogate = self._metadata(name).get('surrogate')
-                if surrogate is None:
-                    no_sur.append(name)
+            rel2meta_out = self._var_rel2meta['output']
+            no_sur = [n for n, _ in self._surrogate_output_names
+                      if rel2meta_out[n].get('surrogate') is None]
             if len(no_sur) > 0:
                 msg = ("No default surrogate model is defined and the following"
                        " outputs do not have a surrogate model:\n%s\n"
@@ -369,14 +369,16 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         else:
             flat_inputs = self._vec_to_array(inputs)
 
+        rel2meta_out = self._var_rel2meta['output']
         for name, shape in self._surrogate_output_names:
-            surrogate = self._metadata(name).get('surrogate')
+            meta = rel2meta_out[name]
+            surrogate = meta.get('surrogate')
 
             if vec_size == 1:
                 # Non vectorized.
                 predicted = surrogate.predict(flat_inputs)
                 if isinstance(predicted, tuple):  # rmse option
-                    self._metadata(name)['rmse'] = predicted[1]
+                    meta['rmse'] = predicted[1]
                     predicted = predicted[0]
                 outputs[name] = np.reshape(predicted, shape)
 
@@ -385,7 +387,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                 # TODO: This code is untested because no surrogates provide this option.
                 predicted = surrogate.vectorized_predict(flat_inputs.flat)
                 if isinstance(predicted, tuple):  # rmse option
-                    self._metadata(name)['rmse'] = predicted[1]
+                    meta['rmse'] = predicted[1]
                     predicted = predicted[0]
                 outputs[name] = np.reshape(predicted, shape)
 
@@ -396,7 +398,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                 else:
                     output_shape = (vec_size, )
                 predicted = np.zeros(output_shape)
-                rmse = self._metadata(name)['rmse'] = []
+                rmse = meta['rmse'] = []
                 for i in range(vec_size):
                     pred_i = surrogate.predict(flat_inputs[i])
                     if isinstance(pred_i, tuple):  # rmse option
@@ -538,8 +540,10 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         else:
             flat_inputs = self._vec_to_array(inputs)
 
+        rel2meta_out = self._var_rel2meta['output']
+
         for out_name, out_shape in self._surrogate_output_names:
-            surrogate = self._metadata(out_name).get('surrogate')
+            surrogate = rel2meta_out[out_name].get('surrogate')
             if vec_size > 1:
                 out_size = np.prod(out_shape)
                 for j in range(vec_size):
@@ -602,6 +606,8 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                     inputs[row_idx, idx:idx + sz] = v.flat
                 idx += sz
 
+        rel2meta_out = self._var_rel2meta['output']
+
         # Assemble output data and train each output.
         for name, shape in self._surrogate_output_names:
             output_size = np.prod(shape)
@@ -618,7 +624,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                     v = np.asarray(v)
                     outputs[row_idx, :] = v.flat
 
-            surrogate = self._metadata(name).get('surrogate')
+            surrogate = rel2meta_out[name].get('surrogate')
             if surrogate is None:
                 raise RuntimeError(f"{self.msginfo}: No surrogate specified for output '{name}'")
             else:
@@ -626,6 +632,3 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                                 self._training_output[name])
 
         self.train = False
-
-    def _metadata(self, name):
-        return self._var_rel2meta[name]

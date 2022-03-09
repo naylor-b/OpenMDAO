@@ -87,27 +87,23 @@ class VectorMagnitudeComp(ExplicitComponent):
         # add inputs and outputs for all products
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
-            var_rel_names = self._static_var_rel_names
         else:
             var_rel2meta = self._var_rel2meta
-            var_rel_names = self._var_rel_names
 
-        if mag_name not in var_rel2meta:
-            self.add_output(name=mag_name, shape=(vec_size,), units=units)
-        elif mag_name in var_rel_names['input']:
+        if mag_name in var_rel2meta['input']:
             raise NameError(f"{self.msginfo}: '{mag_name}' specified as an output, "
                             "but it has already been defined as an input.")
-        else:
+        elif mag_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: Multiple definition of output '{mag_name}'.")
+        else:
+            self.add_output(name=mag_name, shape=(vec_size,), units=units)
 
-        if in_name not in var_rel2meta:
-            self.add_input(name=in_name, shape=(vec_size, length), units=units)
-        elif in_name in var_rel_names['output']:
+        if in_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: '{in_name}' specified as an input, "
                             "but it has already been defined as an output.")
-        else:
+        elif in_name in var_rel2meta['input']:
             # declaring a duplicate magnitude with a different output name?  okay...
-            meta = var_rel2meta[in_name]
+            meta = var_rel2meta['input'][in_name]
             if units != meta['units']:
                 raise ValueError(f"{self.msginfo}: Conflicting units '{units}' specified for "
                                  f"input '{in_name}', which has already been defined with units "
@@ -120,6 +116,8 @@ class VectorMagnitudeComp(ExplicitComponent):
                 raise ValueError(f"{self.msginfo}: Conflicting length={length} specified "
                                  f"for input '{in_name}', which has already been defined with "
                                  f"length={meta['shape'][0]}.")
+        else:
+            self.add_input(name=in_name, shape=(vec_size, length), units=units)
 
         row_idxs = np.repeat(np.arange(vec_size), length)
         col_idxs = np.arange(vec_size * length)

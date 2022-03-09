@@ -122,10 +122,8 @@ class MatrixVectorProductComp(ExplicitComponent):
         # add inputs and outputs for all products
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
-            var_rel_names = self._static_var_rel_names
         else:
             var_rel2meta = self._var_rel2meta
-            var_rel_names = self._var_rel_names
 
         n_rows, n_cols = A_shape
 
@@ -133,21 +131,19 @@ class MatrixVectorProductComp(ExplicitComponent):
         b_shape = (vec_size, n_rows) if vec_size > 1 else (n_rows, )
         x_shape = (vec_size, n_cols)
 
-        if b_name not in var_rel2meta:
-            self.add_output(name=b_name, shape=b_shape, units=b_units)
-        elif b_name in var_rel_names['input']:
+        if b_name in var_rel2meta['input']:
             raise NameError(f"{self.msginfo}: '{b_name}' specified as an output, "
                             "but it has already been defined as an input.")
-        else:
+        elif b_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: Multiple definition of output '{b_name}'.")
+        else:
+            self.add_output(name=b_name, shape=b_shape, units=b_units)
 
-        if A_name not in var_rel2meta:
-            self.add_input(name=A_name, shape=A_shape, units=A_units)
-        elif A_name in var_rel_names['output']:
+        if A_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: '{A_name}' specified as an input, "
                             "but it has already been defined as an output.")
-        else:
-            meta = var_rel2meta[A_name]
+        elif A_name in var_rel2meta['input']:
+            meta = var_rel2meta['input'][A_name]
             if vec_size != meta['shape'][0]:
                 raise ValueError(f"{self.msginfo}: Conflicting vec_size={x_shape[0]} "
                                  f"specified for matrix '{A_name}', which has already "
@@ -162,14 +158,14 @@ class MatrixVectorProductComp(ExplicitComponent):
                 raise ValueError(f"{self.msginfo}: Conflicting units '{A_units}' specified "
                                  f"for matrix '{A_name}', which has already been defined "
                                  f"with units '{meta['units']}'.")
+        else:
+            self.add_input(name=A_name, shape=A_shape, units=A_units)
 
-        if x_name not in var_rel2meta:
-            self.add_input(name=x_name, shape=x_shape, units=x_units)
-        elif x_name in var_rel_names['output']:
+        if x_name in var_rel2meta['output']:
             raise NameError(f"{self.msginfo}: '{x_name}' specified as an input, "
                             "but it has already been defined as an output.")
-        else:
-            meta = var_rel2meta[x_name]
+        elif x_name in var_rel2meta['input']:
+            meta = var_rel2meta['input'][x_name]
             if vec_size != meta['shape'][0]:
                 raise ValueError(f"{self.msginfo}: Conflicting vec_size={x_shape[0]} "
                                  f"specified for vector '{x_name}', which has already "
@@ -184,6 +180,8 @@ class MatrixVectorProductComp(ExplicitComponent):
                 raise ValueError(f"{self.msginfo}: Conflicting units '{x_units}' specified "
                                  f"for vector '{x_name}', which has already been defined "
                                  f"with units '{meta['units']}'.")
+        else:
+            self.add_input(name=x_name, shape=x_shape, units=x_units)
 
         # Make a dummy version of A so we can figure out the nonzero indices
         A = np.ones(A_shape)

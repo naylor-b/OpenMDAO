@@ -102,7 +102,7 @@ class IndepVarComp(ExplicitComponent):
         """
         Do any error checking on i/o configuration.
         """
-        if len(self._static_var_rel2meta) + len(self._var_rel2meta) == 0:
+        if not self._static_var_rel2meta['output'] and not self._var_rel2meta['output']:
             raise RuntimeError(f"{self.msginfo}: No outputs (independent variables) have been "
                                "declared. They must either be declared during instantiation or "
                                "by calling add_output or add_discrete_output afterwards.")
@@ -285,7 +285,10 @@ class _AutoIndepVarComp(IndepVarComp):
 
                 self._remotes = all_remotes
                 for name in all_remotes:
-                    self._static_var_rel2meta[name]['distributed'] = True
+                    for dct in self._static_var_rel2meta.values():
+                        if name in dct:
+                            dct[name]['distributed'] = True
+                            break
 
         super()._set_vector_class()
 
@@ -333,7 +336,6 @@ class _AutoIndepVarComp(IndepVarComp):
             'copy_shape': None
         }
 
-        self._static_var_rel2meta[name] = metadata
-        self._static_var_rel_names['output'].append(name)
+        self._static_var_rel2meta['output'][name] = metadata
         self._var_added(name)
         return metadata

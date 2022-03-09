@@ -5279,10 +5279,10 @@ class System(object):
         data = []
 
         # Model Hierarchy.
-        for sys_name in self.system_iter(include_self=True, recurse=True):
+        for system in self.system_iter(include_self=True, recurse=True):
 
             # System name and depth.
-            pathname = sys_name.pathname
+            pathname = system.pathname
             if pathname:
                 name_parts = pathname.split('.')
                 depth = len(name_parts)
@@ -5294,8 +5294,8 @@ class System(object):
 
             # Local (relative) names for Component inputs and outputs.
             try:
-                data.append(sorted(sys_name._var_rel_names['input']))
-                data.append(sorted(sys_name._var_rel_names['output']))
+                data.append(sorted(system._var_rel2meta['input']))
+                data.append(sorted(system._var_rel2meta['output']))
             except AttributeError:
                 continue
 

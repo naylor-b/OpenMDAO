@@ -367,11 +367,10 @@ def _get_tree_filter(attrs, vecvars):
 
         if isinstance(system, Component):
             for var in vecvars:
-                if var in system._var_rel2meta:
-                    if var in system._outputs:
-                        found.append((var, system._outputs[var]))
-                    elif var in system._inputs:
-                        found.append((var, system._inputs[var]))
+                if var in system._var_rel2meta['output']:
+                    found.append((var, system._outputs[var]))
+                elif var in system._var_rel2meta['input']:
+                    found.append((var, system._inputs[var]))
 
         return found
 

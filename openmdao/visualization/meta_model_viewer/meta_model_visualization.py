@@ -150,8 +150,8 @@ class MetaModelVisualization(object):
         elif isinstance(model, MetaModelStructuredComp):
             self.mm_type = "struct"
 
-            self.input_names = [name for name in model._var_rel_names['input']]
-            self.output_names = [name for name in model._var_rel_names['output']]
+            self.input_names = list(model._var_rel2meta['input'])
+            self.output_names = list(model._var_rel2meta['output'])
 
             self.meta_model = MetaModelStructuredComp(
                 extrapolate=model.options['extrapolate'],
@@ -164,7 +164,7 @@ class MetaModelVisualization(object):
             self.mm_type = "semistruct"
 
             self.input_names = model.pnames
-            self.output_names = [name for name in model._var_rel_names['output']]
+            self.output_names = list(model._var_rel2meta['output'])
 
             self.meta_model = MetaModelSemiStructuredComp(
                 extrapolate=True,  # Set to True so that we can evaluate the full space.

@@ -74,12 +74,6 @@ class Component(System):
         build the dictionaries of metadata.
     _static_var_rel2meta : dict
         Static version of above - stores data for variables added outside of setup.
-    _var_rel_names : {'input': [str, ...], 'output': [str, ...]}
-        List of relative names of owned variables existing on current proc.
-        This is only needed while adding inputs and outputs. During setup, these are used to
-        determine the list of absolute names.
-    _static_var_rel_names : dict
-        Static version of above - stores names of variables added outside of setup.
     _declared_partials : dict
         Cached storage of user-declared partials.
     _declared_partial_checks : list
@@ -94,11 +88,8 @@ class Component(System):
         """
         super().__init__(**kwargs)
 
-        self._var_rel_names = {'input': [], 'output': []}
-        self._var_rel2meta = {}
-
-        self._static_var_rel_names = {'input': [], 'output': []}
-        self._static_var_rel2meta = {}
+        self._var_rel2meta = {'input': {}, 'output': {}}
+        self._static_var_rel2meta = {'input': {}, 'output': {}}
 
         self._declared_partials = defaultdict(dict)
         self._declared_partial_checks = []
@@ -167,30 +158,28 @@ class Component(System):
         nprocs = comm.size
 
         # Clear out old variable information so that we can call setup on the component.
-        self._var_rel_names = {'input': [], 'output': []}
-        self._var_rel2meta = {}
+        self._var_rel2meta = {'input': {}, 'output': {}}
         if comm.size == 1:
             self._has_distrib_vars = False
 
-        for meta in self._static_var_rel2meta.values():
-            # variable isn't distributed if we're only running on 1 proc
-            if nprocs == 1 and 'distributed' in meta and meta['distributed']:
-                meta['distributed'] = False
-
-            # reset shape if any dynamic shape parameters are set in case this is a resetup
-            # NOTE: this is necessary because we allow variables to be added in __init__.
-            if 'shape_by_conn' in meta and (meta['shape_by_conn'] or
-                                            meta['copy_shape'] is not None):
-                meta['shape'] = None
-                if not np.isscalar(meta['val']):
-                    if meta['val'].size > 0:
-                        meta['val'] = meta['val'].flatten()[0]
-                    else:
-                        meta['val'] = 1.0
-
-        self._var_rel2meta.update(self._static_var_rel2meta)
         for io in ['input', 'output']:
-            self._var_rel_names[io].extend(self._static_var_rel_names[io])
+            for meta in self._static_var_rel2meta[io].values():
+                # variable isn't distributed if we're only running on 1 proc
+                if nprocs == 1 and 'distributed' in meta and meta['distributed']:
+                    meta['distributed'] = False
+
+                # reset shape if any dynamic shape parameters are set in case this is a resetup
+                # NOTE: this is necessary because we allow variables to be added in __init__.
+                if 'shape_by_conn' in meta and (meta['shape_by_conn'] or
+                                                meta['copy_shape'] is not None):
+                    meta['shape'] = None
+                    if not np.isscalar(meta['val']):
+                        if meta['val'].size > 0:
+                            meta['val'] = meta['val'].flatten()[0]
+                        else:
+                            meta['val'] = 1.0
+
+            self._var_rel2meta[io].update(self._static_var_rel2meta[io])
 
         self.setup()
         self._setup_check()
@@ -250,20 +239,23 @@ class Component(System):
         for io in ['input', 'output']:
             abs2meta = self._var_abs2meta[io]
             allprocs_abs2meta = self._var_allprocs_abs2meta[io]
+            discrete_vars = self._var_discrete[io]
 
             is_input = io == 'input'
-            for prom_name in self._var_rel_names[io]:
+            for prom_name, metadata in self._var_rel2meta[io].items():
                 abs_name = prefix + prom_name
-                abs2meta[abs_name] = metadata = self._var_rel2meta[prom_name]
 
                 # Compute allprocs_prom2abs_list, abs2prom
                 allprocs_prom2abs_list[io][prom_name] = [abs_name]
                 abs2prom[io][abs_name] = prom_name
 
-                allprocs_abs2meta[abs_name] = {
-                    meta_name: metadata[meta_name]
-                    for meta_name in global_meta_names[io]
-                }
+                if prom_name not in discrete_vars:
+                    # abs2meta and allprocs_abs2meta don't contain discrete vars
+                    abs2meta[abs_name] = metadata
+                    allprocs_abs2meta[abs_name] = {
+                        meta_name: metadata[meta_name]
+                        for meta_name in global_meta_names[io]
+                    }
                 if is_input and 'src_indices' in metadata:
                     allprocs_abs2meta[abs_name]['has_src_indices'] = \
                         metadata['src_indices'] is not None
@@ -297,7 +289,7 @@ class Component(System):
         abs2idx = self._var_allprocs_abs2idx = {}
 
         for io in ('input', 'output'):
-            sizes = self._var_sizes[io] = np.zeros((self.comm.size, len(self._var_rel_names[io])),
+            sizes = self._var_sizes[io] = np.zeros((self.comm.size, len(self._var_rel2meta[io])),
                                                    dtype=INT_DTYPE)
 
             for i, (name, metadata) in enumerate(self._var_allprocs_abs2meta[io].items()):
@@ -550,17 +542,14 @@ class Component(System):
 
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
-            var_rel_names = self._static_var_rel_names
         else:
             var_rel2meta = self._var_rel2meta
-            var_rel_names = self._var_rel_names
 
         # Disallow dupes
-        if name in var_rel2meta:
-            raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
+        if name in var_rel2meta['input'] or name in var_rel2meta['output']:
+            raise ValueError(f"{self.msginfo}: Variable name '{name}' already exists.")
 
-        var_rel2meta[name] = metadata
-        var_rel_names['input'].append(name)
+        var_rel2meta['input'][name] = metadata
 
         self._var_added(name)
 
@@ -613,10 +602,10 @@ class Component(System):
             var_rel2meta = self._var_rel2meta
 
         # Disallow dupes
-        if name in var_rel2meta:
-            raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
+        if name in var_rel2meta['input'] or name in var_rel2meta['output']:
+            raise ValueError(f"{self.msginfo}: Variable name '{name}' already exists.")
 
-        var_rel2meta[name] = self._var_discrete['input'][name] = metadata
+        var_rel2meta['input'][name] = self._var_discrete['input'][name] = metadata
 
         self._var_added(name)
 
@@ -797,17 +786,14 @@ class Component(System):
         # We may not know the pathname yet, so we have to use name for now, instead of abs_name.
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
-            var_rel_names = self._static_var_rel_names
         else:
             var_rel2meta = self._var_rel2meta
-            var_rel_names = self._var_rel_names
 
         # Disallow dupes
-        if name in var_rel2meta:
-            raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
+        if name in var_rel2meta['input'] or name in var_rel2meta['output']:
+            raise ValueError(f"{self.msginfo}: Variable name '{name}' already exists.")
 
-        var_rel2meta[name] = metadata
-        var_rel_names['output'].append(name)
+        var_rel2meta['output'][name] = metadata
 
         self._var_added(name)
 
@@ -859,10 +845,10 @@ class Component(System):
             var_rel2meta = self._var_rel2meta
 
         # Disallow dupes
-        if name in var_rel2meta:
-            raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
+        if name in var_rel2meta['input'] or name in var_rel2meta['output']:
+            raise ValueError(f"{self.msginfo}: Variable name '{name}' already exists.")
 
-        var_rel2meta[name] = self._var_discrete['output'][name] = metadata
+        var_rel2meta['output'][name] = self._var_discrete['output'][name] = metadata
 
         self._var_added(name)
 

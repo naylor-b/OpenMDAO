@@ -1343,13 +1343,13 @@ class ExecCompVOI(om.ExecComp):
 
         # add design vars
         rel2meta = self._var_rel2meta
-        for name in sorted(self._var_rel_names['input']):
-            meta = rel2meta[name]
+        for name in sorted(self._var_rel2meta['input']):
+            meta = rel2meta['input'][name]
             self.add_design_var(name, units=meta['units'])
 
         # add constraints
-        for name in sorted(self._var_rel_names['output']):
-            meta = rel2meta[name]
+        for name in sorted(self._var_rel2meta['output']):
+            meta = rel2meta['output'][name]
             self.add_constraint(name, units=meta['units'])
 
 
