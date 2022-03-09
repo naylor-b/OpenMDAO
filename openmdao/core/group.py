@@ -2260,21 +2260,10 @@ class Group(System):
         if outputs:
             subsys._var_promotes['output'].extend((o, None) for o in outputs)
 
-        # check for attempt to promote with different alias
-        list_comp = [i if isinstance(i, tuple) else (i, i)
-                     for i, _ in subsys._var_promotes['input']]
-
-        for original, new in list_comp:
-            for original_inside, new_inside in list_comp:
-                if original == original_inside and new != new_inside:
-                    raise RuntimeError("%s: Trying to promote '%s' when it has been aliased to "
-                                       "'%s'." % (self.msginfo, original_inside, new))
-
         # if this was called during configure(), mark this group as modified
-        if self._problem_meta is not None:
-            if self._problem_meta['config_info'] is not None:
-                self._problem_meta['config_info']._prom_added(self.pathname, any=any,
-                                                              inputs=inputs, outputs=outputs)
+        if self._problem_meta is not None and self._problem_meta['config_info'] is not None:
+            self._problem_meta['config_info']._prom_added(self.pathname, any=any,
+                                                          inputs=inputs, outputs=outputs)
 
     def add_subsystem(self, name, subsys, promotes=None,
                       promotes_inputs=None, promotes_outputs=None,

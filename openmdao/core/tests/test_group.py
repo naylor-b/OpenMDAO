@@ -1637,7 +1637,7 @@ class TestGroupPromotes(unittest.TestCase):
             top.setup()
 
         self.assertEqual(str(context.exception),
-                         "'sub' <class SubGroup>: Trying to promote 'b' when it has been aliased to 'bb'.")
+                         "'sub.comp1' <class ExecComp>: Can't alias promoted input 'b' to 'b' because 'b' has already been promoted as '('b', 'bb')'.")
 
     def test_promotes_alias_src_indices(self):
 

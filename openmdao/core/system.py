@@ -1945,7 +1945,7 @@ class System(object):
             old_name, old_key, old_info, old_match_type = matches[io][name]
             _, info = tup
             if old_match_type == _MatchType.RENAME:
-                old_key = (old_name, old_key)
+                old_key = (old_key, old_name)
             else:
                 old_using = f"'{old_key}'"
             if match_type == _MatchType.RENAME:
