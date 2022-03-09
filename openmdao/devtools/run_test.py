@@ -21,8 +21,14 @@ for example:
 """
 
 import sys
+import os
 import importlib
+import time
+import argparse
+from openmdao.utils.general_utils import do_nothing_context
 from openmdao.utils.file_utils import get_module_path
+from openmdao.devtools.debug import profiling
+from openmdao.utils.mpi import MPI
 
 
 def run_test():
@@ -30,16 +36,22 @@ def run_test():
     Run individual test(s).
     """
 
-    sys.path.append('.')
-    if len(sys.argv) > 1:
-        testspec = sys.argv[1]
-        parts = testspec.split(':')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-l', '--loops', action='store', dest='loops',
+                        default='1', type=int,
+                        help='Determines how many times the test will be run.')
+    parser.add_argument('-p', '--profile', action='store_true', dest='profile',
+                        help='If True, run profiler on the test.')
+    parser.add_argument('testspec', metavar='testspec', nargs=1,
+                        help='Testspec indicating which test function to run. Should be of the '
+                        'form: mod_path:testcase.test_func or mod_path:test_func.')
 
-    if len(sys.argv) != 2 or len(parts) != 2:
-        print('Usage: run_test my_mod_path:my_test_case.test_func_name\n'
-              '            OR\n'
-              '       run_test my_mod_path:test_func_name')
-        sys.exit(-1)
+    options = parser.parse_args()
+
+    testspec = options.testspec[0]
+    parts = testspec.split(':')
+
+    sys.path.insert(0, os.path.dirname(parts[0]))
 
     modpath, funcpath = parts
     if modpath.endswith('.py'):
@@ -48,19 +60,33 @@ def run_test():
     mod = importlib.import_module(modpath)
 
     parts = funcpath.split('.', 1)
+    funcs = []
     if len(parts) == 2:
         tcase_name, method_name = parts
         testcase = getattr(mod, tcase_name)(methodName=method_name)
         setup = getattr(testcase, 'setUp', None)
         if setup is not None:
-            setup()
-        getattr(testcase, method_name)()
+            funcs.append(setup)
+        funcs.append(getattr(testcase, method_name))
         teardown = getattr(testcase, 'tearDown', None)
         if teardown:
-            teardown()
+            funcs.append(teardown)
     else:
         funcname = parts[0]
-        getattr(mod, funcname)()
+        funcs.append(getattr(mod, funcname))
+
+    rank = MPI.COMM_WORLD.rank if MPI else 0
+
+    start = time.time()
+    with profiling(f"prof{rank}.out") if options.profile else do_nothing_context():
+        for i in range(options.loops):
+            for f in funcs:
+                f()
+    end = time.time()
+
+    per_iter = (end - start)/options.loops
+    print(f"Elapsed time: {end - start} over {options.loops} iterations  ({per_iter}/iteration).")
+
 
 
 if __name__ == '__main__':

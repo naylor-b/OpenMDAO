@@ -131,7 +131,7 @@ class MetaModelStructuredComp(ExplicitComponent):
             if training_data is None:
                 shape = tuple([len(item) for item in self.inputs])
                 training_data = np.ones(shape)
-            super().add_input("%s_train" % name, val=training_data, **kwargs)
+            super().add_input(f"{name}_train", val=training_data, **kwargs)
 
         elif training_data is None:
             msg = f"Training data is required for output '{name}'."
@@ -176,7 +176,7 @@ class MetaModelStructuredComp(ExplicitComponent):
         for name in self._var_rel_names['output']:
             self._declare_partials(of=name, wrt=pnames, dct=dct)
             if self.options['training_data_gradients']:
-                self._declare_partials(of=name, wrt="%s_train" % name, dct={'dependent': True})
+                self._declare_partials(of=name, wrt=f"{name}_train", dct={'dependent': True})
 
         # The scipy methods do not support complex step.
         if self.options['method'].startswith('scipy'):
@@ -202,7 +202,7 @@ class MetaModelStructuredComp(ExplicitComponent):
         for out_name, interp in self.interps.items():
             if self.options['training_data_gradients']:
                 # Training point values may have changed every time we compute.
-                interp.values = inputs["%s_train" % out_name]
+                interp.values = inputs[f"{out_name}_train"]
                 interp._compute_d_dvalues = True
 
             try:
@@ -261,4 +261,4 @@ class MetaModelStructuredComp(ExplicitComponent):
                         val = interp.training_gradients(pt[j, :])
                         dy_ddata[j] = val.reshape(self.grad_shape[1:])
 
-                partials[out_name, "%s_train" % out_name] = dy_ddata
+                partials[out_name, f"{out_name}_train"] = dy_ddata

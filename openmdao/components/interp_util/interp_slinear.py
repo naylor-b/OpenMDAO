@@ -75,14 +75,13 @@ class InterpLinear(InterpAlgorithm):
             # Interpolate between values that come from interpolating the subtables in the
             # subsequent dimensions.
             nx = len(x)
-            level = len(slice_idx)
-            if level == 0:
-                nshape = (nx, )
+            if slice_idx:
+                nshape = [2] * (len(slice_idx) + 1)
+                nshape[-1] = nx
             else:
-                nshape = [2] * level
-                nshape.append(nx)
+                nshape = nx
 
-            derivs = np.empty(tuple(nshape), dtype=x.dtype)
+            derivs = np.empty(nshape, dtype=x.dtype)
 
             slice_idx.append(slice(idx, idx + 2))
             dtmp, subderiv, _, _ = subtable.evaluate(x[1:], slice_idx=slice_idx)
@@ -96,7 +95,10 @@ class InterpLinear(InterpAlgorithm):
             return dtmp[..., 0] + delx * slope, derivs, None, None
 
         else:
-            values = self.values[tuple(slice_idx)]
+            if len(slice_idx) == 1:
+                values = self.values[slice_idx[0]]
+            else:
+                values = self.values[tuple(slice_idx)]
             slope = (values[..., idx + 1] - values[..., idx]) * h
 
             return values[..., idx] + (x - grid[idx]) * slope, slope[..., None], \
