@@ -230,7 +230,7 @@ class ExplicitFuncComp(ExplicitComponent):
         outputs : Vector
             Unscaled, dimensional output variables.
         """
-        outputs.set_vals(self._compute(*self._func_values(inputs)))
+        outputs.set_vals(*self._compute(*self._func_values(inputs)))
 
     def declare_partials(self, *args, **kwargs):
         """

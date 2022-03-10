@@ -555,7 +555,7 @@ class Vector(object):
         raise NotImplementedError('set_arr not defined for vector type %s' %
                                   type(self).__name__)
 
-    def set_vals(self, vals):
+    def set_vals(self, *args):
         """
         Set the data array of this vector using a value or iter of values, one for each variable.
 
@@ -563,26 +563,19 @@ class Vector(object):
 
         Parameters
         ----------
-        vals : ndarray, float, or iter of ndarrays and/or floats
+        *args : positional args that are ndarrays or floats
             Values for each variable contained in this vector, in the proper order.
         """
         arr = self.asarray()
-
-        if self.nvars() == 1:
-            if isscalar(vals):
-                arr[:] = vals
+        start = end = 0
+        for v in args:
+            if isscalar(v):
+                end += 1
+                arr[start] = v
             else:
-                arr[:] = vals.ravel()
-        else:
-            start = end = 0
-            for v in vals:
-                if isscalar(v):
-                    end += 1
-                    arr[start] = v
-                else:
-                    end += v.size
-                    arr[start:end] = v.ravel()
-                start = end
+                end += v.size
+                arr[start:end] = v.ravel()
+            start = end
 
     def set_var(self, name, val, idxs=_full_slice, flat=False, var_name=None):
         """
