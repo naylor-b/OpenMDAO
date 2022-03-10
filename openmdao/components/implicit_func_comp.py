@@ -192,7 +192,7 @@ class ImplicitFuncComp(ImplicitComponent):
         """
         Compute outputs. The model is assumed to be in a scaled state.
         """
-        self._outputs.set_vals(*self._solve_nonlinear_func(*self._ordered_func_invals(inputs,
+        self._outputs.set_vals(self._solve_nonlinear_func(*self._ordered_func_invals(inputs,
                                                                                      outputs)))
 
     def _linearize(self, jac=None, sub_do_ln=False):
@@ -303,10 +303,10 @@ class ImplicitFuncComp(ImplicitComponent):
             Derivative solutiion direction, either 'fwd' or 'rev'.
         """
         if mode == 'fwd':
-            d_outputs.set_vals(*self._solve_linear_func(*chain(d_residuals.values(),
+            d_outputs.set_vals(self._solve_linear_func(*chain(d_residuals.values(),
                                                               (mode, self._linearize_info))))
         else:  # rev
-            d_residuals.set_vals(*self._solve_linear_func(*chain(d_outputs.values(),
+            d_residuals.set_vals(self._solve_linear_func(*chain(d_outputs.values(),
                                                                 (mode, self._linearize_info))))
 
     def _ordered_func_invals(self, inputs, outputs):

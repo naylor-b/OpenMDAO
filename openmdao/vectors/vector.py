@@ -567,6 +567,17 @@ class Vector(object):
             Values for each variable contained in this vector, in the proper order.
         """
         arr = self.asarray()
+        if len(args) == 1:
+            val = args[0]
+            if self.nvars() == 1:
+                if isscalar(val):
+                    arr[:] = val
+                else:
+                    arr[:] = val.ravel()
+                return
+            else:
+                args = args[0]  # assume tuple passed as a single arg
+
         start = end = 0
         for v in args:
             if isscalar(v):

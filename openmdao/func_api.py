@@ -108,6 +108,8 @@ class OMWrappedFunc(object):
         object
             The return of the wrapped function.
         """
+        if len(self._outputs) == 1:
+            return (self._f(*args, **kwargs),)
         return self._f(*args, **kwargs)
 
     def defaults(self, **kwargs):
