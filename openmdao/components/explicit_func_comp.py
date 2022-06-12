@@ -107,7 +107,7 @@ class ExplicitFuncComp(ExplicitComponent):
                     self._dev_arrays_to_np_arrays(kwargs)
                 self.add_input(name, **kwargs)
 
-        for i, (name, meta) in enumerate(self._compute.get_output_meta()):
+        for name, meta in self._compute.get_output_meta():
             _check_var_name(self, name)
             kwargs = _copy_with_ignore(meta, omf._allowed_add_output_args, ignore=('resid',))
             if use_jax:
@@ -237,24 +237,6 @@ class ExplicitFuncComp(ExplicitComponent):
             Unscaled, dimensional output variables.
         """
         outputs.set_vals(self._compute(*self._func_values(inputs)))
-
-    def declare_partials(self, *args, **kwargs):
-        """
-        Declare information about this component's subjacobians.
-
-        Parameters
-        ----------
-        *args : list
-            Positional args to be passed to base class version of declare_partials.
-        **kwargs : dict
-            Keyword args  to be passed to base class version of declare_partials.
-
-        Returns
-        -------
-        dict
-            Metadata dict for the specified partial(s).
-        """
-        return super().declare_partials(*args, **kwargs)
 
     def _setup_partials(self):
         """
