@@ -1,7 +1,7 @@
 import textwrap
 import inspect
 import sympy
-from sympy import sympify, diff, symbols
+from sympy import sympify, diff, symbols, cse
 
 import openmdao.func_api as omf
 from openmdao.components.func_comp_common import namecheck_rgx, _disallowed_varnames
@@ -111,16 +111,19 @@ def _gen_setup_partials(partials):
     return '\n'.join(lines)
 
 
-def _gen_compute_partials(inputs, partials):
-    innames = ', '.join(inputs)
+def _gen_compute_partials(inputs, partials, replacements, reduced_exprs):
+    inames = ', '.join(inputs)
     lines = [
         '    def compute_partials(self, inputs, partials):',
-        f'        {innames} = inputs.values()'
+        f'        {inames} = inputs.values()'
     ]
 
-    for key, partial in partials.items():
+    for name, val in replacements:
+        lines.append(f"        {name} = {val}" )
+
+    for i, key in enumerate(partials):
         of, wrt = key
-        lines.append(f"        partials['{of}', '{wrt}'] = {partial}")
+        lines.append(f"        partials['{of}', '{wrt}'] = {reduced_exprs[i]}")
 
     return '\n'.join(lines)
 
@@ -130,9 +133,9 @@ def get_symbolic_derivs(fwrap):
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
 
-    print("return names are:", fwrap.get_return_names())
-    print("input names:", inputs)
-    print("output names:", outputs)
+    # print("return names are:", fwrap.get_return_names())
+    # print("input names:", inputs)
+    # print("output names:", outputs)
 
     symarg = " ".join(inputs)
     funcsrc = textwrap.dedent(inspect.getsource(func))
@@ -151,68 +154,66 @@ def get_symbolic_derivs(fwrap):
     globdict = sympy.__dict__.copy()
     exec(code, globdict, locdict)  # nosec: limited to _expr_dict
 
-    # import pprint
-    # pprint.pprint(locdict)
-
     partials = {}
     for out in outputs:
         for inp in inputs:
             dff = diff(locdict[out], locdict[inp])
-            print(f"d{out}/d{inp} = {dff}")
+            # print(f"d{out}/d{inp} = {dff}")
             if dff != 0:
                 partials[(out, inp)] = dff
 
-    return partials
+    replacements, reduced_exprs = cse(partials.values(), order=None)
 
-    # def setup_partials(self):
-    #     """
-    #     Set up the derivatives.
-    #     """
-    #     vec_size = self.options['vec_size']
-    #     vec_size_A = self.vec_size_A = vec_size if self.options['vectorize_A'] else 1
-    #     size = self.options['size']
-    #     mat_size = size * size
-    #     full_size = size * vec_size
-
-    #     row_col = np.arange(full_size, dtype="int")
-
-    #     self.declare_partials('x', 'b', val=np.full(full_size, -1.0), rows=row_col, cols=row_col)
-
-    #     rows = np.repeat(np.arange(full_size), size)
-
-    #     if vec_size_A > 1:
-    #         cols = np.arange(mat_size * vec_size)
-    #     else:
-    #         cols = np.tile(np.arange(mat_size), vec_size)
-
-    #     self.declare_partials('x', 'A', rows=rows, cols=cols)
-
-    #     cols = np.tile(np.arange(size), size)
-    #     cols = np.tile(cols, vec_size) + np.repeat(np.arange(vec_size), mat_size) * size
-
-    #     self.declare_partials(of='x', wrt='x', rows=rows, cols=cols)
+    return partials, replacements, reduced_exprs
 
 
-def gen_sympy_comp(func):
+def gen_sympy_explicit_comp(func, classname):
     fwrap = omf.wrap(func)
-    partials = get_symbolic_derivs(fwrap)
+    partials, replacements, reduced_exprs = get_symbolic_derivs(fwrap)
+
+    print("\n\nreduced")
+    print(reduced_exprs)
 
     # generate setup method
-    print(_gen_setup(fwrap))
+    setup_str = _gen_setup(fwrap)
     # TODO: generate sparsity info
-    print(_gen_setup_partials(partials))
+    setup_partials_str = _gen_setup_partials(partials)
     # generate compute_partials method
-    print(_gen_compute_partials(fwrap.get_input_names(), partials))
+    compute_partials_str = _gen_compute_partials(fwrap.get_input_names(), partials,
+                                                 replacements, reduced_exprs)
 
+    funcsrc = textwrap.dedent(inspect.getsource(func))
+
+    src = f"""
+from openmdao.core.explicitcomponent import ExplicitComponent
+
+{funcsrc}
+
+
+class {classname}(ExplicitComponent):
+{setup_str}
+
+{setup_partials_str}
+
+    def compute(self, inputs, outputs):
+        outputs.set_vals({func.__name__}(*inputs.values()))
+
+{compute_partials_str}
+    """
+
+    print(src)
 
 if __name__ == '__main__':
     from math import log2, sin, cos
 
-    def myfunc(a, b, c):
-        x = a**2 * sin(b) + cos(c)
-        y = sin(a + b + c)
-        z = log(a*b)
-        return x, y, z
+    if True:
+        if True:
+            if True:
+                def myfunc(a, b, c):
+                    x = a**2 * sin(b) + cos(c)
+                    y = sin(a + b + c)
+                    z = log(a*b)
+                    return x, y, z
 
-    gen_sympy_comp(myfunc)
+    gen_sympy_explicit_comp(myfunc, 'MySympyComp')
 
