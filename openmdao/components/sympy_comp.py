@@ -1,9 +1,11 @@
+import sys
 import textwrap
 import inspect
 import sympy
 from sympy import sympify, diff, symbols, cse
 
 import openmdao.func_api as omf
+from openmdao.core.constants import _UNDEFINED
 from openmdao.components.func_comp_common import namecheck_rgx, _disallowed_varnames
 
 
@@ -167,12 +169,9 @@ def get_symbolic_derivs(fwrap):
     return partials, replacements, reduced_exprs
 
 
-def gen_sympy_explicit_comp(func, classname):
+def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
     fwrap = omf.wrap(func)
     partials, replacements, reduced_exprs = get_symbolic_derivs(fwrap)
-
-    print("\n\nreduced")
-    print(reduced_exprs)
 
     # generate setup method
     setup_str = _gen_setup(fwrap)
@@ -189,7 +188,6 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 
 {funcsrc}
 
-
 class {classname}(ExplicitComponent):
 {setup_str}
 
@@ -201,19 +199,23 @@ class {classname}(ExplicitComponent):
 {compute_partials_str}
     """
 
-    print(src)
+    if out_stream is _UNDEFINED:
+        out_stream = sys.stdout
+
+    if out_stream is not None:
+        print(src, file=out_stream)
+
+    return str
+
 
 if __name__ == '__main__':
     from math import log2, sin, cos
 
-    if True:
-        if True:
-            if True:
-                def myfunc(a, b, c):
-                    x = a**2 * sin(b) + cos(c)
-                    y = sin(a + b + c)
-                    z = log(a*b)
-                    return x, y, z
+    def myfunc(a, b, c):
+        x = a**2 * sin(b) + cos(c)
+        y = sin(a + b + c)
+        z = log(a*b)
+        return x, y, z
 
-    gen_sympy_explicit_comp(myfunc, 'MySympyComp')
-
+    with open('mysympycomp.py', 'w') as f:
+        gen_sympy_explicit_comp(myfunc, 'MySympyComp', f)
