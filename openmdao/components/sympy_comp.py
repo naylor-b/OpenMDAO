@@ -2,7 +2,7 @@ import sys
 import textwrap
 import inspect
 import sympy
-from sympy import sympify, diff, symbols, cse
+from sympy import diff, symbols, cse
 
 import openmdao.func_api as omf
 from openmdao.core.constants import _UNDEFINED
@@ -135,17 +135,11 @@ def get_symbolic_derivs(fwrap):
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
 
-    # print("return names are:", fwrap.get_return_names())
-    # print("input names:", inputs)
-    # print("output names:", outputs)
-
     symarg = " ".join(inputs)
     funcsrc = textwrap.dedent(inspect.getsource(func))
     declsyms = f"\n{', '.join(inputs)} = symbols('{symarg}')"
     callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
     src = '\n'.join([funcsrc, declsyms, callfunc])
-
-    # print(src)
 
     code = compile(src, mode='exec', filename='<string>')
 
@@ -160,8 +154,8 @@ def get_symbolic_derivs(fwrap):
     for out in outputs:
         for inp in inputs:
             dff = diff(locdict[out], locdict[inp])
-            # print(f"d{out}/d{inp} = {dff}")
             if dff != 0:
+                # TODO: determine here if dff is linear (not a symbol or expression)
                 partials[(out, inp)] = dff
 
     replacements, reduced_exprs = cse(partials.values(), order=None)
@@ -197,6 +191,11 @@ class {classname}(ExplicitComponent):
         outputs.set_vals({func.__name__}(*inputs.values()))
 
 {compute_partials_str}
+
+if __name__ == '__main__':
+    import openmdao.api as om
+    p = om.Problem()
+    p.model.add_subsystem('comp', {classname}())
     """
 
     if out_stream is _UNDEFINED:
