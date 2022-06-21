@@ -346,6 +346,20 @@ class OMWrappedFunc(object):
         """
         yield from self._inputs
 
+    def input_shape_iter(self):
+        """
+        Get an iterator of (name, shape) for each input variable.
+
+        Yields
+        -------
+        str
+            Input name.
+        tuple
+            Input shape.
+        """
+        for name, meta in self.get_input_meta():
+            yield name, meta['shape']
+
     def get_output_meta(self):
         """
         Get an iterator of (name, metdata_dict) for each output variable.
@@ -370,6 +384,20 @@ class OMWrappedFunc(object):
         """
         for name, _ in self.get_output_meta():
             yield name
+
+    def output_shape_iter(self):
+        """
+        Get an iterator of (name, shape) for each output variable.
+
+        Yields
+        -------
+        str
+            output name.
+        tuple
+            output shape.
+        """
+        for name, meta in self.get_output_meta():
+            yield name, meta['shape']
 
     def get_declare_partials(self):
         """

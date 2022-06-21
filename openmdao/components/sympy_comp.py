@@ -1,68 +1,14 @@
 import sys
 import textwrap
 import inspect
+from tokenize import _all_string_prefixes
 import sympy
-from sympy import diff, symbols, cse
+from sympy import derive_by_array, diff, Symbol, Matrix, Array, MatrixSymbol, cse, flatten, zeros
+import numpy as np
 
 import openmdao.func_api as omf
 from openmdao.core.constants import _UNDEFINED
 from openmdao.components.func_comp_common import namecheck_rgx, _disallowed_varnames
-
-
-class MultiDict(object):
-    """
-    A dict wrapper that contains multiple dicts.
-
-    Items are looked up in dicts in order.
-
-    Attributes
-    ----------
-    _dicts : list
-        List of dicts that will be searched for items.
-    """
-
-    def __init__(self, *dicts):
-        """
-        Create the dicts wrapper.
-
-        Parameters
-        ----------
-        *dicts : dict-like positional args.
-            Each arg is a dict-like object that may be searched.
-        """
-        self._dicts = dicts
-        self._name2dict = {}
-
-    def __getitem__(self, name):
-        try:
-            return self._name2dict[name][name]
-        except KeyError:
-            for d in self._dicts:
-                if name in d:
-                    self._name2dict[name] = d
-                    return d[name]
-            else:
-                raise KeyError(f"Key '{name}' not found.")
-
-    def __setitem__(self, name, value):
-        try:
-            self._name2dict[name][name] = value
-        except KeyError:
-            for d in self._dicts:
-                if name in d:
-                    self._name2dict[name] = d
-                    d[name] = value
-            else:
-                raise KeyError(f"Key '{name}' not found.")
-
-    def __contains__(self, name):
-        if name in self._name2dict:
-            return True
-        for d in self._dicts:
-            if name in d:
-                self._name2dict[name] = d
-                return True
-        return False
 
 
 def _check_var_name(name):
@@ -73,6 +19,30 @@ def _check_var_name(name):
     if name in _disallowed_varnames:
         raise NameError(f"Can't use variable name '{name}' because "
                         "it's a reserved keyword.")
+
+
+def _apply_func(expr, func):
+    if isinstance(expr, Array):
+        return expr.applyfunc(func)
+    return func(expr)
+
+
+def _domult(left, right):
+    if isinstance(left, Array) and isinstance(right, Array):
+        if left.shape != right.shape:
+            raise RuntimeError(f"Tried to multiply array of shape {left.shape} by array of "
+                                f"shape {right.shape}.")
+        return Array([a * b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
+    return left * right
+
+
+def _dodiv(left, right):
+    if isinstance(left, Array) and isinstance(right, Array):
+        if left.shape != right.shape:
+            raise RuntimeError(f"Tried to divide array of shape {left.shape} by array of "
+                                f"shape {right.shape}.")
+        return Array([a / b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
+    return left / right
 
 
 def _gen_setup(fwrapper):
@@ -92,15 +62,41 @@ def _gen_setup(fwrapper):
             lines.append(f"        self.options.declare('{name}', {opts})")
         else:
             kwargs = omf._filter_dict(meta, omf._allowed_add_input_args)
-            opts = ', '.join([f"{k}={v}" for k, v in kwargs.items()])
-            lines.append(f"        self.add_input('{name}', {opts})")
+            optlist = []
+            for k, v in kwargs.items():
+                if k == 'val':
+                    if isinstance(v, np.ndarray):
+                        shp = v.shape
+                        if np.all(v == np.ones(shp)):
+                            optlist.append(f'{k}=np.ones({shp})')
+                        elif np.all(v == np.zeros(shp)):
+                            optlist.append(f'{k}=np.zeros({shp})')
+                        else:
+                            optlist.append(f'{k}={v}'.replace('\n', ''))
+                else:
+                    optlist.append(f'{k}={v}')
+
+            lines.append(f"        self.add_input('{name}', {', '.join(optlist)})")
 
     for name, meta in fwrapper.get_output_meta():
         _check_var_name(name)
         kwargs = {k: v for k, v in meta.items() if k in omf._allowed_add_output_args and
-                    k != 'resid'}
-        opts = ', '.join([f"{k}={v}" for k, v in kwargs.items()])
-        lines.append(f"        self.add_output('{name}', {opts})")
+                  k != 'resid'}
+        optlist = []
+        for k, v in kwargs.items():
+            if k == 'val':
+                if isinstance(v, np.ndarray):
+                    shp = v.shape
+                    if np.all(v == np.ones(shp)):
+                        optlist.append(f'{k}=np.ones({shp})')
+                    elif np.all(v == np.zeros(shp)):
+                        optlist.append(f'{k}=np.zeros({shp})')
+                    else:
+                        optlist.append(f'{k}={v}'.replace('\n', ''))
+            else:
+                optlist.append(f'{k}={v}')
+
+        lines.append(f"        self.add_output('{name}', {', '.join(optlist)})")
 
     return '\n'.join(lines)
 
@@ -130,49 +126,91 @@ def _gen_compute_partials(inputs, partials, replacements, reduced_exprs):
     return '\n'.join(lines)
 
 
-def get_symbolic_derivs(fwrap):
+def _get_sparsity(J):
+    nrows, ncols = J.shape
+    if nrows == ncols and J.is_diagonal():
+        idxs = list(range(nrows))
+        return idxs, idxs
+    arr = np.zeros(J.shape, dtype=bool)
+    for r in range(nrows):
+        for c in range(ncols):
+            if J[r, c] != 0:
+                arr[r, c] = True
+    return np.nonzero(arr)
+
+
+def get_symbolic_derivs(fwrap, optimizations='basic'):
     func = fwrap._f
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
 
-    symarg = " ".join(inputs)
+    # symarg = " ".join(inputs)
     funcsrc = textwrap.dedent(inspect.getsource(func))
-    declsyms = f"\n{', '.join(inputs)} = symbols('{symarg}')"
+    declsyms = ""  # f"\n{', '.join(inputs)} = symbols('{symarg}')"
     callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
     src = '\n'.join([funcsrc, declsyms, callfunc])
 
     code = compile(src, mode='exec', filename='<string>')
 
     locdict = {}
-    for name, sym in zip(inputs, symbols(' '.join(inputs))):
-        locdict[name] = sym
+    for name, shape in fwrap.input_shape_iter():
+        if shape == ():
+            locdict[name] = Symbol(name)
+        else:
+            locdict[name] = Array(flatten(MatrixSymbol(name, *shape)), shape)
+
+    def mycos(val):
+        if isinstance(val, Array):
+            return val.applyfunc(sympy.cos)
+        return sympy.cos(val)
+
+    def mysin(val):
+        if isinstance(val, Array):
+            return val.applyfunc(sympy.sin)
+        return sympy.sin(val)
 
     globdict = sympy.__dict__.copy()
+    globdict['cos'] = mycos
+    globdict['sin'] = mysin
     exec(code, globdict, locdict)  # nosec: limited to _expr_dict
 
     partials = {}
     for out in outputs:
         for inp in inputs:
-            dff = diff(locdict[out], locdict[inp])
-            if dff != 0:
-                # TODO: determine here if dff is linear (not a symbol or expression)
-                partials[(out, inp)] = dff
+            # J = diff(locdict[out], locdict[inp])
+            # J = derive_by_array(locdict[out], locdict[inp])
+            # print(type(locdict[out]))
+            # print("OF:", Matrix(flatten(locdict[out])))
+            J = Matrix(flatten(locdict[out])).jacobian(flatten(locdict[inp]))
+            if not J.equals(zeros(*J.shape)):
+                sparsity = _get_sparsity(J)
+                print("sparsity:", sparsity)
+                print("diag:", J.is_diagonal())
+                # TODO: determine here if J is linear (not a symbol or expression)
+                partials[(out, inp)] = J
 
-    replacements, reduced_exprs = cse(partials.values(), order=None)
+    replacements, reduced_exprs = cse(partials.values(), order=None, optimizations=optimizations)
 
     return partials, replacements, reduced_exprs
 
 
 def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
     fwrap = omf.wrap(func)
+    if isinstance(func, omf.OMWrappedFunc):
+        func = fwrap._f  # get the original function
+
+    inputs = list(fwrap.get_input_names())
+    outputs = list(fwrap.get_output_names())
     partials, replacements, reduced_exprs = get_symbolic_derivs(fwrap)
+
+    # sparsity = _get_sparsity(fwrap, partials, replacements, reduced_exprs)
 
     # generate setup method
     setup_str = _gen_setup(fwrap)
     # TODO: generate sparsity info
     setup_partials_str = _gen_setup_partials(partials)
     # generate compute_partials method
-    compute_partials_str = _gen_compute_partials(fwrap.get_input_names(), partials,
+    compute_partials_str = _gen_compute_partials(inputs, partials,
                                                  replacements, reduced_exprs)
 
     funcsrc = textwrap.dedent(inspect.getsource(func))
@@ -194,8 +232,15 @@ class {classname}(ExplicitComponent):
 
 if __name__ == '__main__':
     import openmdao.api as om
+    import numpy as np
+    from numpy import *
     p = om.Problem()
-    p.model.add_subsystem('comp', {classname}())
+    comp = p.model.add_subsystem('comp', {classname}(), promotes=['*'])
+    comp.declare_coloring()
+    p.setup()
+    p.run_model()
+    J = p.compute_totals(of={inputs}, wrt={outputs})
+    print(J)
     """
 
     if out_stream is _UNDEFINED:
@@ -204,17 +249,42 @@ if __name__ == '__main__':
     if out_stream is not None:
         print(src, file=out_stream)
 
-    return str
+    return src
 
 
 if __name__ == '__main__':
+    import openmdao.api as om
     from math import log2, sin, cos
 
+    # def myfunc(a, b, c):
+    #     x = a**2 * sin(b) + cos(c)
+    #     y = sin(a + b + c)
+    #     z = log(a*b)
+    #     return x, y, z
+
     def myfunc(a, b, c):
-        x = a**2 * sin(b) + cos(c)
-        y = sin(a + b + c)
-        z = log(a*b)
+        x = cos(a)
+        y = sin(b)
+        z = sin(c) + cos(c)
         return x, y, z
 
-    with open('mysympycomp.py', 'w') as f:
-        gen_sympy_explicit_comp(myfunc, 'MySympyComp', f)
+    fwrap = (omf.wrap(myfunc)
+               .defaults(shape=(3,2)))
+
+    with open('_mysympycomp.py', 'w') as f:
+        fstr = gen_sympy_explicit_comp(fwrap, 'MySympyComp', f)
+
+    print(fstr)
+
+    # exec(fstr)
+
+    # comp = globals()['MySympyComp']()
+    # comp.declare_coloring()
+
+    # p = om.Problem()
+    # p.model.add_subsystem('comp', comp, promotes=['*'])
+    # p.setup()
+    # p.run_model()
+
+    # J = p.compute_totals(of=list(fwrap.get_output_names()), wrt=list(fwrap.get_input_names()))
+    # print(J)
