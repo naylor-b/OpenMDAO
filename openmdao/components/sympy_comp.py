@@ -144,11 +144,9 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
 
-    # symarg = " ".join(inputs)
     funcsrc = textwrap.dedent(inspect.getsource(func))
-    declsyms = ""  # f"\n{', '.join(inputs)} = symbols('{symarg}')"
     callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
-    src = '\n'.join([funcsrc, declsyms, callfunc])
+    src = '\n'.join([funcsrc, callfunc])
 
     code = compile(src, mode='exec', filename='<string>')
 

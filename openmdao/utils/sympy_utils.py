@@ -1,54 +1,65 @@
-from ast import NodeTransformer, Subscript, Name, Load, Constant
+from ast import NodeTransformer, Name, Mult, Call
+from sympy import *
 
-import openmdao.func_api as omf
+
+def _do_mult_(a, b):
+    if isinstance(a, Array) and isinstance(b, Array):
+        return [v1 * v2 for v1, v2 in zip(flatten(a), flatten(b))]
+    return a * b
 
 
-class RewriteName(NodeTransformer):
+def _arr_fnc_(fnc, *args):
+    if len(args) == 1 and isinstance(args[0], Array):
+        return args[0].applyfunc(fnc)
+    return fnc(*args)
 
-    def __init__(self, func):
+
+
+class SymArrayTransformer(NodeTransformer):
+    def __init__(self, funcs, xfname='_arr_fnc_', multfname='_do_mult_'):
         super().__init__()
-        self._fwrap = omf.wrap(func)
-        self._in_shapes = {n: shape for n, shape in self._fwrap.input_shape_iter()}
-        self._out_shapes = {n: shape for n, shape in self._fwrap.output_shape_iter()}
+        self._transform_funcs = funcs
+        self._xfname = xfname
+        self._multfname = multfname
 
-    def visit_Name(self, node):
-        return Subscript(
-            value=Name(id='data', ctx=Load()),
-            slice=Constant(value=node.id),
-            ctx=node.ctx
-        )
+    def visit_Call(self, node):  # func, args, keywords
+        f = self.visit(node.func)
+        newargs = [self.visit(a) for a in node.args]
+        for kwd in node.keywords:
+            kwd.value = self.visit(kwd.value)
+        if isinstance(node.func, Name) and node.func.id in self._transform_funcs:
+            newargs = [f] + newargs
+            return Call(Name(id=self._xfname), newargs, node.keywords)
+        return node
 
-    def visit_Assign(self, node):
-        for i,t in enumerate(node.targets):
-            if i>0: self.append(',')
-            self.visit(t)
-        self.append(' = ')
-        self.visit(node.value)
+    def visit_BinOp(self, node):  # left, op, right
+        nl = self.visit(node.left)
+        nr = self.visit(node.right)
+        if isinstance(node.op, Mult):
+            args = [nl, nr]
+            return Call(Name(id=self._multfname), args, [])
+        return node
 
-    def visit_Call(self, node):
-        self.visit(node.func)
-        self.append('(')
-        total_args = 0
-        for arg in node.args:
-            if total_args>0: self.append(',')
-            self.visit(arg)
-            total_args += 1
 
-        if hasattr(node, 'keywords'):
-            for kw in node.keywords:
-                if total_args>0: self.append(',')
-                self.visit(kw)
-                total_args += 1
+if __name__ == '__main__':
+    import ast
+    from sympy import sin, cos, tan
+    import inspect
+    import textwrap
+    from astunparse import unparse
 
-        if hasattr(node, 'starargs'):
-            if node.starargs:
-                if total_args>0: self.append(',')
-                self.append('*%s'%node.starargs)
-                total_args += 1
+    def myfunc(a, b, c):
+        x = cos(a) * tan(b)
+        y = sin(b) * 3.
+        z = sin(c) - cos(a)
+        return x, y, z
 
-        if hasattr(node, 'kwargs'):
-            if node.kwargs:
-                if total_args>0: self.append(',')
-                self.append('**%s'%node.kwargs)
+    src = textwrap.dedent(inspect.getsource(myfunc))
+    tree = ast.fix_missing_locations(ast.parse(src))
 
-        self.append(')')
+    xff = {'sin', 'cos'}
+    xform = SymArrayTransformer(xff)
+
+    node = xform.visit(tree)
+
+    print(unparse(node))
