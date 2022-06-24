@@ -1,14 +1,19 @@
 import sys
 import textwrap
 import inspect
-from tokenize import _all_string_prefixes
+import ast
+from types import FunctionType
 import sympy
-from sympy import derive_by_array, diff, Symbol, Matrix, Array, MatrixSymbol, cse, flatten, zeros
+from sympy import derive_by_array, diff, Symbol, Matrix, Array, MatrixSymbol, cse, \
+    flatten, zeros
+from sympy.core.function import FunctionClass
 import numpy as np
+from astunparse import unparse
 
 import openmdao.func_api as omf
 from openmdao.core.constants import _UNDEFINED
 from openmdao.components.func_comp_common import namecheck_rgx, _disallowed_varnames
+from openmdao.utils.sympy_utils import SymArrayTransformer
 
 
 def _check_var_name(name):
@@ -21,13 +26,13 @@ def _check_var_name(name):
                         "it's a reserved keyword.")
 
 
-def _apply_func(expr, func):
+def _arr_fnc_(func, expr):
     if isinstance(expr, Array):
         return expr.applyfunc(func)
     return func(expr)
 
 
-def _domult(left, right):
+def _do_mult_(left, right):
     if isinstance(left, Array) and isinstance(right, Array):
         if left.shape != right.shape:
             raise RuntimeError(f"Tried to multiply array of shape {left.shape} by array of "
@@ -36,13 +41,13 @@ def _domult(left, right):
     return left * right
 
 
-def _dodiv(left, right):
-    if isinstance(left, Array) and isinstance(right, Array):
-        if left.shape != right.shape:
-            raise RuntimeError(f"Tried to divide array of shape {left.shape} by array of "
-                                f"shape {right.shape}.")
-        return Array([a / b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
-    return left / right
+# def _dodiv(left, right):
+#     if isinstance(left, Array) and isinstance(right, Array):
+#         if left.shape != right.shape:
+#             raise RuntimeError(f"Tried to divide array of shape {left.shape} by array of "
+#                                 f"shape {right.shape}.")
+#         return Array([a / b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
+#     return left / right
 
 
 def _gen_setup(fwrapper):
@@ -144,12 +149,41 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
 
+    # use sympy module as globals so we get symbolic versions of common functions
+    globdict = sympy.__dict__.copy()
+
+    # create src that declares the function and then calls it, returning the output values.
+    # We inject sympy Symbols or Arrays in place of input arguments so the outputs will be
+    # the appropriate symbolic objects.  Similar to lambdify but with the addition of Arrays
+    # so we get correct jacobians (and determine their sparsity easily).
     funcsrc = textwrap.dedent(inspect.getsource(func))
+    print("original func:")
+    print(funcsrc)
+
+    tree = ast.parse(funcsrc)
+
+    functs2convert = {n for n, f in globdict.items()
+                      if isinstance(f, FunctionClass) and len(inspect.signature(f).parameters) == 1}
+
+    # add conversion functs to globals
+    globdict['_arr_fnc_'] = _arr_fnc_
+    globdict['_do_mult_'] = _do_mult_
+
+    xform = SymArrayTransformer(functs2convert)
+
+    node = ast.fix_missing_locations(xform.visit(tree))
+
+    # get the source for the converted function ast
+    funcsrc = unparse(node)
+    print("converted func:")
+    print(funcsrc)
+
     callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
     src = '\n'.join([funcsrc, callfunc])
 
     code = compile(src, mode='exec', filename='<string>')
 
+    # inject symbolic inputs into the locals dict
     locdict = {}
     for name, shape in fwrap.input_shape_iter():
         if shape == ():
@@ -157,19 +191,6 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
         else:
             locdict[name] = Array(flatten(MatrixSymbol(name, *shape)), shape)
 
-    def mycos(val):
-        if isinstance(val, Array):
-            return val.applyfunc(sympy.cos)
-        return sympy.cos(val)
-
-    def mysin(val):
-        if isinstance(val, Array):
-            return val.applyfunc(sympy.sin)
-        return sympy.sin(val)
-
-    globdict = sympy.__dict__.copy()
-    globdict['cos'] = mycos
-    globdict['sin'] = mysin
     exec(code, globdict, locdict)  # nosec: limited to _expr_dict
 
     partials = {}

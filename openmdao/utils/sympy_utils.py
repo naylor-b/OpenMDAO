@@ -2,16 +2,16 @@ from ast import NodeTransformer, Name, Mult, Call
 from sympy import *
 
 
-def _do_mult_(a, b):
-    if isinstance(a, Array) and isinstance(b, Array):
-        return [v1 * v2 for v1, v2 in zip(flatten(a), flatten(b))]
-    return a * b
+# def _do_mult_(a, b):
+#     if isinstance(a, Array) and isinstance(b, Array):
+#         return [v1 * v2 for v1, v2 in zip(flatten(a), flatten(b))]
+#     return a * b
 
 
-def _arr_fnc_(fnc, *args):
-    if len(args) == 1 and isinstance(args[0], Array):
-        return args[0].applyfunc(fnc)
-    return fnc(*args)
+# def _arr_fnc_(fnc, *args):
+#     if len(args) == 1 and isinstance(args[0], Array):
+#         return args[0].applyfunc(fnc)
+#     return fnc(*args)
 
 
 
@@ -30,14 +30,17 @@ class SymArrayTransformer(NodeTransformer):
         if isinstance(node.func, Name) and node.func.id in self._transform_funcs:
             newargs = [f] + newargs
             return Call(Name(id=self._xfname), newargs, node.keywords)
+
+        node.args = newargs
         return node
 
     def visit_BinOp(self, node):  # left, op, right
-        nl = self.visit(node.left)
-        nr = self.visit(node.right)
+        node.left = self.visit(node.left)
+        node.right = self.visit(node.right)
         if isinstance(node.op, Mult):
             args = [nl, nr]
             return Call(Name(id=self._multfname), args, [])
+
         return node
 
 
@@ -55,11 +58,11 @@ if __name__ == '__main__':
         return x, y, z
 
     src = textwrap.dedent(inspect.getsource(myfunc))
-    tree = ast.fix_missing_locations(ast.parse(src))
+    tree = ast.parse(src)
 
     xff = {'sin', 'cos'}
     xform = SymArrayTransformer(xff)
 
-    node = xform.visit(tree)
+    node = ast.fix_missing_locations(xform.visit(tree))
 
     print(unparse(node))
