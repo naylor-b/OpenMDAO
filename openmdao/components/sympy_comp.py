@@ -108,8 +108,13 @@ def _gen_setup(fwrapper):
 
 def _gen_setup_partials(partials):
     lines = ['    def setup_partials(self):']
-    for of, wrt in partials:
-        lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}')")
+    for key, (J, sparsity, diag) in partials.items():
+        of, wrt = key
+        if sparsity is None:
+            lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}')")
+        else:
+            rows, cols = sparsity
+            lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}', rows={rows}, cols={cols})")
 
     return '\n'.join(lines)
 
@@ -141,7 +146,11 @@ def _get_sparsity(J):
         for c in range(ncols):
             if J[r, c] != 0:
                 arr[r, c] = True
-    return np.nonzero(arr)
+
+    rows, cols = np.nonzero(arr)
+    size = np.prod(J.shape)
+    if (size - len(rows)) / size < .6:
+        return (rows, cols)
 
 
 def get_symbolic_derivs(fwrap, optimizations='basic'):
@@ -198,13 +207,11 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
         for inp in inputs:
             J = Matrix(flatten(locdict[out])).jacobian(flatten(locdict[inp]))
             if not J.equals(zeros(*J.shape)):
-                sparsity = _get_sparsity(J)
-                print("sparsity:", sparsity)
-                print("diag:", J.is_diagonal())
                 # TODO: determine here if J is linear (not a symbol or expression)
-                partials[(out, inp)] = J
+                partials[(out, inp)] = (J, _get_sparsity(J), J.is_diagonal())
 
-    replacements, reduced_exprs = cse(partials.values(), order=None, optimizations=optimizations)
+    subs = [J for J, _, _ in partials.values()]
+    replacements, reduced_exprs = cse(subs, order=None, optimizations=optimizations)
 
     return partials, replacements, reduced_exprs
 
@@ -217,8 +224,6 @@ def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
     partials, replacements, reduced_exprs = get_symbolic_derivs(fwrap)
-
-    # sparsity = _get_sparsity(fwrap, partials, replacements, reduced_exprs)
 
     # generate setup method
     setup_str = _gen_setup(fwrap)
