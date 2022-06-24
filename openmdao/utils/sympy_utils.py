@@ -38,7 +38,7 @@ class SymArrayTransformer(NodeTransformer):
         node.left = self.visit(node.left)
         node.right = self.visit(node.right)
         if isinstance(node.op, Mult):
-            args = [nl, nr]
+            args = [node.left , node.right]
             return Call(Name(id=self._multfname), args, [])
 
         return node

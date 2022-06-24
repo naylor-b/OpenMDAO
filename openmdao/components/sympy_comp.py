@@ -37,7 +37,7 @@ def _do_mult_(left, right):
         if left.shape != right.shape:
             raise RuntimeError(f"Tried to multiply array of shape {left.shape} by array of "
                                 f"shape {right.shape}.")
-        return Array([a * b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
+        return Array([a * b for a, b in zip(flatten(left), flatten(right))]).reshape(*left.shape)
     return left * right
 
 
@@ -196,10 +196,6 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     partials = {}
     for out in outputs:
         for inp in inputs:
-            # J = diff(locdict[out], locdict[inp])
-            # J = derive_by_array(locdict[out], locdict[inp])
-            # print(type(locdict[out]))
-            # print("OF:", Matrix(flatten(locdict[out])))
             J = Matrix(flatten(locdict[out])).jacobian(flatten(locdict[inp]))
             if not J.equals(zeros(*J.shape)):
                 sparsity = _get_sparsity(J)
@@ -284,7 +280,7 @@ if __name__ == '__main__':
     def myfunc(a, b, c):
         x = cos(a)
         y = sin(b)
-        z = sin(c) + cos(c)
+        z = sin(c) * cos(c)
         return x, y, z
 
     fwrap = (omf.wrap(myfunc)
