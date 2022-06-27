@@ -2,12 +2,12 @@ import sys
 import textwrap
 import inspect
 import ast
-from types import FunctionType
 import sympy
 from sympy import derive_by_array, diff, Symbol, Matrix, Array, MatrixSymbol, cse, \
     flatten, zeros
 from sympy.core.function import FunctionClass
 import numpy as np
+from numpy import dot
 from astunparse import unparse
 
 import openmdao.func_api as omf
@@ -108,18 +108,23 @@ def _gen_setup(fwrapper):
 
 def _gen_setup_partials(partials):
     lines = ['    def setup_partials(self):']
-    for key, (J, sparsity, diag) in partials.items():
+    for key, (J, sparsity, diag, _) in partials.items():
         of, wrt = key
         if sparsity is None:
             lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}')")
         else:
             rows, cols = sparsity
-            lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}', rows={rows}, cols={cols})")
+            if diag:
+                lines.append(f"        rows = cols = np.arange({len(rows)})")
+            else:
+                lines.append(f"        rows = [{','.join(rows)}")
+                lines.append(f"        cols = [{','.join(cols)}")
+            lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}', rows=rows, cols=cols)")
 
     return '\n'.join(lines)
 
 
-def _gen_compute_partials(inputs, partials, replacements, reduced_exprs):
+def _gen_compute_partials(inputs, partials, replacements, reduced_partials):
     inames = ', '.join(inputs)
     lines = [
         '    def compute_partials(self, inputs, partials):',
@@ -129,28 +134,34 @@ def _gen_compute_partials(inputs, partials, replacements, reduced_exprs):
     for name, val in replacements:
         lines.append(f"        {name} = {val}" )
 
-    for i, key in enumerate(partials):
+    for i, (key, tup) in enumerate(partials.items()):
         of, wrt = key
-        lines.append(f"        partials['{of}', '{wrt}'] = {reduced_exprs[i]}")
+        sub, nzs, diag, _ = tup
+        if nzs is None:  # no sparsity
+            lines.append(f"        partials['{of}', '{wrt}'] = np.array({reduced_partials[i]}).reshape({sub.shape})")
+        elif diag:
+            lines.append(f"        partials['{of}', '{wrt}'] = ({reduced_partials[i]}).ravel()")
+        else:
+            lines.append(f"        partials['{of}', '{wrt}'] = {reduced_partials[i]}")
 
     return '\n'.join(lines)
 
 
 def _get_sparsity(J):
     nrows, ncols = J.shape
-    if nrows == ncols and J.is_diagonal():
-        idxs = list(range(nrows))
-        return idxs, idxs
+
     arr = np.zeros(J.shape, dtype=bool)
+    diag = True
+
     for r in range(nrows):
         for c in range(ncols):
-            if J[r, c] != 0:
+            if J[r, c]:
                 arr[r, c] = True
+                if r != c:
+                    diag = False
 
     rows, cols = np.nonzero(arr)
-    size = np.prod(J.shape)
-    if (size - len(rows)) / size < .6:
-        return (rows, cols)
+    return rows, cols, diag
 
 
 def get_symbolic_derivs(fwrap, optimizations='basic'):
@@ -166,8 +177,8 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     # the appropriate symbolic objects.  Similar to lambdify but with the addition of Arrays
     # so we get correct jacobians (and determine their sparsity easily).
     funcsrc = textwrap.dedent(inspect.getsource(func))
-    print("original func:")
-    print(funcsrc)
+    # print("original func:")
+    # print(funcsrc)
 
     tree = ast.parse(funcsrc)
 
@@ -175,8 +186,8 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
                       if isinstance(f, FunctionClass) and len(inspect.signature(f).parameters) == 1}
 
     # add conversion functs to globals
-    globdict['_arr_fnc_'] = _arr_fnc_
-    globdict['_do_mult_'] = _do_mult_
+    globdict['_arr_fnc_'] = _arr_fnc_  # applies a func to a whole Array
+    globdict['_do_mult_'] = _do_mult_  # treat Array mult as in-place entry mult
 
     xform = SymArrayTransformer(functs2convert)
 
@@ -184,8 +195,7 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
 
     # get the source for the converted function ast
     funcsrc = unparse(node)
-    print("converted func:")
-    print(funcsrc)
+    # print("converted func:\n", funcsrc)
 
     callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
     src = '\n'.join([funcsrc, callfunc])
@@ -194,26 +204,65 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
 
     # inject symbolic inputs into the locals dict
     locdict = {}
+    locdict_arr = {}
     for name, shape in fwrap.input_shape_iter():
+        locdict[name] = Symbol(name)
         if shape == ():
-            locdict[name] = Symbol(name)
+            locdict_arr[name] = locdict[name]
         else:
-            locdict[name] = Array(flatten(MatrixSymbol(name, *shape)), shape)
+            locdict_arr[name] = Array(flatten(MatrixSymbol(name, *shape)), shape)
 
-    exec(code, globdict, locdict)  # nosec: limited to _expr_dict
+    exec(code, globdict, locdict)  # nosec: limited to globdict and locdict
+    exec(code, globdict, locdict_arr)  # nosec: limited to globdict and locdict_arr
 
     partials = {}
     for out in outputs:
         for inp in inputs:
-            J = Matrix(flatten(locdict[out])).jacobian(flatten(locdict[inp]))
-            if not J.equals(zeros(*J.shape)):
-                # TODO: determine here if J is linear (not a symbol or expression)
-                partials[(out, inp)] = (J, _get_sparsity(J), J.is_diagonal())
+            scalar_deriv = locdict[out].diff(locdict[inp])
 
-    subs = [J for J, _, _ in partials.values()]
+            # if scalar deriv is 0, assume array deriv is 0
+            if not scalar_deriv:
+                continue
+
+            J = Matrix(flatten(locdict_arr[out])).jacobian(flatten(locdict_arr[inp]))
+            nzrows, nzcols, diag = _get_sparsity(J)
+
+            nrows, ncols = J.shape
+
+            if len(nzrows) / (nrows * ncols) < .6:  # store sparsity
+                # TODO: determine here if J is linear (not a symbol or expression)
+                partials[(out, inp)] = (J, (nzrows, nzcols), diag, scalar_deriv)
+            else:
+                partials[(out, inp)] = (J, None, diag, None)
+
+    subs = []
+    for J, nzs, diag, scalar_deriv in partials.values():
+        if nzs is None:
+            subs.extend(flatten(J))
+        elif diag:
+            # use scalar deriv
+            subs.append(scalar_deriv)
+        else:
+            subs.extend(J[i, j] for i, j in zip(*nzs))
+
     replacements, reduced_exprs = cse(subs, order=None, optimizations=optimizations)
 
-    return partials, replacements, reduced_exprs
+    reduced_partials = []
+    start = end = 0
+    for J, nzs, diag, scalar_deriv in partials.values():
+        if nzs is None:
+            end += np.prod(J.shape)
+            reduced_partials.append(reduced_exprs[start:end])
+        elif diag:
+            end += 1
+            reduced_partials.append(reduced_exprs[start])
+        else:
+            nzrows, nzcols = nzs
+            end += len(nzrows)
+            reduced_partials.append(reduced_exprs[start:end])
+        start = end
+
+    return partials, replacements, reduced_partials
 
 
 def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
@@ -223,7 +272,7 @@ def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
 
     inputs = list(fwrap.get_input_names())
     outputs = list(fwrap.get_output_names())
-    partials, replacements, reduced_exprs = get_symbolic_derivs(fwrap)
+    partials, replacements, reduced_partials = get_symbolic_derivs(fwrap)
 
     # generate setup method
     setup_str = _gen_setup(fwrap)
@@ -231,11 +280,13 @@ def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
     setup_partials_str = _gen_setup_partials(partials)
     # generate compute_partials method
     compute_partials_str = _gen_compute_partials(inputs, partials,
-                                                 replacements, reduced_exprs)
+                                                 replacements, reduced_partials)
 
     funcsrc = textwrap.dedent(inspect.getsource(func))
 
     src = f"""
+import numpy as np
+from numpy import *
 from openmdao.core.explicitcomponent import ExplicitComponent
 
 {funcsrc}
@@ -252,15 +303,14 @@ class {classname}(ExplicitComponent):
 
 if __name__ == '__main__':
     import openmdao.api as om
-    import numpy as np
-    from numpy import *
     p = om.Problem()
     comp = p.model.add_subsystem('comp', {classname}(), promotes=['*'])
-    comp.declare_coloring()
-    p.setup()
+    # comp.declare_coloring()
+    p.setup(force_alloc_complex=True)
     p.run_model()
-    J = p.compute_totals(of={inputs}, wrt={outputs})
-    print(J)
+    p.check_partials(method='cs', show_only_incorrect=True)
+    print("CHECK PARTIALS DONE")
+    p.check_totals(of={inputs}, wrt={outputs})
     """
 
     if out_stream is _UNDEFINED:
@@ -284,7 +334,7 @@ if __name__ == '__main__':
 
     def myfunc(a, b, c):
         x = cos(a)
-        y = sin(b)
+        y = sin(b)*cos(a)-sin(c)
         z = sin(c) * cos(c)
         return x, y, z
 
