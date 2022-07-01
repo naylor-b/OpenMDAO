@@ -177,7 +177,7 @@ class ExplicitFuncComp(ExplicitComponent):
                 j = [np.asarray(a).reshape((a.shape[0], shape_to_len(a.shape[1:])))
                      for a in jac_reverse(func, argnums, tangents)(*invals)]
                 j = coloring.expand_jac(np.hstack(j), 'rev')
-        else:
+        else:  # fwd
             tangents = self._get_tangents(invals, 'fwd', coloring, argnums)
             if coloring is None:
                 j = np.empty((osize, isize), dtype=float)

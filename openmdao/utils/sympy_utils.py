@@ -1,21 +1,20 @@
-from ast import NodeTransformer, Name, Mult, Call
+
+import sys
+import ast
+from ast import Name, Mult, Call
 from sympy import *
+import inspect
+import textwrap
+if sys.version_info >= (3, 9):
+    from ast import unparse
+else:
+    try:
+        from astunparse import unparse
+    except ImportError:
+        unparse = None
 
 
-# def _do_mult_(a, b):
-#     if isinstance(a, Array) and isinstance(b, Array):
-#         return [v1 * v2 for v1, v2 in zip(flatten(a), flatten(b))]
-#     return a * b
-
-
-# def _arr_fnc_(fnc, *args):
-#     if len(args) == 1 and isinstance(args[0], Array):
-#         return args[0].applyfunc(fnc)
-#     return fnc(*args)
-
-
-
-class SymArrayTransformer(NodeTransformer):
+class SymArrayTransformer(ast.NodeTransformer):
     def __init__(self, funcs, xfname='_arr_fnc_', multfname='_do_mult_'):
         super().__init__()
         self._transform_funcs = funcs
@@ -29,7 +28,7 @@ class SymArrayTransformer(NodeTransformer):
             kwd.value = self.visit(kwd.value)
         if isinstance(node.func, Name) and node.func.id in self._transform_funcs:
             newargs = [f] + newargs
-            return Call(Name(id=self._xfname), newargs, node.keywords)
+            return Call(Name(id=self._xfname, ctx=ast.Load()), newargs, node.keywords)
 
         node.args = newargs
         return node
@@ -39,9 +38,69 @@ class SymArrayTransformer(NodeTransformer):
         node.right = self.visit(node.right)
         if isinstance(node.op, Mult):
             args = [node.left , node.right]
-            return Call(Name(id=self._multfname), args, [])
+            return Call(Name(id=self._multfname, ctx=ast.Load()), args, [])
 
         return node
+
+
+def _arr_fnc_(func, expr):
+    if isinstance(expr, (Array, Matrix)):
+        return expr.applyfunc(func)
+    return func(expr)
+
+
+def _do_mult_(left, right):
+    if isinstance(left, Array) and isinstance(right, Array):
+        lshape = left.shape
+        if lshape != right.shape:
+            raise RuntimeError(f"Tried to multiply array of shape {lshape} by array of "
+                                f"shape {right.shape}.")
+        if lshape != ():
+            left = flatten(left)
+            right = flatten(right)
+        return Array([a * b for a, b in zip(left, right)]).reshape(*lshape)
+    return left * right
+
+
+def func2sympy_compat(fwrap, global_dict, show=False):
+    """
+    Convert any multiplications or function applications to calls to _do_mult_ or _arr_func.
+
+    This allows us to replace some func args with Arrays and still be able to execute the function.
+
+    Returns
+    -------
+    ast node
+        An ast node corresponding to the top of the ast that defines the modified function.
+    """
+    functs2convert = {n for n, f in global_dict.items()
+                      if isinstance(f, FunctionClass) and len(inspect.signature(f).parameters) == 1}
+
+    # add conversion functs to globals
+    global_dict['_arr_fnc_'] = _arr_fnc_  # applies a func to a whole Array
+    global_dict['_do_mult_'] = _do_mult_  # treat Array mult as in-place entry mult
+
+    xform = SymArrayTransformer(functs2convert)
+
+    func = fwrap._f
+    funcsrc = textwrap.dedent(inspect.getsource(func))
+
+    # add a call to the function in the source so when we exec it we'll get
+    # the output(s) of the function which we'll use to compute derivatives.
+    inputs = list(fwrap.get_input_names())
+    outputs = list(fwrap.get_output_names())
+    callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
+    src = '\n'.join([funcsrc, callfunc])
+
+    tree = ast.parse(src)
+
+    node = ast.fix_missing_locations(xform.visit(tree))
+
+    if show and unparse is not None:
+        # print the source for the converted function ast
+        print(unparse(node))
+
+    return node
 
 
 if __name__ == '__main__':

@@ -3,17 +3,14 @@ import textwrap
 import inspect
 import ast
 import sympy
-from sympy import derive_by_array, diff, Symbol, Matrix, Array, MatrixSymbol, cse, \
-    flatten, zeros
+from sympy import Symbol, Matrix, Array, MatrixSymbol, cse, flatten
 from sympy.core.function import FunctionClass
 import numpy as np
-from numpy import dot
-from astunparse import unparse
 
 import openmdao.func_api as omf
 from openmdao.core.constants import _UNDEFINED
 from openmdao.components.func_comp_common import namecheck_rgx, _disallowed_varnames
-from openmdao.utils.sympy_utils import SymArrayTransformer
+from openmdao.utils.sympy_utils import SymArrayTransformer, func2sympy_compat
 
 
 def _check_var_name(name):
@@ -26,33 +23,9 @@ def _check_var_name(name):
                         "it's a reserved keyword.")
 
 
-def _arr_fnc_(func, expr):
-    if isinstance(expr, Array):
-        return expr.applyfunc(func)
-    return func(expr)
-
-
-def _do_mult_(left, right):
-    if isinstance(left, Array) and isinstance(right, Array):
-        if left.shape != right.shape:
-            raise RuntimeError(f"Tried to multiply array of shape {left.shape} by array of "
-                                f"shape {right.shape}.")
-        return Array([a * b for a, b in zip(flatten(left), flatten(right))]).reshape(*left.shape)
-    return left * right
-
-
-# def _dodiv(left, right):
-#     if isinstance(left, Array) and isinstance(right, Array):
-#         if left.shape != right.shape:
-#             raise RuntimeError(f"Tried to divide array of shape {left.shape} by array of "
-#                                 f"shape {right.shape}.")
-#         return Array([a / b for a, b in zip(flatten(left), flatten(right))]).reshape(left.shape)
-#     return left / right
-
-
 def _gen_setup(fwrapper):
     """
-    Define out inputs, outputs, and options
+    Define our inputs, outputs, and options
     """
     optignore = {'is_option'}
 
@@ -108,7 +81,7 @@ def _gen_setup(fwrapper):
 
 def _gen_setup_partials(partials):
     lines = ['    def setup_partials(self):']
-    for key, (J, sparsity, diag, _) in partials.items():
+    for key, (_, sparsity, diag, _) in partials.items():
         of, wrt = key
         if sparsity is None:
             lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}')")
@@ -138,7 +111,10 @@ def _gen_compute_partials(inputs, partials, replacements, reduced_partials):
         of, wrt = key
         sub, nzs, diag, _ = tup
         if nzs is None:  # no sparsity
-            lines.append(f"        partials['{of}', '{wrt}'] = np.array({reduced_partials[i]}).reshape({sub.shape})")
+            if np.product(sub.shape) > 1:
+                lines.append(f"        partials['{of}', '{wrt}'] = np.array({reduced_partials[i]}).reshape({sub.shape})")
+            else:
+                lines.append(f"        partials['{of}', '{wrt}'] = {reduced_partials[i]}")
         elif diag:
             lines.append(f"        partials['{of}', '{wrt}'] = ({reduced_partials[i]}).ravel()")
         else:
@@ -165,10 +141,6 @@ def _get_sparsity(J):
 
 
 def get_symbolic_derivs(fwrap, optimizations='basic'):
-    func = fwrap._f
-    inputs = list(fwrap.get_input_names())
-    outputs = list(fwrap.get_output_names())
-
     # use sympy module as globals so we get symbolic versions of common functions
     globdict = sympy.__dict__.copy()
 
@@ -176,31 +148,9 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     # We inject sympy Symbols or Arrays in place of input arguments so the outputs will be
     # the appropriate symbolic objects.  Similar to lambdify but with the addition of Arrays
     # so we get correct jacobians (and determine their sparsity easily).
-    funcsrc = textwrap.dedent(inspect.getsource(func))
-    # print("original func:")
-    # print(funcsrc)
+    node = func2sympy_compat(fwrap, globdict, show=True)
 
-    tree = ast.parse(funcsrc)
-
-    functs2convert = {n for n, f in globdict.items()
-                      if isinstance(f, FunctionClass) and len(inspect.signature(f).parameters) == 1}
-
-    # add conversion functs to globals
-    globdict['_arr_fnc_'] = _arr_fnc_  # applies a func to a whole Array
-    globdict['_do_mult_'] = _do_mult_  # treat Array mult as in-place entry mult
-
-    xform = SymArrayTransformer(functs2convert)
-
-    node = ast.fix_missing_locations(xform.visit(tree))
-
-    # get the source for the converted function ast
-    funcsrc = unparse(node)
-    # print("converted func:\n", funcsrc)
-
-    callfunc = f"{', '.join(outputs)} = {func.__name__}({', '.join(inputs)})"
-    src = '\n'.join([funcsrc, callfunc])
-
-    code = compile(src, mode='exec', filename='<string>')
+    code = compile(node, mode='exec', filename='<string>')
 
     # inject symbolic inputs into the locals dict
     locdict = {}
@@ -216,20 +166,30 @@ def get_symbolic_derivs(fwrap, optimizations='basic'):
     exec(code, globdict, locdict_arr)  # nosec: limited to globdict and locdict_arr
 
     partials = {}
-    for out in outputs:
-        for inp in inputs:
+    for out, outshape in fwrap.output_shape_iter():
+        for inp, inshape in fwrap.input_shape_iter():
             scalar_deriv = locdict[out].diff(locdict[inp])
 
             # if scalar deriv is 0, assume array deriv is 0
             if not scalar_deriv:
                 continue
 
-            J = Matrix(flatten(locdict_arr[out])).jacobian(flatten(locdict_arr[inp]))
+            if outshape != ():
+                mat_out = Matrix(flatten(locdict_arr[out]))
+            else:
+                mat_out = Matrix([locdict_arr[out]])
+
+            if inshape != ():
+                flat_inp = flatten(locdict_arr[inp])
+            else:
+                flat_inp = Array([locdict_arr[inp]])
+
+            J = mat_out.jacobian(flat_inp)
             nzrows, nzcols, diag = _get_sparsity(J)
 
             nrows, ncols = J.shape
 
-            if len(nzrows) / (nrows * ncols) < .6:  # store sparsity
+            if len(nzrows) > 1 and len(nzrows) / (nrows * ncols) < .6:  # store sparsity
                 # TODO: determine here if J is linear (not a symbol or expression)
                 partials[(out, inp)] = (J, (nzrows, nzcols), diag, scalar_deriv)
             else:
@@ -276,7 +236,6 @@ def gen_sympy_explicit_comp(func, classname, out_stream=_UNDEFINED):
 
     # generate setup method
     setup_str = _gen_setup(fwrap)
-    # TODO: generate sparsity info
     setup_partials_str = _gen_setup_partials(partials)
     # generate compute_partials method
     compute_partials_str = _gen_compute_partials(inputs, partials,
@@ -301,16 +260,17 @@ class {classname}(ExplicitComponent):
 
 {compute_partials_str}
 
+
 if __name__ == '__main__':
     import openmdao.api as om
     p = om.Problem()
     comp = p.model.add_subsystem('comp', {classname}(), promotes=['*'])
-    # comp.declare_coloring()
     p.setup(force_alloc_complex=True)
     p.run_model()
-    p.check_partials(method='cs', show_only_incorrect=True)
-    print("CHECK PARTIALS DONE")
-    p.check_totals(of={inputs}, wrt={outputs})
+    p.check_partials(method='cs', compact_print=True)
+    p.check_totals(of={outputs}, wrt={inputs}, method='cs', compact_print=True)
+    J = p.compute_totals(of={outputs}, wrt={inputs}, return_format='array')
+    print(J)
     """
 
     if out_stream is _UNDEFINED:
@@ -323,14 +283,7 @@ if __name__ == '__main__':
 
 
 if __name__ == '__main__':
-    import openmdao.api as om
     from math import log2, sin, cos
-
-    # def myfunc(a, b, c):
-    #     x = a**2 * sin(b) + cos(c)
-    #     y = sin(a + b + c)
-    #     z = log(a*b)
-    #     return x, y, z
 
     def myfunc(a, b, c):
         x = cos(a)
@@ -338,23 +291,9 @@ if __name__ == '__main__':
         z = sin(c) * cos(c)
         return x, y, z
 
+
     fwrap = (omf.wrap(myfunc)
-               .defaults(shape=(3,2)))
+              .defaults(shape=(3,2)))
 
     with open('_mysympycomp.py', 'w') as f:
         fstr = gen_sympy_explicit_comp(fwrap, 'MySympyComp', f)
-
-    print(fstr)
-
-    # exec(fstr)
-
-    # comp = globals()['MySympyComp']()
-    # comp.declare_coloring()
-
-    # p = om.Problem()
-    # p.model.add_subsystem('comp', comp, promotes=['*'])
-    # p.setup()
-    # p.run_model()
-
-    # J = p.compute_totals(of=list(fwrap.get_output_names()), wrt=list(fwrap.get_input_names()))
-    # print(J)
