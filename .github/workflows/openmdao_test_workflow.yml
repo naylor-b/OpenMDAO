@@ -305,8 +305,7 @@ jobs:
           echo "###################################################"
           cp .coveragerc $HOME
           cd $HOME
-          testflo -n 2 openmdao --timeout=120 --show_skipped --coverage --coverpkg openmdao --durations=20
-
+          testflo --timeout=120 --show_skipped openmdao/core/tests/test_coloring.py:MatMultMultipointMPI2TestCase.test_multipoint_with_coloring
       - name: Submit coverage
         if: matrix.TESTS
         env:
