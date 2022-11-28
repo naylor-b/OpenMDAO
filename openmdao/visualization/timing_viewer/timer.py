@@ -2,15 +2,13 @@
 Classes and functions for timing method calls.
 """
 import pickle
-
+from collections import defaultdict
 from time import perf_counter
 from contextlib import contextmanager
-
 from functools import wraps, partial
 
 import openmdao.utils.hooks as hooks
 from openmdao.utils.om_warnings import issue_warning
-
 from openmdao.core.parallel_group import ParallelGroup
 
 # can use this to globally turn timing on/off so we can time specific sections of code
@@ -23,7 +21,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
 
     def find_class(self, module, name):
         # Only allow classes from this module.
-        if module == 'openmdao.visualization.timing_viewer.timer':
+        if module == 'openmdao.visualization.timing_viewer.timer' or name == 'defaultdict':
             return globals().get(name)
         # Forbid everything else.
         raise pickle.UnpicklingError(f"global '{module}.{name}' is forbidden in timing file.")
@@ -35,15 +33,41 @@ def _restricted_load(f):
 
 
 def _timing_iter(all_timing_managers):
+    tot_nprocs = len(all_timing_managers)
+
     # iterates over all of the timing managers and yields all timing info
-    for rank, (timing_managers, tot_time) in enumerate(all_timing_managers):
+    for rank, (timing_managers, tot_time, nprobs) in enumerate(all_timing_managers):
+        if tot_nprocs == 1:
+            rank = None
         for probname, tmanager in timing_managers.items():
+            if nprobs == 1:
+                probname = None
             for sysname, timers in tmanager._timers.items():
                 level = len(sysname.split('.')) if sysname else 0
                 for t, parallel, nprocs, classname in timers:
-                    if t.ncalls > 0:
+                    if t.info.ncalls > 0:
                         yield rank, probname, classname, sysname, level, parallel, nprocs, t.name,\
-                            t.ncalls, t.avg(), t.min, t.max, t.tot, tot_time
+                            t.info.ncalls, t.avg(), t.info.min, t.info.max, t.info.total, tot_time,\
+                            t.children
+
+
+def _timer_obj_iter(all_timing_managers):
+    tot_nprocs = len(all_timing_managers)
+
+    # iterates over all of the timing managers and yields all timing info
+    for rank, (timing_managers, tot_time, nprobs) in enumerate(all_timing_managers):
+        if tot_nprocs == 1:
+            rank = None
+        for probname, tmanager in timing_managers.items():
+            if nprobs == 1:
+                probname = None
+            for sysname, timers in tmanager._timers.items():
+                level = len(sysname.split('.')) if sysname else 0
+                for t, parallel, nprocs, classname in timers:
+                    if t.info.ncalls > 0:
+                        yield rank, probname, classname, sysname, level, parallel, nprocs, t.name,\
+                            t.info.ncalls, t.avg(), t.info.min, t.info.max, t.info.total, tot_time,\
+                            t.children
 
 
 def _timing_file_iter(timing_file):
@@ -52,11 +76,13 @@ def _timing_file_iter(timing_file):
         yield from _timing_iter(_restricted_load(f))
 
 
-def _get_par_child_info(timing_iter, method):
+def _get_par_child_info(timing_iter, method_info):
     # puts timing info for direct children of parallel groups into a dict.
     parents = {}
+    klass, method = method_info
+
     for rank, probname, classname, sysname, level, parallel, nprocs, func, ncalls, avg, tmin, tmax,\
-            ttot, tot_time in timing_iter:
+            ttot, tot_time, children in timing_iter:
         if not parallel or method != func:
             continue
 
@@ -73,65 +99,23 @@ def _get_par_child_info(timing_iter, method):
     return parents
 
 
-class FuncTimer(object):
-    """
-    Keep track of execution times for a function.
+class FuncTimerInfo(object):
 
-    Parameters
-    ----------
-    name : str
-        Name of the instance whose methods will be wrapped.
+    __slots__ = ['ncalls', 'min', 'max', 'total']
 
-    Attributes
-    ----------
-    name : str
-        Name of the instance whose methods will be timed.
-    ncalls : int
-        Number of calls to the wrapped method.
-    start : float
-        The time that the function was called.
-    min : float
-        The minimum time of all timed method calls.
-    max : float
-        The maximum time of all timed method calls.
-    tot : float
-        The total time of all timed method calls.
-    """
-
-    __slots__ = ['name', 'ncalls', 'start', 'min', 'max', 'tot']
-
-    def __init__(self, name):
-        """
-        Initialize data structures.
-        """
-        self.name = name
+    def __init__(self):
         self.ncalls = 0
-        self.start = 0
         self.min = 1e99
         self.max = 0
-        self.tot = 0
+        self.total = 0
 
-    def pre(self):
-        """
-        Record the method start time.
-        """
-        global _timing_active
-        if _timing_active:
-            self.start = perf_counter()
-
-    def post(self):
-        """
-        Update ncalls, tot, min, and max.
-        """
-        global _timing_active
-        if _timing_active:
-            dt = perf_counter() - self.start
-            if dt < self.min:
-                self.min = dt
-            if dt > self.max:
-                self.max = dt
-            self.tot += dt
-            self.ncalls += 1
+    def called(self, dt):
+        if dt < self.min:
+            self.min = dt
+        if dt > self.max:
+            self.max = dt
+        self.total += dt
+        self.ncalls += 1
 
     def avg(self):
         """
@@ -143,8 +127,75 @@ class FuncTimer(object):
             The average elapsed time for a method call.
         """
         if self.ncalls > 0:
-            return self.tot / self.ncalls
+            return self.total / self.ncalls
         return 0.
+
+
+class FuncTimer(object):
+    """
+    Keep track of execution times for a function.
+
+    Parameters
+    ----------
+    name : str
+        Name of the instance whose methods will be wrapped.
+    objname : str
+        Name of the object instance if it has one, else class name.
+    stack : list
+        Call stack.
+
+    Attributes
+    ----------
+    name : str
+        Name of the instance whose methods will be timed.
+    objname : str
+        Name of the object instance if it has one, else class name.
+    stack : list
+        Call stack.
+    info : FuncTimerInfo
+        Keeps track of timing and number of calls.
+    """
+
+    def __init__(self, name, objname, stack):
+        """
+        Initialize data structures.
+        """
+        self.name = objname + '.' + name
+        self.stack = stack
+        self.children = defaultdict(FuncTimerInfo)
+        self.info = FuncTimerInfo()
+
+    def pre(self):
+        """
+        Record the method start time.
+        """
+        global _timing_active
+        if _timing_active:
+            self.stack.append(self)
+            self.start = perf_counter()
+
+    def post(self):
+        """
+        Update ncalls, tot, min, and max.
+        """
+        global _timing_active
+        if _timing_active:
+            dt = perf_counter() - self.start
+            self.info.called(dt)
+            self.stack.pop()
+            if self.stack:
+                self.stack[-1].children[self.name].called(dt)
+
+    def avg(self):
+        """
+        Return the average elapsed time for a method call.
+
+        Returns
+        -------
+        float
+            The average elapsed time for a method call.
+        """
+        return self.info.avg()
 
 
 def _timer_wrap(f, timer):
@@ -198,10 +249,11 @@ class TimingManager(object):
         self._timers = {}
         self._par_groups = set()
         self._par_only = options is None or options.view.lower() == 'text'
+        self._call_stack = []
 
     def add_timings(self, name_obj_proc_iter, method_names):
         """
-        Add FuncTimers for all instances name_obj_iter and all methods in method_names.
+        Add FuncTimers for all instances in name_obj_iter and all methods in method_names.
 
         Parameters
         ----------
@@ -211,8 +263,9 @@ class TimingManager(object):
             List of names of methods to wrap.
         """
         for name, obj, nprocs in name_obj_proc_iter:
-            for method_name in method_names:
-                self.add_timing(name, obj, nprocs, method_name)
+            for _type, method_name in method_names:
+                if isinstance(obj, _type):
+                    self.add_timing(name, obj, nprocs, method_name)
 
     def add_timing(self, name, obj, nprocs, method_name):
         """
@@ -231,7 +284,11 @@ class TimingManager(object):
         """
         method = getattr(obj, method_name, None)
         if method is not None:
-            timer = FuncTimer(method_name)
+            try:
+                obj_name = obj._get_inst_id()
+            except AttributeError:
+                obj_name = type(obj).__name__
+            timer = FuncTimer(method_name, obj_name, self._call_stack)
             if isinstance(obj, ParallelGroup):
                 self._par_groups.add(obj.pathname)
             parent = obj.pathname.rpartition('.')[0]
@@ -286,11 +343,11 @@ def _setup_sys_timers(options, system, method_names):
     global _timing_managers
 
     probname = system._problem_meta['name']
+    name_sys_procs = ((s.pathname, s, s.comm.size) for s in system.system_iter(include_self=True,
+                                                                               recurse=True))
     if probname not in _timing_managers:
         _timing_managers[probname] = TimingManager(options)
     tmanager = _timing_managers[probname]
-    name_sys_procs = ((s.pathname, s, s.comm.size) for s in system.system_iter(include_self=True,
-                                                                               recurse=True))
     tmanager.add_timings(name_sys_procs, method_names)
 
 
@@ -298,11 +355,11 @@ def _setup_timers(options, system):
     # hook called after _setup_procs to decorate all specified System methods
     global _timing_managers
 
-    timer_methods = options.funcs
+    timed_methods = options.funcs
 
     tmanager = _timing_managers.get(system._problem_meta['name'])
     if tmanager is not None and not tmanager._timers:
-        _setup_sys_timers(options, system, method_names=timer_methods)
+        _setup_sys_timers(options, system, method_names=timed_methods)
 
 
 def _set_timer_setup_hook(options, problem):
@@ -310,9 +367,9 @@ def _set_timer_setup_hook(options, problem):
     # Note that this means that no timings can happen until AFTER _setup_procs is done.
     global _timing_managers
 
-    inst_id = problem._get_inst_id()
-    if inst_id not in _timing_managers:
-        _timing_managers[inst_id] = TimingManager(options)
+    probname = problem._name
+    if probname not in _timing_managers:
+        _timing_managers[probname] = TimingManager(options)
         hooks._register_hook('_setup_procs', 'System', inst_id='',
                              post=partial(_setup_timers, options))
         hooks._setup_hooks(problem.model)

@@ -17,9 +17,54 @@ from openmdao.visualization.timing_viewer.timer import timing_context, _set_time
     _timing_file_iter, _get_par_child_info
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.core.constants import _DEFAULT_OUT_STREAM
+from openmdao.core.system import System
+from openmdao.core.problem import _problem_names
+from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.solvers.solver import Solver
 
 
-_default_timer_methods = sorted(['_solve_nonlinear'])
+class _TimingMatch(object):
+    __slots__ = ['classes', 'matches', 'name']
+
+    def __init__(self, classes, method_name):
+        self.classes = classes
+        self.matches = {c.__name__ for c in classes}
+        self.name = method_name
+
+    def _match_obj(self, obj):
+        return isinstance(obj, self.classes)
+
+    def _match_cname(self, class_name):
+        return class_name in self.matches
+
+    def __str__(self):
+        return ','.join([c.__name__ + '.' + self.name for c in self.classes])
+
+    def __iter__(self):
+        yield self.classes
+        yield self.name
+
+
+
+_timer_methods = {
+    'default': [
+        _TimingMatch((System,), '_solve_nonlinear'),
+        _TimingMatch((System,), '_solve_linear'),
+        _TimingMatch((System,), '_apply_nonlinear'),
+        _TimingMatch((System,), '_apply_linear'),
+        _TimingMatch((System,), '_linearize'),
+        _TimingMatch((ExplicitComponent,), 'compute'),
+        _TimingMatch((ExplicitComponent,), 'compute_partials'),
+        _TimingMatch((ExplicitComponent,), 'compute_jacvec_product'),
+        _TimingMatch((ImplicitComponent,), 'linearize'),
+        _TimingMatch((ImplicitComponent,), 'solve_nonlinear'),
+        _TimingMatch((ImplicitComponent,), 'solve_linear'),
+        _TimingMatch((ImplicitComponent,), 'apply_nonlinear'),
+        _TimingMatch((ImplicitComponent,), 'apply_linear'),
+        _TimingMatch((Solver,), 'solve'),
+    ]
+}
 
 
 def view_timing_dump(timing_file, out_stream=_DEFAULT_OUT_STREAM):
@@ -38,16 +83,19 @@ def view_timing_dump(timing_file, out_stream=_DEFAULT_OUT_STREAM):
     elif out_stream is _DEFAULT_OUT_STREAM:
         out_stream = sys.stdout
 
-    for (rank, probname, classname, sysname, _, parallel, nprocs, method, ncalls,
-         avg, min, max, tot, global_tot) in _timing_file_iter(timing_file):
+    for (rank, probname, classname, sysname, level, parallel, nprocs, method, ncalls,
+         avg, min, max, tot, global_tot, children) in _timing_file_iter(timing_file):
         parallel = '(parallel)' if parallel else ''
         pct = tot / global_tot * 100.
         print(f"{rank:4} (rank) {nprocs:4} (nprocs) {ncalls:7} (calls) {min:12.6f} (min) "
               f"{max:12.6f} (max) {avg:12.6f} (avg) {tot:12.6f} "
               f"(tot) {pct:6.2f} % {parallel} {probname} {sysname}:{method}", file=out_stream)
+        for child, info in sorted(children.items(), key=lambda x: x[0]):
+            print('      ', child, f'calls: {info.ncalls}', f'total: {info.total:12.6f}',
+                  f'min: {info.min:12.6f}', f'max: {info.max:12.6f}')
 
 
-def view_MPI_timing(timing_file, method='_solve_nonlinear', out_stream=_DEFAULT_OUT_STREAM):
+def view_MPI_timing(timing_file, method, out_stream=_DEFAULT_OUT_STREAM):
     """
     Print timings of direct children of ParallelGroups to a file or to stdout.
 
@@ -132,7 +180,7 @@ def view_timing(timing_file, outfile='timing_report.html', show_browser=True):
 
     # set up timing table data
     for rank, probname, cname, sname, level, parallel, nprocs, method, ncalls, avgtime, mintime, \
-            maxtime, tottime, globaltot in _timing_file_iter(timing_file):
+            maxtime, tottime, globaltot, children in _timing_file_iter(timing_file):
 
         if rank > max_rank:
             max_rank = rank
@@ -215,10 +263,11 @@ def _show_view(timing_file, options):
     view = options.view.lower()
 
     if view == 'text':
-        for f in options.funcs:
-            ret = view_MPI_timing(timing_file, method=f, out_stream=sys.stdout)
+        for method in options.funcs:
+            ret = view_MPI_timing(timing_file, method=method, out_stream=sys.stdout)
             if ret is None:
-                issue_warning(f"Could find no children of a ParallelGroup running method '{f}'.")
+                issue_warning(
+                    f"Could find no children of a ParallelGroup running method '{method.name}'.")
     elif view == 'browser' or view == 'no_browser':
         view_timing(timing_file, outfile='timing_report.html', show_browser=view == 'browser')
     elif view == 'dump':
@@ -240,7 +289,9 @@ def _postprocess(options):
     if timing_file is None:
         timing_file = 'timings.pkl'
 
-    timing_data = (timing_managers, timer_mod._total_time)
+    nprobs = len(_problem_names)
+
+    timing_data = (timing_managers, timer_mod._total_time, nprobs)
 
     if MPI is not None:
         # need to consolidate the timing data from different procs
@@ -272,9 +323,9 @@ def _timing_setup_parser(parser):
                         help='Name of output file where timing data will be stored. By default it '
                         'goes to "timings.pkl".')
     parser.add_argument('-f', '--func', action='append', default=[],
-                        dest='funcs', help='Time a specified function. Can be applied multiple '
-                        'times to specify multiple functions. '
-                        f'Default methods are {_default_timer_methods}.')
+                        dest='funcs', help='Time a specified set of functions. Can be applied '
+                        'multiple times to specify multiple sets of functions. '
+                        f'Default functions are {_timer_methods["default"]}.')
     parser.add_argument('-v', '--view', action='store', dest='view', default='text',
                         help="View of the output.  Default view is 'text', which shows timing for "
                         "each direct child of a parallel group across all ranks. Other options are "
@@ -295,7 +346,7 @@ def _timing_cmd(options, user_args):
         Args to be passed to the user script.
     """
     if not options.funcs:
-        options.funcs = _default_timer_methods.copy()
+        options.funcs = _timer_methods['default'].copy()
 
     filename = _to_filename(options.file[0])
     if filename.endswith('.py'):
