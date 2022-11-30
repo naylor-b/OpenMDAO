@@ -51,25 +51,6 @@ def _timing_iter(all_timing_managers):
                             t.children
 
 
-def _timer_obj_iter(all_timing_managers):
-    tot_nprocs = len(all_timing_managers)
-
-    # iterates over all of the timing managers and yields all timing info
-    for rank, (timing_managers, tot_time, nprobs) in enumerate(all_timing_managers):
-        if tot_nprocs == 1:
-            rank = None
-        for probname, tmanager in timing_managers.items():
-            if nprobs == 1:
-                probname = None
-            for sysname, timers in tmanager._timers.items():
-                level = len(sysname.split('.')) if sysname else 0
-                for t, parallel, nprocs, classname in timers:
-                    if t.info.ncalls > 0:
-                        yield rank, probname, classname, sysname, level, parallel, nprocs, t.name,\
-                            t.info.ncalls, t.avg(), t.info.min, t.info.max, t.info.total, tot_time,\
-                            t.children
-
-
 def _timing_file_iter(timing_file):
     # iterates over the given timing file
     with open(timing_file, 'rb') as f:
@@ -108,6 +89,12 @@ class FuncTimerInfo(object):
         self.min = 1e99
         self.max = 0
         self.total = 0
+
+    def __iter__(self):
+        yield self.ncalls
+        yield self.min
+        yield self.max
+        yield self.total
 
     def called(self, dt):
         if dt < self.min:
