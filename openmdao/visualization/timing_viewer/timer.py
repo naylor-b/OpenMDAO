@@ -10,6 +10,10 @@ from functools import wraps, partial
 import openmdao.utils.hooks as hooks
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.core.parallel_group import ParallelGroup
+from openmdao.core.system import System
+from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.solvers.solver import Solver
 
 # can use this to globally turn timing on/off so we can time specific sections of code
 _timing_active = False
@@ -78,6 +82,48 @@ def _get_par_child_info(timing_iter, method_info):
         parents[key][sysname].append((rank, ncalls, avg, tmin, tmax, ttot))
 
     return parents
+
+
+class _AttrMatcher(object):
+    __slots__ = ['classes', 'matches', 'name']
+
+    def __init__(self, classes, method_name):
+        self.classes = classes
+        self.matches = {c.__name__ for c in classes}
+        self.name = method_name
+
+    def _match_obj(self, obj):
+        return isinstance(obj, self.classes)
+
+    def _match_cname(self, class_name):
+        return class_name in self.matches
+
+    def __str__(self):
+        return ','.join([c.__name__ + '.' + self.name for c in self.classes])
+
+    def __iter__(self):
+        yield self.classes
+        yield self.name
+
+
+_timer_methods = {
+    'default': [
+        _AttrMatcher((System,), '_solve_nonlinear'),
+        _AttrMatcher((System,), '_solve_linear'),
+        _AttrMatcher((System,), '_apply_nonlinear'),
+        _AttrMatcher((System,), '_apply_linear'),
+        _AttrMatcher((System,), '_linearize'),
+        _AttrMatcher((ExplicitComponent,), 'compute'),
+        _AttrMatcher((ExplicitComponent,), 'compute_partials'),
+        _AttrMatcher((ExplicitComponent,), 'compute_jacvec_product'),
+        _AttrMatcher((ImplicitComponent,), 'linearize'),
+        _AttrMatcher((ImplicitComponent,), 'solve_nonlinear'),
+        _AttrMatcher((ImplicitComponent,), 'solve_linear'),
+        _AttrMatcher((ImplicitComponent,), 'apply_nonlinear'),
+        _AttrMatcher((ImplicitComponent,), 'apply_linear'),
+        _AttrMatcher((Solver,), 'solve'),
+    ]
+}
 
 
 class FuncTimerInfo(object):
@@ -238,19 +284,19 @@ class TimingManager(object):
         self._par_only = options is None or options.view.lower() == 'text'
         self._call_stack = []
 
-    def add_timings(self, name_obj_proc_iter, method_names):
+    def add_timings(self, name_obj_proc_iter, methods):
         """
-        Add FuncTimers for all instances in name_obj_iter and all methods in method_names.
+        Add FuncTimers for all instances in name_obj_iter and all matching methods.
 
         Parameters
         ----------
         name_obj_proc_iter : iterator
             Yields (name, object, nprocs) tuples.
-        method_names : list of str
+        methods : list of str
             List of names of methods to wrap.
         """
         for name, obj, nprocs in name_obj_proc_iter:
-            for _type, method_name in method_names:
+            for _type, method_name in methods:
                 if isinstance(obj, _type):
                     self.add_timing(name, obj, nprocs, method_name)
 
@@ -325,7 +371,7 @@ def timing_context(active=True):
             _total_time += perf_counter() - start_time
 
 
-def _setup_sys_timers(options, system, method_names):
+def _setup_sys_timers(options, system, methods):
     # decorate all specified System methods
     global _timing_managers
 
@@ -335,18 +381,18 @@ def _setup_sys_timers(options, system, method_names):
     if probname not in _timing_managers:
         _timing_managers[probname] = TimingManager(options)
     tmanager = _timing_managers[probname]
-    tmanager.add_timings(name_sys_procs, method_names)
+    tmanager.add_timings(name_sys_procs, methods)
 
 
 def _setup_timers(options, system):
     # hook called after _setup_procs to decorate all specified System methods
     global _timing_managers
 
-    timed_methods = options.funcs
+    timed_methods = _timer_methods['default']
 
     tmanager = _timing_managers.get(system._problem_meta['name'])
     if tmanager is not None and not tmanager._timers:
-        _setup_sys_timers(options, system, method_names=timed_methods)
+        _setup_sys_timers(options, system, methods=timed_methods)
 
 
 def _set_timer_setup_hook(options, problem):
