@@ -1,7 +1,9 @@
 """
 Classes and functions for timing method calls.
 """
-import pickle
+import os
+import weakref
+import sqlite3
 from collections import defaultdict
 from time import perf_counter
 from contextlib import contextmanager
@@ -9,11 +11,13 @@ from functools import wraps, partial
 
 import openmdao.utils.hooks as hooks
 from openmdao.utils.om_warnings import issue_warning
+from openmdao.utils.mpi import MPI
 from openmdao.core.parallel_group import ParallelGroup
 from openmdao.core.system import System
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.solvers.solver import Solver
+from openmdao.core.problem import _problem_names
 
 # can use this to globally turn timing on/off so we can time specific sections of code
 _timing_active = False
@@ -21,19 +25,20 @@ _total_time = 0.
 _timing_managers = {}
 
 
-class _RestrictedUnpickler(pickle.Unpickler):
+# class _RestrictedUnpickler(pickle.Unpickler):
 
-    def find_class(self, module, name):
-        # Only allow classes from this module.
-        if module == 'openmdao.visualization.timing_viewer.timer' or name == 'defaultdict':
-            return globals().get(name)
-        # Forbid everything else.
-        raise pickle.UnpicklingError(f"global '{module}.{name}' is forbidden in timing file.")
+#     def find_class(self, module, name):
+#         # Only allow classes from this module.
+#         if module == 'openmdao.visualization.timing_viewer.timer' or name == 'defaultdict':
+#             return globals().get(name)
+#         # Forbid everything else.
+#         raise pickle.UnpicklingError(f"global '{module}.{name}' is forbidden in timing file.")
 
 
-def _restricted_load(f):
-    # Like pickle.load() but restricted to a specific set of classes.
-    return _RestrictedUnpickler(f).load()
+# def _restricted_load(f):
+#     # Like pickle.load() but restricted to a specific set of classes.
+#     return pickle.load(f)
+#     # return _RestrictedUnpickler(f).load()
 
 
 def _timing_iter(all_timing_managers):
@@ -55,10 +60,10 @@ def _timing_iter(all_timing_managers):
                             t.children
 
 
-def _timing_file_iter(timing_file):
-    # iterates over the given timing file
-    with open(timing_file, 'rb') as f:
-        yield from _timing_iter(_restricted_load(f))
+# def _timing_file_iter(timing_file):
+#     # iterates over the given timing file
+#     with open(timing_file, 'rb') as f:
+#         yield from _timing_iter(_restricted_load(f))
 
 
 def _get_par_child_info(timing_iter, method_info):
@@ -193,7 +198,7 @@ class FuncTimer(object):
         """
         Initialize data structures.
         """
-        self.name = objname + '.' + name
+        self.name = objname + '.' + name if objname else name
         self.stack = stack
         self.children = defaultdict(FuncTimerInfo)
         self.info = FuncTimerInfo()
@@ -319,6 +324,8 @@ class TimingManager(object):
         if method is not None:
             try:
                 obj_name = obj._get_inst_id()
+                if obj_name is None:
+                    obj_name = type(obj).__name__
             except AttributeError:
                 obj_name = type(obj).__name__
             timer = FuncTimer(method_name, obj_name, self._call_stack)
@@ -406,3 +413,72 @@ def _set_timer_setup_hook(options, problem):
         hooks._register_hook('_setup_procs', 'System', inst_id='',
                              post=partial(_setup_timers, options))
         hooks._setup_hooks(problem.model)
+
+
+def _save_timing_data(options):
+    # this is called by atexit after all timing data has been collected
+    # Note that this will not be called if the program exits via sys.exit() with a nonzero
+    # exit code.
+    timing_file = options.outfile
+
+    if timing_file is None:
+        timing_file = 'timings.db'
+
+    nprobs = len(_problem_names)
+
+    timing_data = (_timing_managers, _total_time, nprobs)
+
+    if MPI is not None:
+        # need to consolidate the timing data from different procs
+        all_managers = MPI.COMM_WORLD.gather(timing_data, root=0)
+        if MPI.COMM_WORLD.rank != 0:
+            return
+    else:
+        all_managers = [timing_data]
+
+    try:
+        os.remove(timing_file)
+        issue_warning(f'The existing timing database, {timing_file},'
+                        ' is being overwritten.', category=UserWarning)
+    except OSError:
+        pass
+
+    connection = sqlite3.connect(timing_file)
+
+    tup2id = {}
+    with connection as c:
+        c.execute("CREATE TABLE func_index(id INTEGER PRIMARY KEY, rank INT, "
+                    "prob_name TEXT, class_name TEXT, sys_name TEXT, method TEXT, "
+                    "level INT, parallel INT, nprocs INT, ncalls INT, time REAL, "
+                    "tmin REAL, tmax REAL)")
+
+        c.execute("CREATE TABLE call_tree(id INTEGER PRIMARY KEY, "
+                  "parent_id INT, child_id INT, ncalls INT, time REAL, tmin REAL, tmax REAL)")
+
+        cur = c.cursor()
+        childlist = []
+        for fid, tup in enumerate(_timing_iter(all_managers)):
+            rank, probname, classname, sysname, level, parallel, nprocs, funcname, \
+            ncalls, tavg, tmin, tmax, total, tot_time, children = tup
+
+            # uniquely identifies a function called from a specific parent
+            idtup = (rank, probname, funcname)
+            childlist.append((children, idtup))
+            assert(idtup not in tup2id)
+            tup2id[idtup] = fid
+
+            cur.execute("INSERT INTO func_index(rank, prob_name, "
+                        "class_name, sys_name, method, level, parallel, nprocs, ncalls,"
+                        "time, tmin, tmax) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (rank, probname, classname, sysname, funcname, level, parallel, nprocs,
+                         ncalls, total, tmin, tmax))
+
+        for parent_id, (children, parent_tup) in enumerate(childlist):
+            rank, probname, _ = parent_tup
+            for chname, (ncalls, tmin, tmax, total) in children.items():
+                chid = tup2id[rank, probname, chname]
+                cur.execute("INSERT INTO call_tree(parent_id, child_id, ncalls, time, tmin, tmax) "
+                            "VALUES(?,?,?,?,?,?)", (parent_id, chid, ncalls, total, tmin, tmax))
+
+        # updating
+        # cursor.execute('''UPDATE EMPLOYEE SET INCOME = 5000 WHERE Age<25;''')

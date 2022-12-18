@@ -14,7 +14,7 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
 import openmdao.visualization.timing_viewer.timer as timer_mod
 from openmdao.visualization.timing_viewer.timer import timing_context, _set_timer_setup_hook, \
-    _timing_file_iter, _get_par_child_info
+    _timing_file_iter, _get_par_child_info, _save_timing_data
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.core.constants import _DEFAULT_OUT_STREAM
 from openmdao.core.system import System
@@ -279,35 +279,6 @@ def _show_view(timing_file, options):
                       f"{_view_options}.")
 
 
-def _postprocess(options):
-    # this is called by atexit after all timing data has been collected
-    # Note that this will not be called if the program exits via sys.exit() with a nonzero
-    # exit code.
-    timing_managers = timer_mod._timing_managers
-    timing_file = options.outfile
-
-    if timing_file is None:
-        timing_file = 'timings.pkl'
-
-    nprobs = len(_problem_names)
-
-    timing_data = (timing_managers, timer_mod._total_time, nprobs)
-
-    if MPI is not None:
-        # need to consolidate the timing data from different procs
-        all_managers = MPI.COMM_WORLD.gather(timing_data, root=0)
-        if MPI.COMM_WORLD.rank != 0:
-            return
-    else:
-        all_managers = [timing_data]
-
-    with open(timing_file, 'wb') as f:
-        print(f"Saving timing data to '{timing_file}'.")
-        pickle.dump(all_managers, f, pickle.HIGHEST_PROTOCOL)
-
-    _show_view(timing_file, options)
-
-
 def _timing_setup_parser(parser):
     """
     Set up the openmdao subparser for the 'openmdao timing' command.
@@ -317,11 +288,11 @@ def _timing_setup_parser(parser):
     parser : argparse subparser
         The parser we're adding options to.
     """
-    parser.add_argument('file', nargs=1, help='Python file containing the model, or pickle file '
+    parser.add_argument('file', nargs=1, help='Python file containing the model, or database '
                         'containing previously recorded timing data.')
     parser.add_argument('-o', default=None, action='store', dest='outfile',
                         help='Name of output file where timing data will be stored. By default it '
-                        'goes to "timings.pkl".')
+                        'goes to "timings.db".')
     parser.add_argument('-f', '--func', action='append', default=[],
                         dest='funcs', help='Time a specified set of functions. Can be applied '
                         'multiple times to specify multiple sets of functions. '
@@ -352,8 +323,10 @@ def _timing_cmd(options, user_args):
     if filename.endswith('.py'):
         hooks._register_hook('setup', 'Problem', pre=partial(_set_timer_setup_hook, options))
 
-        # register an atexit function to write out all of the timing data
-        atexit.register(partial(_postprocess, options))
+        # register an atexit functions to write out all of the timing data
+        # these will run in reverse order
+        atexit.register(partial(_show_view, options.file[0], options))
+        atexit.register(partial(_save_timing_data, options))
 
         with timing_context(not options.use_context):
             _load_and_exec(options.file[0], user_args)
