@@ -73,10 +73,18 @@ class ExplicitComponent(Component):
         """
         new_jacvec_prod = getattr(self, 'compute_jacvec_product', None)
 
+        # FIXME: this is a hack to fix the matrix free check when compute_jacvec_product is wrapped
+        # with a timing function, but the matrix free check can break when compute_jacvec_product
+        # is wrapped with other decorators as well.
+        if new_jacvec_prod is not None and hasattr(new_jacvec_prod, '_orig_func_'):
+            new_jacvec_prod = getattr(new_jacvec_prod, '_orig_func_')
+
         self.matrix_free = (
             overrides_method('compute_jacvec_product', self, ExplicitComponent) or
             (new_jacvec_prod is not None and
              new_jacvec_prod != self._inst_functs['compute_jacvec_product']))
+
+        # self.matrix_free = overrides_method('compute_jacvec_product', self, ExplicitComponent)
 
     def _get_partials_varlists(self):
         """
@@ -384,6 +392,7 @@ class ExplicitComponent(Component):
                 # compute_jacvec_product does nothing.
                 return
 
+            # print(f"{self.msginfo} is MATRIX FREEEEEEEEEEEEEE")
             # Jacobian and vectors are all unscaled, dimensional
             with self._unscaled_context(outputs=[self._outputs], residuals=[d_residuals]):
 

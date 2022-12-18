@@ -46,7 +46,6 @@ class _TimingMatch(object):
         yield self.name
 
 
-
 _timer_methods = {
     'default': [
         _TimingMatch((System,), '_solve_nonlinear'),

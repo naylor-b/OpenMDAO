@@ -258,7 +258,9 @@ def _timer_wrap(f, timer):
         timer.post()
         return ret
 
-    return wraps(f)(do_timing)
+    dec = wraps(f)(do_timing)
+    dec._orig_func_ = f
+    return dec
 
 
 class TimingManager(object):
@@ -439,7 +441,7 @@ def _save_timing_data(options):
     try:
         os.remove(timing_file)
         issue_warning(f'The existing timing database, {timing_file},'
-                        ' is being overwritten.', category=UserWarning)
+                      ' is being overwritten.', category=UserWarning)
     except OSError:
         pass
 
@@ -448,37 +450,39 @@ def _save_timing_data(options):
     tup2id = {}
     with connection as c:
         c.execute("CREATE TABLE func_index(id INTEGER PRIMARY KEY, rank INT, "
-                    "prob_name TEXT, class_name TEXT, sys_name TEXT, method TEXT, "
-                    "level INT, parallel INT, nprocs INT, ncalls INT, time REAL, "
-                    "tmin REAL, tmax REAL)")
+                  "prob_name TEXT, class_name TEXT, sys_name TEXT, method TEXT, "
+                  "level INT, parallel INT, nprocs INT, ncalls INT, ftime REAL, "
+                  "tmin REAL, tmax REAL)")
 
-        c.execute("CREATE TABLE call_tree(id INTEGER PRIMARY KEY, "
-                  "parent_id INT, child_id INT, ncalls INT, time REAL, tmin REAL, tmax REAL)")
+        c.execute("CREATE TABLE call_tree(id INTEGER PRIMARY KEY, parent_name TEXT, "
+                  "parent_id INT, child_name TEXT, child_id INT, ncalls INT, ftime REAL, "
+                  "tmin REAL, tmax REAL)")
 
         cur = c.cursor()
         childlist = []
         for fid, tup in enumerate(_timing_iter(all_managers)):
             rank, probname, classname, sysname, level, parallel, nprocs, funcname, \
-            ncalls, tavg, tmin, tmax, total, tot_time, children = tup
+                ncalls, tavg, tmin, tmax, total, tot_time, children = tup
 
             # uniquely identifies a function called from a specific parent
             idtup = (rank, probname, funcname)
             childlist.append((children, idtup))
             assert(idtup not in tup2id)
-            tup2id[idtup] = fid
+            tup2id[idtup] = fid + 1
 
             cur.execute("INSERT INTO func_index(rank, prob_name, "
                         "class_name, sys_name, method, level, parallel, nprocs, ncalls,"
-                        "time, tmin, tmax) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                         (rank, probname, classname, sysname, funcname, level, parallel, nprocs,
                          ncalls, total, tmin, tmax))
 
         for parent_id, (children, parent_tup) in enumerate(childlist):
-            rank, probname, _ = parent_tup
+            rank, probname, parent_name = parent_tup
             for chname, (ncalls, tmin, tmax, total) in children.items():
                 chid = tup2id[rank, probname, chname]
-                cur.execute("INSERT INTO call_tree(parent_id, child_id, ncalls, time, tmin, tmax) "
-                            "VALUES(?,?,?,?,?,?)", (parent_id, chid, ncalls, total, tmin, tmax))
+                cur.execute("INSERT INTO call_tree(parent_name, parent_id, child_name, child_id, "
+                            "ncalls, ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?)",
+                            (parent_name, parent_id + 1, chname, chid, ncalls, total, tmin, tmax))
 
         # updating
         # cursor.execute('''UPDATE EMPLOYEE SET INCOME = 5000 WHERE Age<25;''')
