@@ -213,8 +213,10 @@ class Group(System):
         # called nonlinear_solver and linear_solver without documenting them.
         if not self._nonlinear_solver:
             self._nonlinear_solver = NonlinearRunOnce()
+            self._nonlinear_solver._set_system(self)
         if not self._linear_solver:
             self._linear_solver = LinearRunOnce()
+            self._linear_solver._set_system(self)
 
     def setup(self):
         """

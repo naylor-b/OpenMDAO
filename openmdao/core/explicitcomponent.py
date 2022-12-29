@@ -80,9 +80,9 @@ class ExplicitComponent(Component):
             new_jacvec_prod = getattr(new_jacvec_prod, '_orig_func_')
 
         self.matrix_free = (
-            overrides_method('compute_jacvec_product', self, ExplicitComponent) or
-            (new_jacvec_prod is not None and
-             new_jacvec_prod != self._inst_functs['compute_jacvec_product']))
+            overrides_method('compute_jacvec_product', self, ExplicitComponent)) # or
+            # (new_jacvec_prod is not None and
+            #  new_jacvec_prod != self._inst_functs['compute_jacvec_product']))
 
         # self.matrix_free = overrides_method('compute_jacvec_product', self, ExplicitComponent)
 

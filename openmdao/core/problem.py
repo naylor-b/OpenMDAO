@@ -87,6 +87,18 @@ def _clear_problem_names():
     _reset_all_hooks()
 
 
+def num_problems():
+    """
+    Return the number of Problems existing in the current process.
+
+    Returns
+    -------
+    int
+        The number of existing problems.
+    """
+    return len(_problem_names)
+
+
 def _get_top_script():
     """
     Return the absolute pathname of the top level script.
@@ -104,7 +116,23 @@ def _get_top_script():
         pass
 
 
-def _default_prob_name():
+_default_prob_name = None
+
+
+def set_default_prob_name(name):
+    """
+    Set the default problem name.
+
+    Parameters
+    ----------
+    name
+        The desired default problem name.
+    """
+    global _default_prob_name
+    _default_prob_name = name
+
+
+def default_prob_name():
     """
     Return the default problem name.
 
@@ -113,6 +141,9 @@ def _default_prob_name():
     str
         The default problem name.
     """
+    if _default_prob_name is not None:
+        return _default_prob_name
+
     name = _get_top_script()
     if name is None or env_truthy('TESTFLO_RUNNING'):
         return 'problem'
@@ -220,7 +251,7 @@ class Problem(object):
                 raise ValueError(f"The problem name '{name}' already exists")
         else:  # No name given: look for a name, of the form, 'problemN', that hasn't been used
             problem_counter = len(_problem_names) + 1 if _problem_names else ''
-            base = _default_prob_name()
+            base = default_prob_name()
             _name = f"{base}{problem_counter}"
             if _name in _problem_names:  # need to make it unique so append string of form '.N'
                 i = 1

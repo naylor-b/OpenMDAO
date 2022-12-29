@@ -2351,6 +2351,7 @@ class System(object):
         Set this system's nonlinear solver.
         """
         self._nonlinear_solver = solver
+        self._nonlinear_solver._set_system(self)
 
     @property
     def linear_solver(self):
@@ -2365,6 +2366,7 @@ class System(object):
         Set this system's linear solver.
         """
         self._linear_solver = solver
+        self._linear_solver._set_system(self)
 
     @property
     def _force_alloc_complex(self):

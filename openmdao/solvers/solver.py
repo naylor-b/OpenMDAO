@@ -234,6 +234,9 @@ class Solver(object):
                                "has not been called.")
         return self._problem_meta['solver_info']
 
+    def _set_system(self, system):
+        self._system = weakref.ref(system)
+
     def _assembled_jac_solver_iter(self):
         """
         Return an empty generator of lin solvers using assembled jacs.
@@ -824,6 +827,11 @@ class NonlinearSolver(Solver):
         else:
             self.solve()
 
+    def _get_inst_id(self):
+        if self._system is None:
+            return type(self).__name__
+        return f"{self._system()._get_inst_id()}.nonlinear_solver"
+
 
 class LinearSolver(Solver):
     """
@@ -1016,6 +1024,11 @@ class LinearSolver(Solver):
                                  self._mode, scope_out, scope_in)
         finally:
             self._recording_iter.pop()
+
+    def _get_inst_id(self):
+        if self._system is None:
+            return type(self).__name__
+        return f"{self._system()._get_inst_id()}.linear_solver"
 
 
 class BlockLinearSolver(LinearSolver):

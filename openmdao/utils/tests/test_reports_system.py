@@ -8,7 +8,7 @@ from io import StringIO
 import openmdao.api as om
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.groups.parallel_groups import Diamond
-from openmdao.core.problem import _default_prob_name
+from openmdao.core.problem import default_prob_name
 import openmdao.core.problem as probmod
 from openmdao.core.constants import _UNDEFINED
 from openmdao.utils.general_utils import set_pyoptsparse_opt
@@ -365,11 +365,11 @@ class TestReportsSystem(unittest.TestCase):
         clear_reports()
         register_report("n2_report", _run_n2_report, 'N2 diagram', 'Problem', 'final_setup', 'post',
                         self.n2_filename,
-                        inst_id=_default_prob_name() + '2')
+                        inst_id=default_prob_name() + '2')
 
         probname, subprobname = self.setup_and_run_model_with_subproblem()
 
-        self.assertEqual(_default_prob_name(), probname)
+        self.assertEqual(default_prob_name(), probname)
 
         # The multiple problem code only runs model so no scaling reports to look for
         problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{subprobname}')
@@ -475,7 +475,7 @@ class TestReportsSystem(unittest.TestCase):
         # Only problem1 reports should have been generated
 
         # The multiple problem code only runs model so no scaling reports to look for
-        problem_name = _default_prob_name()
+        problem_name = default_prob_name()
         problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{problem_name}')
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The problem1 N2 report file, {str(path)} was not found')

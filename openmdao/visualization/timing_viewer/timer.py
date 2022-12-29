@@ -2,7 +2,7 @@
 Classes and functions for timing method calls.
 """
 import os
-import weakref
+import sys
 import sqlite3
 from collections import defaultdict
 from time import perf_counter
@@ -42,20 +42,15 @@ _timing_managers = {}
 
 
 def _timing_iter(all_timing_managers):
-    tot_nprocs = len(all_timing_managers)
-
     # iterates over all of the timing managers and yields all timing info
     for rank, (timing_managers, tot_time, nprobs) in enumerate(all_timing_managers):
-        if tot_nprocs == 1:
-            rank = None
         for probname, tmanager in timing_managers.items():
-            if nprobs == 1:
-                probname = None
             for sysname, timers in tmanager._timers.items():
                 level = len(sysname.split('.')) if sysname else 0
                 for t, parallel, nprocs, classname in timers:
                     if t.info.ncalls > 0:
-                        yield rank, probname, classname, sysname, level, parallel, nprocs, t.name,\
+                        fname = t.name.rpartition('.')[2]
+                        yield rank, probname, classname, sysname, level, parallel, nprocs, fname,\
                             t.info.ncalls, t.avg(), t.info.min, t.info.max, t.info.total, tot_time,\
                             t.children
 
@@ -127,6 +122,10 @@ _timer_methods = {
         _AttrMatcher((ImplicitComponent,), 'apply_nonlinear'),
         _AttrMatcher((ImplicitComponent,), 'apply_linear'),
         _AttrMatcher((Solver,), 'solve'),
+        _AttrMatcher((Solver,), '_solve'),
+        _AttrMatcher((Solver,), '_iter_initialize'),
+        _AttrMatcher((Solver,), '_run_apply'),
+        _AttrMatcher((Solver,), '_single_iteration'),
     ]
 }
 
@@ -331,10 +330,13 @@ class TimingManager(object):
             except AttributeError:
                 obj_name = type(obj).__name__
             timer = FuncTimer(method_name, obj_name, self._call_stack)
-            if isinstance(obj, ParallelGroup):
-                self._par_groups.add(obj.pathname)
-            parent = obj.pathname.rpartition('.')[0]
-            is_par_child = parent in self._par_groups
+            if isinstance(obj, System):
+                if isinstance(obj, ParallelGroup):
+                    self._par_groups.add(obj.pathname)
+                parent = obj.pathname.rpartition('.')[0]
+                is_par_child = parent in self._par_groups
+            else:
+                is_par_child = False
             if is_par_child or not self._par_only:
                 if name not in self._timers:
                     self._timers[name] = []
@@ -380,20 +382,32 @@ def timing_context(active=True):
             _total_time += perf_counter() - start_time
 
 
-def _setup_sys_timers(options, system, methods):
+def _obj_nprocs_iter(problem):
+    yield (problem._name, problem, problem.comm.size)
+    yield (problem._name + '.driver', problem.driver, problem.comm.size)
+    for s in problem.model.system_iter(include_self=True, recurse=True):
+        yield (s.pathname, s, s.comm.size)
+        if s.linear_solver:
+            yield (s.pathname + '.linear_solver', s.linear_solver, s.comm.size)
+
+        if s.nonlinear_solver:
+            yield (s.pathname + '.nonlinear_solver', s.nonlinear_solver, s.comm.size)
+
+
+def _setup_sys_timers(options, problem, system, methods):
     # decorate all specified System methods
     global _timing_managers
 
     probname = system._problem_meta['name']
-    name_sys_procs = ((s.pathname, s, s.comm.size) for s in system.system_iter(include_self=True,
-                                                                               recurse=True))
+    # name_sys_procs = ((s.pathname, s, s.comm.size) for s in system.system_iter(include_self=True,
+    #                                                                            recurse=True))
     if probname not in _timing_managers:
         _timing_managers[probname] = TimingManager(options)
     tmanager = _timing_managers[probname]
-    tmanager.add_timings(name_sys_procs, methods)
+    tmanager.add_timings(_obj_nprocs_iter(problem), methods)
 
 
-def _setup_timers(options, system):
+def _setup_timers(options, problem, system):
     # hook called after _setup_procs to decorate all specified System methods
     global _timing_managers
 
@@ -401,7 +415,7 @@ def _setup_timers(options, system):
 
     tmanager = _timing_managers.get(system._problem_meta['name'])
     if tmanager is not None and not tmanager._timers:
-        _setup_sys_timers(options, system, methods=timed_methods)
+        _setup_sys_timers(options, problem, system, methods=timed_methods)
 
 
 def _set_timer_setup_hook(options, problem):
@@ -413,7 +427,7 @@ def _set_timer_setup_hook(options, problem):
     if probname not in _timing_managers:
         _timing_managers[probname] = TimingManager(options)
         hooks._register_hook('_setup_procs', 'System', inst_id='',
-                             post=partial(_setup_timers, options))
+                             post=partial(_setup_timers, options, problem))
         hooks._setup_hooks(problem.model)
 
 
@@ -461,28 +475,151 @@ def _save_timing_data(options):
         cur = c.cursor()
         childlist = []
         for fid, tup in enumerate(_timing_iter(all_managers)):
-            rank, probname, classname, sysname, level, parallel, nprocs, funcname, \
+            rank, probname, classname, objname, level, parallel, nprocs, funcname, \
                 ncalls, tavg, tmin, tmax, total, tot_time, children = tup
 
             # uniquely identifies a function called from a specific parent
-            idtup = (rank, probname, funcname)
+            idtup = (rank, probname, objname, funcname)
             childlist.append((children, idtup))
             assert(idtup not in tup2id)
-            tup2id[idtup] = fid + 1
+            tup2id[idtup] = fid + 1  # add 1 to id because SQL ids start at 1
 
             cur.execute("INSERT INTO func_index(rank, prob_name, "
                         "class_name, sys_name, method, level, parallel, nprocs, ncalls,"
                         "ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (rank, probname, classname, sysname, funcname, level, parallel, nprocs,
+                        (rank, probname, classname, objname, funcname, level, parallel, nprocs,
                          ncalls, total, tmin, tmax))
 
         for parent_id, (children, parent_tup) in enumerate(childlist):
-            rank, probname, parent_name = parent_tup
+            rank, probname, parent_name, funcname = parent_tup
+            parentfunc = parent_name + '.' + funcname
             for chname, (ncalls, tmin, tmax, total) in children.items():
-                chid = tup2id[rank, probname, chname]
+                childsys, _, childfunc = chname.rpartition('.')
+                chid = tup2id[rank, probname, childsys, childfunc]
                 cur.execute("INSERT INTO call_tree(parent_name, parent_id, child_name, child_id, "
                             "ncalls, ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?)",
-                            (parent_name, parent_id + 1, chname, chid, ncalls, total, tmin, tmax))
+                            (parentfunc, parent_id + 1, chname, chid, ncalls, total, tmin, tmax))
 
         # updating
         # cursor.execute('''UPDATE EMPLOYEE SET INCOME = 5000 WHERE Age<25;''')
+
+
+def wherestr(**kwargs):
+    lst = []
+    for name, val in kwargs.items():
+        if isinstance(val, str):
+            lst.append(f"{name}='{val}'")
+        else:
+            lst.append(f"{name}={val}")
+    if lst:
+        return "WHERE " + " AND ".join(lst)
+
+    return ''
+
+
+def indent(pathname, tab='  '):
+    parts = pathname.split('.')
+    depth = 0 if parts[0] == '' else len(parts)
+    return tab * depth
+
+
+def id2func_info(dbcon, func_id):
+    cur = dbcon.cursor()
+    try:
+        for row in cur.execute(f"SELECT * from func_index WHERE id={func_id}"):
+            return row
+    except sqlite3.OperationalError as err:
+        print(err, file=sys.stderr)
+
+
+def func_info_iter(dbcon, sys_name, method=None, prob_name=None, rank=None):
+    where = wherestr(sys_name=sys_name, method=method, prob_name=prob_name, rank=rank)
+    cur = dbcon.cursor()
+    try:
+        for row in cur.execute(f"SELECT * from func_index {where}"):
+            yield row
+    except sqlite3.OperationalError as err:
+        print(err, file=sys.stderr)
+        yield None
+
+
+def children_iter(dbcon, func_id, child_id=None):
+    where = wherestr(parent_id=func_id, child_id=child_id)
+    cur = dbcon.cursor()
+    for row in cur.execute(f"SELECT child_id, child_name, ncalls, ftime from call_tree {where}"):
+        yield row
+
+
+def parent_iter(dbcon, func_id):
+    cur = dbcon.cursor()
+    for row in cur.execute(f"SELECT * from call_tree WHERE child_id = {func_id}"):
+        yield row
+
+
+def func_tree(dbcon, sys_name, method=None, prob_name=None, rank=None):
+    for row in func_info_iter(dbcon, sys_name, method, prob_name=prob_name, rank=rank):
+        fid, rank, pname, class_name, sname, fname, level, parallel, nprocs, ncalls, ftime, \
+            tmin, tmax = row
+
+        print(f"{sys_name}.{method} {ncalls}  {ftime}, {tmin}  {tmax}")
+
+        stack = [children_iter(dbcon, fid)]
+        seen = set()
+        while stack:
+            indent = '  ' * len(stack)
+            try:
+                child_id, child_name, ncalls, ftime = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+
+            print(f"{indent}{child_name}, {ncalls}, {ftime}")
+
+            if child_id not in seen:
+                stack.append(children_iter(dbcon, child_id))
+
+
+def ancestor_func_tree(dbcon, sys_name, method, prob_name=None, rank=None):
+    revstack = []
+    for row in func_info_iter(dbcon, sys_name, method, prob_name=prob_name, rank=rank):
+        # fid, r, pname, class_name, _, _, level, parallel, nprocs, ncalls, ftime, \
+        #     tmin, tmax = row
+
+        stack = [parent_iter(dbcon, row[0])]
+        seen = set()
+        while stack:
+            try:
+                tup = next(stack[-1])
+            except StopIteration:
+                stack.pop()
+                continue
+
+            parent_id = tup[2]
+            child_id = tup[4]
+
+            revstack.append((parent_id, child_id))
+
+            if parent_id not in seen:
+                stack.append(parent_iter(dbcon, parent_id))
+
+    pdict = defaultdict(list)
+    while revstack:
+        parent_id, child_id = revstack.pop()
+        pdict[parent_id].append(child_id)
+
+    print(f"Call tree up from {sys_name}.{method}")
+    if pdict:
+        for i, (parent_id, chlist) in enumerate(pdict.items()):
+            if i == 0:
+                # this is the top level parent, so show its full func info
+                frow = id2func_info(dbcon, parent_id)
+                _, _, _, _, sname, fname, _, _, _, pncalls, pftime, ptmin, ptmax = frow
+                print(f"{sname}.{fname} {pncalls}  {pftime}, {ptmin}  {ptmax}")
+
+            seen = set()
+            for child_id in chlist:
+                if child_id in seen:
+                    continue
+                seen.add(child_id)
+                for _, child_name, cncalls, cftime in children_iter(dbcon, parent_id, child_id):
+                    print(f"{'  ' * (i+1)}{child_name} {cncalls} {cftime}")

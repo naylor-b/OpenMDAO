@@ -42,9 +42,9 @@ class ImplicitComponent(Component):
 
         new_apply_linear = getattr(self, 'apply_linear', None)
 
-        self.matrix_free = (overrides_method('apply_linear', self, ImplicitComponent) or
-                            (new_apply_linear is not None and
-                             self._inst_functs['apply_linear'] != new_apply_linear))
+        self.matrix_free = (overrides_method('apply_linear', self, ImplicitComponent))# or
+                            # (new_apply_linear is not None and
+                            #  self._inst_functs['apply_linear'] != new_apply_linear))
 
     def _apply_nonlinear(self):
         """

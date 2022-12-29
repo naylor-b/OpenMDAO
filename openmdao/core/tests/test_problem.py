@@ -8,7 +8,7 @@ from io import StringIO
 import numpy as np
 
 import openmdao.api as om
-from openmdao.core.problem import _default_prob_name
+from openmdao.core.problem import default_prob_name
 from openmdao.core.driver import Driver
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.misc_components import MultComp
@@ -2465,7 +2465,7 @@ class NestedProblemTestCase(unittest.TestCase):
         p.setup()
         p.run_model()  # need to do run_model in this test so sub problem is created
 
-        defname = _default_prob_name()
+        defname = default_prob_name()
 
         self.assertEqual(p._get_inst_id(), defname)
         self.assertEqual(G.nonlinear_solver._problem._get_inst_id(), defname + '2')
