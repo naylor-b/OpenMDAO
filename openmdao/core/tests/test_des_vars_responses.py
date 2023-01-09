@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 import openmdao.api as om
+from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.mpi import MPI
 from openmdao.test_suite.components.sellar import SellarDerivatives, SellarDis1withDerivatives, \
      SellarDis2withDerivatives
@@ -253,12 +254,108 @@ class TestDesVarsResponses(unittest.TestCase):
         G1.add_design_var('x', units='ft*ft/ft')
         self.assertEqual(G1._static_design_vars['x']['units'], 'ft')
 
+    def test_component_desvar_units1(self):
+
+        class Paraboloid(om.ExplicitComponent):
+            """
+            Evaluates the equation f(x,y) = (x-3)^2 + xy + (y+4)^2 - 3.
+            """
+            def setup(self):
+                self.add_input('x', val=0.0, units='m')
+                self.add_input('y', val=0.0, units='m')
+
+                self.add_output('f_xy', val=0.0, units='m**2')
+
+                self.add_design_var('x', lower=-50, upper=50, units='m')
+                self.add_design_var('y', lower=-50, upper=50, units='m')
+
+            def setup_partials(self):
+                self.declare_partials('*', '*', method='fd')
+
+            def compute(self, inputs, outputs):
+                """
+                f(x,y) = (x-3)^2 + xy + (y+4)^2 - 3
+
+                Unconstrained Minimum at: x = 6.6667; y = -7.3333
+                Constrained Minimum (x + y <= 10) at: x = 7; y = -7
+                """
+                x = inputs['x']
+                y = inputs['y']
+
+                outputs['f_xy'] = (x - 3.0)**2 + x * y + (y + 4.0)**2 - 3.0
+
+        # build the model
+        prob = om.Problem()
+        prob.model.add_subsystem('parab', Paraboloid(),
+                                 promotes_inputs=['x', 'y'])
+
+        prob.model.add_subsystem('const', om.ExecComp('g = x + y', units='m'),
+                                 promotes_inputs=['x', 'y'])
+
+        prob.model.add_objective('parab.f_xy')
+        prob.model.add_constraint('const.g', lower=0, upper=10.)
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP')
+
+        # Design variables 'x' and 'y' span components,
+        # so we need to provide a common initial value for them.
+        prob.model.set_input_defaults('x', 3.0, units='m')
+        prob.model.set_input_defaults('y', -4.0, units='m')
+
+        prob.setup()
+        prob.run_driver()
+
+        assert_near_equal(prob.get_val('parab.f_xy'), -27., 1e-6)
+        assert_near_equal(prob.get_val('x'), 7, 1e-4)
+        assert_near_equal(prob.get_val('y'), -7, 1e-4)
+
+        # provide a common initial values again,
+        # but in imperial units this time
+        ft_per_m = 3.28084
+        prob.model.set_input_defaults('x', 3*ft_per_m, units='ft')
+        prob.model.set_input_defaults('y', 4*ft_per_m, units='ft')
+
+        prob.setup()
+        prob.run_driver()
+
+        # minimum value (still in meters)
+        assert_near_equal(prob.get_val('parab.f_xy'), -27., 1e-6)
+
+        # location of the minimum (in feet)
+        assert_near_equal(prob.get_val('x'), 7*ft_per_m, 1e-4)
+        assert_near_equal(prob.get_val('y'), -7*ft_per_m, 1e-4)
+
+    def test_component_desvar_units2(self):
+
+        class Double(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=0.0, units='degF')
+                self.add_output('y', val=0.0, units='degF')
+
+                self.add_design_var('x', lower=-50, upper=50, units='ft')
+
+            def compute(self, inputs, outputs):
+                outputs['y'] = inputs['x'] * 2
+
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', Double(), promotes=['x'])
+
+        prob.setup()
+
+        with self.assertRaises(RuntimeError) as context:
+            prob.final_setup()
+
+        msg = "'comp' <class Double>: Target for design variable x has 'degF' units, but 'ft' units were specified."
+        self.assertEqual(str(context.exception), msg)
+
 
 class TestDesvarOnModel(unittest.TestCase):
 
     def test_design_var_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='design_var_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
@@ -268,7 +365,9 @@ class TestDesvarOnModel(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.setup()
 
-        self.assertEqual(str(context.exception), "<model> <class SellarDerivatives>: Output not found for design variable 'junk'.")
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'design_var_not_exist':"
+           "\n   <model> <class SellarDerivatives>: Output not found for design variable 'junk'.")
 
     def test_desvar_affine_and_scaleradder(self):
 
@@ -397,21 +496,24 @@ class TestDesvarOnModel(unittest.TestCase):
             prob.model.add_design_var('x', lower=0.0, upper=['a', 'b'],
                                       ref0=-100.0, ref=100)
 
+
 class TestConstraintOnModel(unittest.TestCase):
 
     def test_constraint_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='constraint_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
 
         prob.model.add_constraint('junk')
 
-        with self.assertRaises(RuntimeError) as context:
+        with self.assertRaises(Exception) as context:
             prob.setup()
 
-        self.assertEqual(str(context.exception), "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'constraint_not_exist':"
+           "\n   <model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_constraint_affine_and_scaleradder(self):
 
@@ -607,21 +709,15 @@ class TestConstraintOnModel(unittest.TestCase):
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
 
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(Exception) as context:
             prob.model.add_constraint('con1', lower=0.0, upper=5.0, indices='foo')
 
-        self.assertEqual(str(context.exception), "<class SellarDerivatives>: If specified, constraint 'con1' indices must "
-                                                 "be a sequence of integers.")
+        self.assertEqual(str(context.exception), "<class SellarDerivatives>: Invalid indices foo for constraint 'con1'.")
 
-        with self.assertRaises(ValueError) as context:
-            prob.model.add_constraint('con1', lower=0.0, upper=5.0, indices=1)
+        with self.assertRaises(Exception) as context:
+            prob.model.add_constraint('con3', lower=0.0, upper=5.0, indices=[1, 'k'])
 
-        self.assertEqual(str(context.exception), "<class SellarDerivatives>: If specified, constraint 'con1' indices must be a sequence of integers.")
-
-        with self.assertRaises(ValueError) as context:
-            prob.model.add_constraint('con1', lower=0.0, upper=5.0, indices=[1, 'k'])
-
-        self.assertEqual(str(context.exception), "<class SellarDerivatives>: If specified, constraint 'con1' indices must be a sequence of integers.")
+        self.assertEqual(str(context.exception), "<class SellarDerivatives>: Invalid indices [1, 'k'] for constraint 'con3'.")
 
         # passing an iterator for indices should be valid
         prob.model.add_constraint('con1', lower=0.0, upper=5.0, indices=range(2))
@@ -738,7 +834,6 @@ class TestConstraintFancyIndex(unittest.TestCase):
         np.testing.assert_allclose(prob.get_val("exampleComp.c_xy")[:, 1], [25.00000002, 75.00000024])
 
 
-
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
 class TestAddConstraintMPI(unittest.TestCase):
 
@@ -746,7 +841,7 @@ class TestAddConstraintMPI(unittest.TestCase):
 
     def test_add_bad_con(self):
         # From a bug, this message didn't work in mpi.
-        prob = om.Problem()
+        prob = om.Problem(name='add_bad_con')
         model = prob.model
 
         sub = model.add_subsystem('sub', SellarDerivatives())
@@ -757,15 +852,17 @@ class TestAddConstraintMPI(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.setup(mode='rev')
 
-        msg = "'sub' <class SellarDerivatives>: Output not found for response 'd1.junk'."
-        self.assertEqual(str(context.exception), msg)
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'add_bad_con':"
+           "\n   <model> <class Group>: 'sub' <class SellarDerivatives>: Output not found for "
+           "response 'd1.junk'.")
 
 
 class TestObjectiveOnModel(unittest.TestCase):
 
     def test_obective_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='obective_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
@@ -776,7 +873,7 @@ class TestObjectiveOnModel(unittest.TestCase):
             prob.setup()
 
         self.assertEqual(str(context.exception),
-                         "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
+                         "\nCollected errors for problem 'obective_not_exist':\n   <model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_objective_affine_and_scaleradder(self):
 
@@ -789,8 +886,8 @@ class TestObjectiveOnModel(unittest.TestCase):
             prob.model.add_objective('con1', lower=-100, upper=100, ref=1.0,
                                       scaler=0.5)
 
-        self.assertEqual(str(context.exception),
-                         "add_objective() got an unexpected keyword argument 'lower'")
+        self.assertTrue(str(context.exception).endswith(
+                        "add_objective() got an unexpected keyword argument 'lower'"))
 
         with self.assertRaises(ValueError) as context:
             prob.model.add_objective('con1', ref=0.0, scaler=0.5)
@@ -846,7 +943,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         self.assertAlmostEqual( obj_scaler*(obj_ref + obj_adder), 1.0,
                                 places=12)
 
-    @parameterized.expand(['lower', 'upper', 'adder', 'scaler', 'ref', 'ref0'], 
+    @parameterized.expand(['lower', 'upper', 'adder', 'scaler', 'ref', 'ref0'],
                           name_func=lambda f, n, p: 'test_desvar_size_err_' + '_'.join(a for a in p.args))
     def test_desvar_size_err(self, name):
 
@@ -864,7 +961,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         self.assertEqual(str(context.exception),
                          f"<model> <class SellarDerivatives>: When adding design var 'z', {name} should have size 1 but instead has size 2.")
 
-    @parameterized.expand(['lower', 'upper', 'equals', 'adder', 'scaler', 'ref', 'ref0'], 
+    @parameterized.expand(['lower', 'upper', 'equals', 'adder', 'scaler', 'ref', 'ref0'],
                           name_func=lambda f, n, p: 'test_constraint_size_err_' + '_'.join(a for a in p.args))
     def test_constraint_size_err(self, name):
 
@@ -882,7 +979,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         self.assertEqual(str(context.exception),
                          f"<model> <class SellarDerivatives>: When adding constraint 'z', {name} should have size 1 but instead has size 2.")
 
-    @parameterized.expand(['adder', 'scaler', 'ref', 'ref0'], 
+    @parameterized.expand(['adder', 'scaler', 'ref', 'ref0'],
                           name_func=lambda f, n, p: 'test_objective_size_err_' + '_'.join(a for a in p.args))
     def test_objective_size_err(self, name):
 
@@ -926,6 +1023,46 @@ class TestObjectiveOnModel(unittest.TestCase):
         self.assertEqual(str(context.exception), '<class SellarDerivatives>: If specified, objective index must be an int.')
 
         prob.model.add_objective('obj', index=1)
+
+    def test_constrained_indices_scalar_support(self):
+        p = om.Problem()
+
+        indeps = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+
+        indeps.add_output('x', np.array([ 0.55994437, -0.95923447,  0.21798656, -0.02158783,  0.62183717,
+                                          0.04007379,  0.46044942, -0.10129622,  0.27720413, -0.37107886]))
+        indeps.add_output('y', np.array([ 0.52577864,  0.30894559,  0.8420792 ,  0.35039912, -0.67290778,
+                                         -0.86236787, -0.97500023,  0.47739414,  0.51174103,  0.10052582]))
+        indeps.add_output('r', .7)
+
+        arctan_yox = om.ExecComp('g=arctan(y/x)', has_diag_partials=True,
+                                 g=np.ones(10), x=np.ones(10), y=np.ones(10))
+
+        p.model.add_subsystem('arctan_yox', arctan_yox)
+
+        p.model.add_subsystem('circle', om.ExecComp('area=pi*r**2'))
+
+        p.model.add_subsystem('r_con', om.ExecComp('g=x**2 + y**2 - r', has_diag_partials=True,
+                                                   g=np.ones(10), x=np.ones(10), y=np.ones(10)))
+
+        p.model.connect('r', ('circle.r', 'r_con.r'))
+        p.model.connect('x', ['r_con.x', 'arctan_yox.x'])
+        p.model.connect('y', ['r_con.y', 'arctan_yox.y'])
+
+        p.model.approx_totals(method='cs')
+
+        p.model.add_design_var('x')
+        p.model.add_design_var('y')
+        p.model.add_design_var('r', lower=.5, upper=10)
+        p.model.add_constraint('y', equals=0, indices=0)
+        p.model.add_objective('circle.area', ref=-1)
+
+        p.setup(derivatives=True, force_alloc_complex=True)
+
+        p.run_model()
+        # Formerly a KeyError
+        derivs = p.check_totals(compact_print=True, out_stream=None)
+        assert_near_equal(0.0, derivs['indeps.y', 'indeps.x']['abs error'][0])
 
 
 if __name__ == '__main__':

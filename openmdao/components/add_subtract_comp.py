@@ -1,7 +1,7 @@
 """
 Definition of the Add/Subtract Component.
 """
-import collections
+from collections.abc import Iterable
 
 import numpy as np
 from scipy import sparse as sp
@@ -81,7 +81,7 @@ class AddSubtractComp(ExplicitComponent):
         if isinstance(output_name, str):
             self.add_equation(output_name, input_names, vec_size, length, val,
                               scaling_factors=scaling_factors, **kwargs)
-        elif isinstance(output_name, collections.Iterable):
+        elif isinstance(output_name, Iterable):
             raise NotImplementedError(self.msginfo + ': Declaring multiple addition systems '
                                       'on initiation is not implemented.'
                                       'Use a string to name a single addition relationship or use '
@@ -187,11 +187,6 @@ class AddSubtractComp(ExplicitComponent):
             if input_name not in self._input_names:
                 self.add_input(input_name, shape=shape, units=units,
                                desc=desc + '_inp_' + input_name)
-                sf = scaling_factors[i]
-                self.declare_partials([output_name], [input_name],
-                                      val=sf * sp.eye(vec_size * length, format='csc'))
-                self._input_names[input_name] = {'vec_size': vec_size, 'length': length,
-                                                 'units': units}
             else:
                 # Verify that the input is consistent with that added for a previous equation
                 prev_vec_size = self._input_names[input_name]['vec_size']
@@ -209,6 +204,12 @@ class AddSubtractComp(ExplicitComponent):
                     raise ValueError(self.msginfo + f': Input {input_name} was added in a previous '
                                                     f'equation but had different units '
                                                     f'({prev_units} vs. {units}.')
+
+            sf = scaling_factors[i]
+            self.declare_partials([output_name], [input_name],
+                                  val=sf * sp.eye(vec_size * length, format='csc'))
+            self._input_names[input_name] = {'vec_size': vec_size, 'length': length,
+                                             'units': units}
 
     def add_output(self):
         """

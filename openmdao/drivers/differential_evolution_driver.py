@@ -18,6 +18,11 @@ import copy
 
 import numpy as np
 
+try:
+    from pyDOE2 import lhs
+except ModuleNotFoundError:
+    lhs = None
+
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
 from openmdao.utils.concurrent import concurrent_eval
@@ -38,6 +43,8 @@ class DifferentialEvolutionDriver(Driver):
 
     Attributes
     ----------
+    _problem_comm : MPI.Comm or None
+        The MPI communicator for the Problem.
     _concurrent_pop_size : int
         Number of points to run concurrently when model is a parallel one.
     _concurrent_color : int
@@ -47,17 +54,26 @@ class DifferentialEvolutionDriver(Driver):
         design variables.
     _ga : <DifferentialEvolution>
         Main genetic algorithm lies here.
-    _randomstate : np.random.RandomState, int
-         Random state (or seed-number) which controls the seed and random draws.
+    _nfit : int
+         Number of successful function evaluations.
+    _randomstate : int
+        Seed-number which controls the random draws.
     """
 
     def __init__(self, **kwargs):
         """
         Initialize the DifferentialEvolutionDriver driver.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         super().__init__(**kwargs)
 
         # What we support
+        self.supports['optimization'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
         self.supports['multiple_objectives'] = True
@@ -73,6 +89,7 @@ class DifferentialEvolutionDriver(Driver):
 
         self._desvar_idx = {}
         self._ga = None
+        self._nfit = 0
 
         # random state can be set for predictability during testing
         if 'DifferentialEvolutionDriver_seed' in os.environ:
@@ -126,6 +143,29 @@ class DifferentialEvolutionDriver(Driver):
         """
         super()._setup_driver(problem)
 
+        # check design vars and constraints for invalid bounds
+        for name, meta in self._designvars.items():
+            lower, upper = meta['lower'], meta['upper']
+            for param in (lower, upper):
+                if param is None or np.all(np.abs(param) >= INF_BOUND):
+                    msg = (f"Invalid bounds for design variable '{name}'. When using "
+                           f"{self.__class__.__name__}, values for both 'lower' and 'upper' "
+                           f"must be specified between +/-INF_BOUND ({INF_BOUND}), "
+                           f"but they are: lower={lower}, upper={upper}.")
+                    raise ValueError(msg)
+
+        for name, meta in self._cons.items():
+            equals, lower, upper = meta['equals'], meta['lower'], meta['upper']
+            if ((equals is None or np.all(np.abs(equals) >= INF_BOUND)) and
+               (lower is None or np.all(np.abs(lower) >= INF_BOUND)) and
+               (upper is None or np.all(np.abs(upper) >= INF_BOUND))):
+                msg = (f"Invalid bounds for constraint '{name}'. "
+                       f"When using {self.__class__.__name__}, the value for 'equals', "
+                       f"'lower' or 'upper' must be specified between +/-INF_BOUND "
+                       f"({INF_BOUND}), but they are: "
+                       f"equals={equals}, lower={lower}, upper={upper}.")
+                raise ValueError(msg)
+
         model_mpi = None
         comm = problem.comm
         if self._concurrent_pop_size > 0:
@@ -151,6 +191,8 @@ class DifferentialEvolutionDriver(Driver):
         MPI.Comm or <FakeComm> or None
             The communicator for the Problem model.
         """
+        self._problem_comm = comm
+
         procs_per_model = self.options['procs_per_model']
         if MPI and self.options['run_parallel']:
 
@@ -175,6 +217,31 @@ class DifferentialEvolutionDriver(Driver):
         self._concurrent_color = 0
         return comm
 
+    def _setup_recording(self):
+        """
+        Set up case recording.
+        """
+        if MPI:
+            run_parallel = self.options['run_parallel']
+            procs_per_model = self.options['procs_per_model']
+
+            for recorder in self._rec_mgr:
+                if run_parallel:
+                    # write cases only on procs up to the number of parallel models
+                    # (i.e. on the root procs for the cases)
+                    if procs_per_model == 1:
+                        recorder.record_on_process = True
+                    else:
+                        size = self._problem_comm.size // procs_per_model
+                        if self._problem_comm.rank < size:
+                            recorder.record_on_process = True
+
+                elif self._problem_comm.rank == 0:
+                    # if not running cases in parallel, then just record on proc 0
+                    recorder.record_on_process = True
+
+        super()._setup_recording()
+
     def _get_name(self):
         """
         Get name of current Driver.
@@ -185,6 +252,28 @@ class DifferentialEvolutionDriver(Driver):
             Name of current Driver.
         """
         return "DifferentialEvolution"
+
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        return self._nfit
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        return 0
 
     def run(self):
         """
@@ -226,15 +315,13 @@ class DifferentialEvolutionDriver(Driver):
             upper_bound[i:j] = meta['upper']
             x0[i:j] = desvar_vals[name]
 
-        abs2prom = model._var_abs2prom['output']
-
         # Automatic population size.
         if pop_size == 0:
             pop_size = 20 * count
 
-        desvar_new, obj, nfit = ga.execute_ga(x0, lower_bound, upper_bound,
-                                              pop_size, max_gen,
-                                              self._randomstate, F, Pc)
+        desvar_new, obj, self._nfit = ga.execute_ga(x0, lower_bound, upper_bound,
+                                                    pop_size, max_gen,
+                                                    self._randomstate, F, Pc)
 
         # Pull optimal parameters back into framework and re-run, so that
         # framework is left in the right final state
@@ -447,6 +534,12 @@ class DifferentialEvolution(object):
         """
         Initialize genetic algorithm object.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         self.objfun = objfun
         self.comm = comm
 
@@ -470,8 +563,8 @@ class DifferentialEvolution(object):
             Number of points in the population.
         max_gen : int
             Number of generations to run the GA.
-        random_state : np.random.RandomState, int
-            Random state (or seed-number) which controls the seed and random draws.
+        random_state : int
+            Seed-number which controls the random draws.
         F : float
             Differential rate.
         Pc : float
@@ -495,12 +588,29 @@ class DifferentialEvolution(object):
             pop_size += 1
         self.npop = int(pop_size)
 
-        # use different seeds in different MPI processes
-        seed = random_state + self.comm.Get_rank() if self.comm else 0
+        if self.comm is not None and self.comm.size > 1:
+            if random_state is None:
+                # if no random_state is given, generate one on rank 0 and broadcast it to all
+                # ranks.  Because we add the rank to the starting random state, no ranks will
+                # have the same seed.
+                rng = np.random.default_rng()
+                random_state = rng.integers(2**31)  # Must be less than 2^32-1
+                if self.comm.rank == 0:
+                    self.comm.bcast(random_state, root=0)
+                else:
+                    random_state = self.comm.bcast(None, root=0)
+
+            # add rank to ensure different seed in each MPI process
+            seed = random_state + self.comm.rank
+        else:
+            seed = random_state
+
         rng = np.random.default_rng(seed)
 
-        # create random initial population, scaled to bounds
-        population = rng.random([self.npop, self.lchrom]) * (vub - vlb) + vlb  # scale to bounds
+        # create LHS initial population (scaled to bounds) + user initial condition
+        population = lhs(self.lchrom, self.npop - 1, criterion='center', random_state=seed)
+        population = population * (vub - vlb) + vlb  # scale to bounds
+        population = np.vstack((population, x0))
         fitness = np.ones(self.npop) * np.inf  # initialize fitness to infinitely bad
 
         # Main Loop

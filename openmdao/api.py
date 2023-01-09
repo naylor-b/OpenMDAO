@@ -69,7 +69,7 @@ from openmdao.utils.spline_distributions import node_centered
 from openmdao.vectors.default_vector import DefaultVector
 try:
     from openmdao.vectors.petsc_vector import PETScVector
-except ImportError:
+except ImportError:  # pragma: no cover
     PETScVector = None
 
 # Drivers
@@ -93,6 +93,12 @@ from openmdao.recorders.case_reader import CaseReader
 from openmdao.visualization.n2_viewer.n2_viewer import n2
 from openmdao.visualization.connection_viewer.viewconns import view_connections
 from openmdao.visualization.partial_deriv_plot import partial_deriv_plot
+from openmdao.visualization.timing_viewer.timer import timing_context
+from openmdao.visualization.timing_viewer.timing_viewer import view_timing, view_timing_dump, \
+    view_MPI_timing
+from openmdao.visualization.options_widget import OptionsWidget
+from openmdao.visualization.case_viewer.case_viewer import CaseViewer
+from openmdao.visualization.tables.table_builder import generate_table
 
 # Notebook Utils
 from openmdao.utils.notebook_utils import notebook_mode, display_source, show_options_table, cite
@@ -107,16 +113,35 @@ from openmdao.utils.om_warnings import issue_warning, reset_warnings, OpenMDAOWa
     MPIWarning, UnitsWarning, SolverWarning, OMDeprecationWarning, \
     OMInvalidCheckDerivativesOptionsWarning
 
+# Utils
+from openmdao.utils.general_utils import wing_dbg, env_truthy
+from openmdao.utils.array_utils import shape_to_len
 
-from openmdao.utils.general_utils import wing_dbg
+# Reports System
+from openmdao.utils.reports_system import register_report, unregister_report, get_reports_dir, \
+    list_reports, clear_reports
+
+import os
+
+wing_dbg()
 
 # set up tracing or memory profiling if env vars are set.
-import os
-if os.environ.get('OPENMDAO_TRACE'):
+if env_truthy('OPENMDAO_TRACE'):  # pragma: no cover
     from openmdao.devtools.itrace import setup, start
     setup(os.environ['OPENMDAO_TRACE'])
     start()
-elif os.environ.get('OPENMDAO_PROF_MEM'):
+elif env_truthy('OPENMDAO_PROF_MEM'):  # pragma: no cover
     from openmdao.devtools.iprof_mem import setup, start
     setup(os.environ['OPENMDAO_PROF_MEM'])
     start()
+
+
+if env_truthy('FLUSH_PRINT'):  # pragma: no cover
+    import builtins
+    _oldprint = builtins.print
+
+    def _flushprint(*args, **kwargs):
+        kwargs['flush'] = True
+        _oldprint(*args, **kwargs)
+
+    builtins.print = _flushprint

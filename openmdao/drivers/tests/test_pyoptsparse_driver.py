@@ -3,7 +3,7 @@
 import copy
 import unittest
 
-from distutils.version import LooseVersion
+from packaging.version import Version
 
 import numpy as np
 
@@ -12,11 +12,11 @@ from openmdao.test_suite.components.expl_comp_array import TestExplCompArrayDens
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
-from openmdao.utils.assert_utils import assert_near_equal, assert_warning
+from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_check_totals
 from openmdao.utils.general_utils import set_pyoptsparse_opt, run_driver
 from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse
 from openmdao.utils.mpi import MPI
-from openmdao.utils.om_warnings import OMDeprecationWarning
+
 
 # check that pyoptsparse is installed
 # if it is, try to use SNOPT but fall back to SLSQP
@@ -247,7 +247,8 @@ class TestMPIScatter(unittest.TestCase):
         model.add_subsystem('sum', om.ExecComp('f_sum = sum(f_xy)',
                                                f_sum=np.ones((size, )),
                                                f_xy=np.ones((size, ))),
-                            promotes=['*'])
+                            promotes_outputs=['*'])
+        model.promotes('sum', inputs=['f_xy'], src_indices=om.slicer[:])
 
         model.add_design_var('x', lower=-50.0, upper=50.0)
         model.add_design_var('y', lower=-50.0, upper=50.0)
@@ -557,6 +558,64 @@ class TestPyoptSparse(unittest.TestCase):
 
         # Minimum should be at (7.166667, -7.833334)
         assert_near_equal(prob['x'] - prob['y'], 11.0, 1e-6)
+
+    def test_simple_paraboloid_linear_with_y_intercept_eq(self):
+        prob = om.Problem()
+        model = prob.model
+
+        model.set_input_defaults('x', 50.0)
+        model.set_input_defaults('y', 50.0)
+
+        parab = om.ExecComp('f_xy = (x-3.0)**2 + x*y + (y+4.0)**2 - 3.0')
+
+        model.add_subsystem('comp', parab, promotes=['*'])
+        model.add_subsystem('con', om.ExecComp('c = x + y - 25.0'), promotes=['*'])
+
+        prob.set_solver_print(level=0)
+
+        prob.driver = om.pyOptSparseDriver()
+        prob.driver.options['optimizer'] = OPTIMIZER
+
+        model.add_design_var('x', lower=-50.0, upper=50.0)
+        model.add_design_var('y', lower=-50.0, upper=50.0)
+        model.add_objective('f_xy')
+        model.add_constraint('c', equals=0.0, linear=True)
+
+        prob.setup()
+
+        prob.run_driver()
+
+        assert_near_equal(prob['x'], 19.5, 1e-6)
+        assert_near_equal(prob['y'], 5.5, 1e-6)
+
+    def test_simple_paraboloid_linear_with_y_intercept_ineq(self):
+        prob = om.Problem()
+        model = prob.model
+
+        model.set_input_defaults('x', 50.0)
+        model.set_input_defaults('y', 50.0)
+
+        parab = om.ExecComp('f_xy = (x-3.0)**2 + x*y + (y+4.0)**2 - 3.0')
+
+        model.add_subsystem('comp', parab, promotes=['*'])
+        model.add_subsystem('con', om.ExecComp('c = x + y - 25.0'), promotes=['*'])
+
+        prob.set_solver_print(level=0)
+
+        prob.driver = om.pyOptSparseDriver()
+        prob.driver.options['optimizer'] = OPTIMIZER
+
+        model.add_design_var('x', lower=-50.0, upper=50.0)
+        model.add_design_var('y', lower=-50.0, upper=50.0)
+        model.add_objective('f_xy')
+        model.add_constraint('c', lower=0.0, linear=True)
+
+        prob.setup()
+
+        prob.run_driver()
+
+        assert_near_equal(prob['x'], 19.5, 1e-6)
+        assert_near_equal(prob['y'], 5.5, 1e-6)
 
     def test_simple_array_comp2D(self):
 
@@ -1209,7 +1268,8 @@ class TestPyoptSparse(unittest.TestCase):
     def test_sellar_mdf(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = pyOptSparseDriver()
         prob.driver.options['optimizer'] = OPTIMIZER
@@ -1347,51 +1407,6 @@ class TestPyoptSparse(unittest.TestCase):
         # Piggyback test: make sure we can run the driver again as a subdriver without a keyerror.
         prob.driver.run()
 
-    def test_analysis_error_objfunc(self):
-
-        # Component raises an analysis error during some runs, and pyopt
-        # attempts to recover.
-
-        prob = om.Problem()
-        model = prob.model
-
-        model.add_subsystem('p1', om.IndepVarComp('x', 50.0), promotes=['*'])
-        model.add_subsystem('p2', om.IndepVarComp('y', 50.0), promotes=['*'])
-
-        model.add_subsystem('comp', ParaboloidAE(), promotes=['*'])
-
-        model.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
-
-        prob.driver = pyOptSparseDriver()
-        prob.driver.options['optimizer'] = OPTIMIZER
-
-        if OPTIMIZER == 'SLSQP':
-            prob.driver.opt_settings['ACC'] = 1e-9
-
-        prob.driver.options['print_results'] = False
-        model.add_design_var('x', lower=-50.0, upper=50.0)
-        model.add_design_var('y', lower=-50.0, upper=50.0)
-
-        model.add_objective('f_xy')
-        model.add_constraint('c', upper=-15.0)
-
-        prob.setup()
-        failed = prob.run_driver()
-
-        self.assertFalse(failed, "Optimization failed, info = " +
-                                 str(prob.driver.pyopt_solution.optInform))
-
-        # Minimum should be at (7.166667, -7.833334)
-        assert_near_equal(prob['x'], 7.16667, 1e-6)
-        assert_near_equal(prob['y'], -7.833334, 1e-6)
-
-        # Normally it takes 9 iterations, but takes 13 here because of the
-        # analysis failures. (note SLSQP takes 5 instead of 4)
-        if OPTIMIZER == 'SLSQP':
-            self.assertEqual(prob.driver.iter_count, 7)
-        else:
-            self.assertEqual(prob.driver.iter_count, 15)
-
     def test_raised_error_objfunc(self):
 
         # Component fails hard this time during execution, so we expect
@@ -1429,59 +1444,6 @@ class TestPyoptSparse(unittest.TestCase):
             prob.run_driver()
 
         # pyopt's failure message differs by platform and is not informative anyway
-
-    def test_analysis_error_sensfunc(self):
-
-        # Component raises an analysis error during some linearize calls, and
-        # pyopt attempts to recover.
-
-        prob = om.Problem()
-        model = prob.model
-
-        model.add_subsystem('p1', om.IndepVarComp('x', 50.0), promotes=['*'])
-        model.add_subsystem('p2', om.IndepVarComp('y', 50.0), promotes=['*'])
-
-        comp = model.add_subsystem('comp', ParaboloidAE(), promotes=['*'])
-
-        model.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
-
-        prob.driver = pyOptSparseDriver()
-        prob.driver.options['optimizer'] = OPTIMIZER
-
-        if OPTIMIZER == 'SLSQP':
-            prob.driver.opt_settings['ACC'] = 1e-9
-
-        prob.driver.options['print_results'] = False
-        model.add_design_var('x', lower=-50.0, upper=50.0)
-        model.add_design_var('y', lower=-50.0, upper=50.0)
-
-        model.add_objective('f_xy')
-        model.add_constraint('c', upper=-15.0)
-
-        comp.grad_fail_at = 2
-        comp.eval_fail_at = 100
-
-        prob.setup()
-
-        failed = prob.run_driver()
-
-        self.assertFalse(failed, "Optimization failed, info = " +
-                                 str(prob.driver.pyopt_solution.optInform))
-
-        # SLSQP does a bad job recovering from gradient failures
-        if OPTIMIZER == 'SLSQP':
-            tol = 1e-2
-        else:
-            tol = 1e-6
-
-        # Minimum should be at (7.166667, -7.833334)
-        assert_near_equal(prob['x'], 7.16667, tol)
-        assert_near_equal(prob['y'], -7.833334, tol)
-
-        # Normally it takes 9 iterations, but takes 13 here because of the
-        # gradfunc failures. (note SLSQP just doesn't do well)
-        if OPTIMIZER == 'SNOPT':
-            self.assertEqual(prob.driver.iter_count, 15)
 
     def test_raised_error_sensfunc(self):
 
@@ -1718,8 +1680,8 @@ class TestPyoptSparse(unittest.TestCase):
     def test_show_exception_bad_opt(self):
 
         # First, check if we have the optimizer for this test. If they do, then just skip it.
-        _, loc_opt = set_pyoptsparse_opt('NOMAD')
-        if loc_opt == 'NOMAD':
+        _, loc_opt = set_pyoptsparse_opt('NLPQLP')
+        if loc_opt == 'NLPQLP':
             raise unittest.SkipTest("Skipping because user has this optimizer.")
 
         prob = om.Problem()
@@ -1739,19 +1701,19 @@ class TestPyoptSparse(unittest.TestCase):
 
         prob.driver = pyOptSparseDriver()
 
-        # We generally don't hae a working NOMAD install.
-        prob.driver.options['optimizer'] = 'NOMAD'
+        # We generally don't have a working NLPQLP install.
+        prob.driver.options['optimizer'] = 'NLPQLP'
         prob.setup()
 
         # Test that we get exception.
         with self.assertRaises(ImportError) as raises_cm:
             prob.run_driver()
 
-        self.assertTrue("NOMAD is not available" in str(raises_cm.exception))
+        self.assertTrue("NLPQLP is not available" in str(raises_cm.exception))
 
     # Travis testing core dumps on many of the machines. Probabaly a build problem with the NSGA source.
     # Limiting this to the single travis 1.14 machine for now.
-    @unittest.skipUnless(LooseVersion(np.__version__) >= LooseVersion("1.13"), "numpy >= 1.13 is required.")
+    @unittest.skipUnless(Version(np.__version__) >= Version("1.13"), "numpy >= 1.13 is required.")
     def test_initial_run_NSGA2(self):
         _, local_opt = set_pyoptsparse_opt('NSGA2')
         if local_opt != 'NSGA2':
@@ -1833,7 +1795,7 @@ class TestPyoptSparse(unittest.TestCase):
         self.assertNotEqual(comp.visited_points[1], 1.0)
 
     # Seems to be a bug in numpy 1.12, fixed in later versions.
-    @unittest.skipUnless(LooseVersion(np.__version__) >= LooseVersion("1.13"), "numpy >= 1.13 is required.")
+    @unittest.skipUnless(Version(np.__version__) >= Version("1.13"), "numpy >= 1.13 is required.")
     def test_initial_run_ALPSO(self):
         _, local_opt = set_pyoptsparse_opt('ALPSO')
         if local_opt != 'ALPSO':
@@ -1945,7 +1907,7 @@ class TestPyoptSparse(unittest.TestCase):
 
         import pyoptsparse
         if not hasattr(pyoptsparse, '__version__') or \
-           LooseVersion(pyoptsparse.__version__) < LooseVersion('1.1.0'):
+           Version(pyoptsparse.__version__) < Version('1.1.0'):
             raise unittest.SkipTest("pyoptsparse needs to be updated to 1.1.0")
 
         class ParaboloidSIG(om.ExplicitComponent):
@@ -2270,6 +2232,469 @@ class TestPyoptSparse(unittest.TestCase):
 
         prob.run_driver()
 
+    def test_constraint_alias(self):
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                        a={'shape': (1,)},
+                        y={'shape': (101,)},
+                        x={'shape': (101,)},
+                        z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25)
+        p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        p.setup()
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_near_equal(p.get_val('exec.z')[0], 25, tolerance=1e-4)
+        assert_near_equal(p.get_val('exec.z')[50], -75, tolerance=1e-4)
+
+    def test_multiple_constraints_no_alias(self):
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                        a={'shape': (1,)},
+                        y={'shape': (101,)},
+                        x={'shape': (101,)},
+                        z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25)
+
+        msg = "Constraint 'exec.z' already exists. Use the 'alias' argument to apply a second constraint"
+        with self.assertRaises(RuntimeError) as msg:
+            p.model.add_constraint('exec.z', indices=[-1], lower=20)
+
+    def test_obj_and_con_same_var_different_indices(self):
+
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                           a={'shape': (1,)},
+                           y={'shape': (101,)},
+                           x={'shape': (101,)},
+                           z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.z', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        p.setup()
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_near_equal(p.get_val('exec.z')[0], 25)
+        assert_near_equal(p.get_val('exec.z')[50], -75)
+
+    def test_multi_constraint_promotes(self):
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec, promotes=['*'])
+
+        p.model.add_design_var('a', lower=-1000, upper=1000)
+        p.model.add_objective('y', index=50)
+        p.model.add_constraint('z', indices=[-1], lower=0)
+        p.model.add_constraint('z', indices=[50], equals=-70, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        p.setup()
+
+        p.set_val('x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_near_equal(p.get_val('z')[-1], 30, tolerance=1e-4)
+        assert_near_equal(p.get_val('z')[50], -70, tolerance=1e-4)
+
+    def test_overlapping_response_indices(self):
+        p = om.Problem(name='overlapping_response_indices')
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0, 1], equals=25)
+
+        # Need to fix up this test to run right
+        with self.assertRaises(RuntimeError) as ctx:
+            p.model.add_constraint('exec.z', indices=om.slicer[1:10], lower=20, alias="ALIAS_TEST")
+            p.setup()
+
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
+
+        p = om.Problem(name='overlapping_response_indices2')
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0, 1], equals=25)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            p.model.add_constraint('exec.z', indices=[0], lower=20, alias="ALIAS_TEST")
+            p.setup()
+
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices2':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
+
+        p = om.Problem(name='overlapping_response_indices3')
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0, 1], equals=25)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            p.model.add_constraint('exec.z', indices=[1, 2], lower=20, alias="ALIAS_TEST")
+            p.setup()
+
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices3':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
+
+        p = om.Problem(name='overlapping_response_indices4')
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0, 100], equals=25)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
+            p.setup()
+
+        self.assertEqual(str(ctx.exception),
+            "\nCollected errors for problem 'overlapping_response_indices4':"
+            "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+            "constraint/objective 'exec.z'.")
+
+    def test_constraint_aliases_standalone(self):
+        size = 7
+
+        prob = om.Problem()
+        model = prob.model
+
+        ivc = om.IndepVarComp()
+        ivc.add_output('x', np.ones((size, )))
+        ivc.add_output('y', np.ones((size, )))
+        ivc.add_output('a', -3.0 + 0.6 * np.arange(size))
+
+        model.add_subsystem('p', ivc, promotes=['*'])
+        model.add_subsystem("parab", DistParab(arr_size=size, deriv_type='dense'), promotes=['*'])
+
+        model.add_subsystem('sum', om.ExecComp('f_sum = sum(f_xy)',
+                                                   f_sum=np.ones((size, )),
+                                                   f_xy=np.ones((size, ))),
+                                promotes_outputs=['*'])
+
+        model.promotes('sum', inputs=['f_xy'], src_indices=om.slicer[:])
+
+        model.add_design_var('x', lower=-50.0, upper=50.0)
+
+        model.add_constraint('f_xy', indices=[5], flat_indices=True, alias='a1', lower=10.0)
+        model.add_constraint('f_xy', indices=[1], flat_indices=True, alias='a2', lower=0.5)
+
+        model.add_objective('f_sum', index=-1)
+
+        prob.driver = om.pyOptSparseDriver(optimizer='SLSQP')
+
+        prob.setup(force_alloc_complex=True)
+        prob.run_model()
+
+        desvar = prob.driver.get_design_var_values()
+        con = prob.driver.get_constraint_values()
+
+        assert_near_equal(con['a1'], 24.0)
+        assert_near_equal(con['a2'], 24.96)
+
+        totals = prob.check_totals(method='cs', out_stream=None)
+        assert_check_totals(totals)
+
+        # Makes sure relevancy works in this case.
+        prob.run_driver()
+        assert_near_equal(prob.get_val('f_sum')[-1], 160.6500)
+
+    def test_fwd_rev_obj_constraint(self):
+        # Test equality constraint
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.z', index=50)
+        p.model.add_constraint('exec.z', indices=[-1], equals=25, alias="ALIAS_TEST")
+
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        # FWD
+        p.setup(mode='fwd')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 25)
+        assert_near_equal(p.get_val('exec.z')[50], -75)
+
+        # REV
+        p.setup(mode='rev')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 25)
+        assert_near_equal(p.get_val('exec.z')[50], -75)
+
+        # Test inequality constraint
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.z', index=50)
+        p.model.add_constraint('exec.z', indices=[-1], lower=30., alias="ALIAS_TEST")
+
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        # FWD
+        p.setup(mode='fwd')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 30., tolerance=1e-13)
+        assert_near_equal(p.get_val('exec.z')[50], -70, tolerance=1e-13)
+
+        # REV
+        p.setup(mode='rev')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 30., tolerance=1e-13)
+        assert_near_equal(p.get_val('exec.z')[50], -70, tolerance=1e-13)
+
+    def test_fwd_rev_multi_constraint(self):
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25)
+        p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        # FWD
+        p.setup(mode='fwd')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 25, tolerance=1e-4)
+        assert_near_equal(p.get_val('exec.z')[50], -75, tolerance=1e-4)
+
+        # REV
+        p.setup(mode='rev')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_check_totals(p.check_totals())
+        assert_near_equal(p.get_val('exec.z')[0], 25, tolerance=1e-4)
+        assert_near_equal(p.get_val('exec.z')[50], -75, tolerance=1e-4)
+
+    def test_fwd_rev_compute_totals_check(self):
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25)
+        p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = OPTIMIZER
+
+        # FWD
+        p.setup(mode='fwd')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_model()
+        p.run_driver()
+
+        J = p.compute_totals()
+        assert_near_equal(J[('exec.y', 'exec.a')].flatten(), np.array([-0]))
+        assert_near_equal(J[('exec.z', 'exec.a')].flatten(), np.array([1.]))
+        assert_near_equal(J[('ALIAS_TEST', 'exec.a')].flatten(), np.array([1.]))
+
+        # REV
+        p.setup(mode='rev')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_model()
+        p.run_driver()
+
+        J = p.compute_totals()
+        assert_near_equal(J[('exec.y', 'exec.a')].flatten(), np.array([-0]))
+        assert_near_equal(J[('exec.z', 'exec.a')].flatten(), np.array([1.]))
+        assert_near_equal(J[('ALIAS_TEST', 'exec.a')].flatten(), np.array([1.]))
+
+    def test_dynamic_coloring_w_multi_constraints(self):
+
+        OPT, OPTIMIZER = set_pyoptsparse_opt('SNOPT', fallback=False)
+
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[0], equals=25)
+        p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
+
+        p.driver = om.pyOptSparseDriver()
+        p.driver.options['optimizer'] = "SNOPT"
+
+        p.driver.declare_coloring()
+
+        p.setup(mode='rev')
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_model()
+        p.run_driver()
+
+        J = p.compute_totals()
+
+        assert_near_equal(J[('exec.y', 'exec.a')].flatten(), np.array([-0]))
+        assert_near_equal(J[('exec.z', 'exec.a')].flatten(), np.array([1.]))
+        assert_near_equal(J[('ALIAS_TEST', 'exec.a')].flatten(), np.array([1.]))
+        assert_near_equal(p.get_val('exec.z')[0], 25, tolerance=1e-4)
+        assert_near_equal(p.get_val('exec.z')[50], -75, tolerance=1e-4)
 
 
 @unittest.skipIf(OPT is None or OPTIMIZER is None, "only run if pyoptsparse is installed.")
@@ -2353,7 +2778,8 @@ class TestPyoptSparseFeature(unittest.TestCase):
     def test_slsqp_maxit(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SLSQP"
@@ -2383,7 +2809,8 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
     def test_snopt_atol(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
@@ -2406,7 +2833,8 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
     def test_snopt_maxit(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
@@ -2638,18 +3066,6 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
         prob.driver.options['user_terminate_signal'] = signal.SIGUSR1
-
-    def test_options_deprecated(self):
-        # Not a feature test.
-        prob = om.Problem()
-        model = prob.model
-
-        prob.driver = om.pyOptSparseDriver()
-        prob.driver.options['optimizer'] = "SNOPT"
-
-        msg = "The option 'user_teriminate_signal' was misspelled and will be deprecated. Please use 'user_terminate_signal' instead."
-        with assert_warning(OMDeprecationWarning, msg):
-            prob.driver.options['user_teriminate_signal'] = None
 
 
 class MatMultCompExact(om.ExplicitComponent):

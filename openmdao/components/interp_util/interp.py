@@ -9,13 +9,17 @@ import numpy as np
 from openmdao.components.interp_util.interp_akima import InterpAkima, Interp1DAkima
 from openmdao.components.interp_util.interp_bsplines import InterpBSplines
 from openmdao.components.interp_util.interp_cubic import InterpCubic
-from openmdao.components.interp_util.interp_lagrange2 import InterpLagrange2, Interp3DLagrange2
-from openmdao.components.interp_util.interp_lagrange3 import InterpLagrange3, Interp3DLagrange3
+from openmdao.components.interp_util.interp_lagrange2 import InterpLagrange2, Interp3DLagrange2,\
+    Interp2DLagrange2, Interp1DLagrange2
+from openmdao.components.interp_util.interp_lagrange3 import InterpLagrange3, Interp3DLagrange3, \
+    Interp2DLagrange3, Interp1DLagrange3
 from openmdao.components.interp_util.interp_scipy import InterpScipy
-from openmdao.components.interp_util.interp_slinear import InterpLinear, Interp3DSlinear
+from openmdao.components.interp_util.interp_slinear import InterpLinear, Interp3DSlinear, \
+    Interp1DSlinear, Interp2DSlinear
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.utils.om_warnings import warn_deprecation
+from openmdao.utils.array_utils import shape_to_len
 
 
 INTERP_METHODS = {
@@ -28,8 +32,14 @@ INTERP_METHODS = {
     'scipy_slinear': InterpScipy,
     'scipy_quintic': InterpScipy,
     'bsplines': InterpBSplines,
+    '1D-slinear': Interp1DSlinear,
+    '2D-slinear': Interp2DSlinear,
     '3D-slinear': Interp3DSlinear,
+    '1D-lagrange2': Interp1DLagrange2,
+    '2D-lagrange2': Interp2DLagrange2,
     '3D-lagrange2': Interp3DLagrange2,
+    '1D-lagrange3': Interp1DLagrange3,
+    '2D-lagrange3': Interp2DLagrange3,
     '3D-lagrange3': Interp3DLagrange3,
     '1D-akima': Interp1DAkima,
     'trilinear': Interp3DSlinear,  # Deprecated
@@ -38,8 +48,11 @@ INTERP_METHODS = {
 
 TABLE_METHODS = ['slinear', 'lagrange2', 'lagrange3', 'cubic', 'akima',
                  'scipy_cubic', 'scipy_slinear', 'scipy_quintic',
-                 'trilinear', 'akima1D',  # all Deprecated
-                 '3D-slinear', '1D-akima', '3D-lagrange2', '3D-lagrange3']
+                 'trilinear', 'akima1D',  # These two are Deprecated
+                 '3D-slinear', '2D-slinear', '1D-slinear',
+                 '1D-akima',
+                 '3D-lagrange2', '2D-lagrange2', '1D-lagrange2',
+                 '3D-lagrange3', '2D-lagrange3', '1D-lagrange3']
 SPLINE_METHODS = ['slinear', 'lagrange2', 'lagrange3', 'cubic', 'akima', 'bsplines',
                   'scipy_cubic', 'scipy_slinear', 'scipy_quintic']
 
@@ -185,8 +198,9 @@ class InterpND(object):
                 raise ValueError("There are %d point arrays, but values has %d "
                                  "dimensions" % (len(points), values.ndim))
 
-            if np.iscomplexobj(values[:]):
-                msg = "Interpolation method '%s' does not support complex values." % method
+            if (method.startswith('scipy') or method == 'akima') and \
+               (np.iscomplexobj(values[:]) or np.any(np.iscomplex(points[0]))):
+                msg = f"Interpolation method '{method}' does not support complex points or values."
                 raise ValueError(msg)
 
             for i, p in enumerate(points):
@@ -409,7 +423,7 @@ class InterpND(object):
                 # Scipy implementation vectorized over lookups, but not over multiple table values.
                 interp = self._interp
                 n_nodes, _ = values.shape
-                nx = np.prod(xi.shape)
+                nx = shape_to_len(xi.shape)
 
                 result = np.empty((n_nodes, nx), dtype=values.dtype)
                 derivs_val = None
@@ -425,7 +439,7 @@ class InterpND(object):
         else:
             interp = self._interp
             n_nodes, _ = values.shape
-            nx = np.prod(xi.shape)
+            nx = shape_to_len(xi.shape)
             result = np.empty((n_nodes, nx), dtype=values.dtype)
             derivs_val = None
 

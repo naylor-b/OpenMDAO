@@ -2,11 +2,7 @@
 import unittest
 import itertools
 
-# note: this is a Python 3.3 change, clean this up for OpenMDAO 3.x
-try:
-    from collections.abc import Iterable
-except ImportError:
-    from collections import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -23,9 +19,8 @@ try:
 except ImportError:
     PETScVector = None
 
+from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.assert_utils import assert_near_equal
-from openmdao.utils.logger_utils import TestLogger
-from openmdao.error_checking.check_config import _default_checks
 from openmdao.core.tests.test_distrib_derivs import DistribExecComp
 
 def _test_func_name(func, num, param):
@@ -52,7 +47,7 @@ class TestParallelGroups(unittest.TestCase):
     @parameterized.expand(itertools.product(['fwd', 'rev'], [True, False]),
                           name_func=_test_func_name)
     def test_dup_dup(self, mode, auto):
-        # duplicated vars on both ends
+        # non-distributed vars on both ends
         prob = om.Problem()
         model = prob.model
 
@@ -83,7 +78,7 @@ class TestParallelGroups(unittest.TestCase):
     @parameterized.expand(itertools.product(['fwd', 'rev'], [True, False]),
                           name_func=_test_func_name)
     def test_dup_par(self, mode, auto):
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         prob = om.Problem()
         model = prob.model
 
@@ -153,7 +148,7 @@ class TestParallelGroups(unittest.TestCase):
         assert_near_equal(prob.get_val('dup.y', get_remote=True), 1.5, 1e-6)
 
     def test_dup_par_par_derivs(self):
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         prob = om.Problem()
         model = prob.model
 
@@ -189,7 +184,7 @@ class TestParallelGroups(unittest.TestCase):
     def test_dup_dist(self, mode, auto):
         # Note: Auto-ivc not supported for distributed inputs.
 
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         prob = om.Problem()
         model = prob.model
         size = 3
@@ -225,7 +220,7 @@ class TestParallelGroups(unittest.TestCase):
     @parameterized.expand(itertools.product(['fwd', 'rev']),
                           name_func=_test_func_name)
     def test_par_dup(self, mode):
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         prob = om.Problem()
         model = prob.model
 
@@ -256,7 +251,7 @@ class TestParallelGroups(unittest.TestCase):
     @parameterized.expand(itertools.product(['fwd', 'rev'], [False]),
                           name_func=_test_func_name)
     def test_dist_dup(self, mode, auto):
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         # Note: Auto-ivc not supported for distributed inputs.
         prob = om.Problem()
         model = prob.model
@@ -293,7 +288,7 @@ class TestParallelGroups(unittest.TestCase):
     @parameterized.expand(itertools.product(['fwd', 'rev'], [True, False]),
                           name_func=_test_func_name)
     def test_par_dist(self, mode, auto):
-        # duplicated output, parallel input
+        # non-distributed output, parallel input
         prob = om.Problem()
         model = prob.model
         size = 3
@@ -378,3 +373,57 @@ class TestParallelGroups(unittest.TestCase):
         np.testing.assert_allclose(prob.get_val('C6.y', get_remote=True),
                                    141.2)
 
+
+@unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+class TestParallelNorm(unittest.TestCase):
+
+    N_PROCS = 3
+
+    def test_mpi_norm(self):
+        class Norm(om.ExplicitComponent):
+
+            def setup(self):
+                self.add_input('x', shape_by_conn=True, distributed=True)
+                self.add_output('n', val=0.0)
+
+            def compute(self, inputs, outputs):
+                outputs['n'][:] = self.compute_norm(inputs['x'])
+
+            def compute_jacvec_product(self, inputs, d_inputs, d_outputs, mode):
+                x = inputs['x']
+                dx = d_inputs['x']
+                norm = self.compute_norm(x)
+                if norm == 0:
+                    jac = np.ones(x.shape)
+                else:
+                    jac = self.comm.size * x / norm
+
+                if mode == 'fwd':
+                    if 'n' in d_outputs:
+                        if 'x' in d_inputs:
+                            d_outputs['n'][:] = np.sum(jac * dx)
+                else:
+                    if 'n' in d_outputs:
+                        if 'x' in d_inputs:
+                            dx[:] = jac * d_outputs['n']
+
+            def compute_norm(self, x):
+                local_norm = np.linalg.norm(x) ** 2
+                return self.comm.allreduce(local_norm, MPI.SUM) ** 0.5
+
+        SIZE = 12
+
+        comm = self.comm
+        sizes, offsets = evenly_distrib_idxs(comm.size, SIZE)
+        prob = om.Problem()
+        model = prob.model
+        ivc = om.IndepVarComp()
+        ivc.add_output('x', np.arange(offsets[comm.rank], offsets[comm.rank] + sizes[comm.rank]), distributed=True)
+        model.add_subsystem('ivc', ivc)
+        model.add_subsystem('norm', Norm())
+        model.connect('ivc.x', 'norm.x')
+        model.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
+        prob.setup()
+        prob.run_model()
+
+        np.testing.assert_allclose(np.array([22.49444376]), prob.get_val("norm.n"))

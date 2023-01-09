@@ -28,6 +28,8 @@ parts:
     - file: advanced_user_guide/analytic_derivatives/partial_derivs_explicit
     - file: advanced_user_guide/recording/advanced_case_recording
     - file: advanced_user_guide/example/euler_integration_example
+    - file: advanced_user_guide/complex_step
+    - file: advanced_user_guide/analysis_errors/analysis_error
 - caption: Reference Guide
   chapters:
   - file: theory_manual/theory_manual
@@ -41,6 +43,7 @@ parts:
     - file: theory_manual/total_derivs_theory
     - file: theory_manual/setup_linear_solvers
     - file: theory_manual/advanced_linear_solvers_special_cases/advanced_linear_solvers_special_cases
+    - file: theory_manual/mpi
   - file: features/features
     sections:
     - file: features/core_features/main.md

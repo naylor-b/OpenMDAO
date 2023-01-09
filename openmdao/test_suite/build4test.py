@@ -9,7 +9,6 @@ from openmdao.core.group import Group
 from openmdao.core.parallel_group import ParallelGroup
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.indepvarcomp import IndepVarComp
-from openmdao.test_suite.components.exec_comp_for_test import ExecComp4Test
 
 from openmdao.utils.mpi import MPI
 
@@ -32,10 +31,10 @@ class DynComp(ExplicitComponent):
 
     def setup(self):
         for i in range(self.ninputs):
-            self.add_input('i%d'%i, self.var_factory(*self.vf_args))
+            self.add_input(f'i{i}', self.var_factory(*self.vf_args))
 
         for i in range(self.noutputs):
-            self.add_output("o%d"%i, self.var_factory(*self.vf_args))
+            self.add_output(f'o{i}', self.var_factory(*self.vf_args))
 
     def compute(self, inputs, outputs):
         time.sleep(self.nl_sleep)

@@ -64,7 +64,7 @@ class BroydenSolver(NonlinearSolver):
         Flag that becomes True when Broyden detects it needs to recompute the inverse Jacobian.
     """
 
-    SOLVER = 'BROYDEN'
+    SOLVER = 'NL: BROYDEN'
 
     def __init__(self, **kwargs):
         """
@@ -320,7 +320,7 @@ class BroydenSolver(NonlinearSolver):
         # Start with initial states.
         self.xm = self.get_vector(system._outputs)
 
-        with Recording('Broyden', 0, self):
+        with Recording('Broyden', 0, self) as rec:
             self._solver_info.append_solver()
 
             # should call the subsystems solve before computing the first residual
@@ -328,10 +328,13 @@ class BroydenSolver(NonlinearSolver):
 
             self._solver_info.pop()
 
-        self._run_apply()
-        norm = self._iter_get_norm()
+            self._run_apply()
+            norm = self._iter_get_norm()
 
-        norm0 = norm if norm != 0.0 else 1.0
+            rec.abs = norm
+            norm0 = norm if norm != 0.0 else 1.0
+            rec.rel = norm / norm0
+
         return norm0, norm
 
     def _iter_get_norm(self):
@@ -396,10 +399,9 @@ class BroydenSolver(NonlinearSolver):
             self.set_states(xm)
 
         # Run the model.
-        with Recording('Broyden', 0, self):
-            self._solver_info.append_solver()
-            self._gs_iter()
-            self._solver_info.pop()
+        self._solver_info.append_solver()
+        self._gs_iter()
+        self._solver_info.pop()
 
         self._run_apply()
 
@@ -528,7 +530,7 @@ class BroydenSolver(NonlinearSolver):
         dx : ndarray
             Full step in the states for this iteration.
         """
-        linear = self._system()._vectors['output']['linear']
+        linear = self._system()._doutputs
 
         if self._full_inverse:
             linear.set_val(dx)
@@ -552,8 +554,8 @@ class BroydenSolver(NonlinearSolver):
         # TODO: Can do each state in parallel if procs are available.
         system = self._system()
         states = self.options['state_vars']
-        d_res = system._vectors['residual']['linear']
-        d_out = system._vectors['output']['linear']
+        d_res = system._dresiduals
+        d_out = system._doutputs
 
         inv_jac = self.Gm
         d_res.set_val(0.0)

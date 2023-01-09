@@ -13,8 +13,6 @@ from openmdao.drivers.doe_generators import DOEGenerator, ListGenerator
 
 from openmdao.utils.mpi import MPI
 
-from openmdao.recorders.sqlite_recorder import SqliteRecorder
-
 
 class DOEDriver(Driver):
     """
@@ -35,6 +33,10 @@ class DOEDriver(Driver):
         The MPI communicator for the Problem.
     _color : int or None
         In MPI, the cached color is used to determine which cases to run on this proc.
+    _indep_list : list
+        List of design variables.
+    _quantities : list
+        Contains the objectives plus nonlinear constraints.
     """
 
     def __init__(self, generator=None, **kwargs):
@@ -62,6 +64,7 @@ class DOEDriver(Driver):
 
         # What we don't support
         self.supports['distributed_design_vars'] = False
+        self.supports['optimization'] = False
         self.supports._read_only = True
 
         if generator is not None:
@@ -70,6 +73,10 @@ class DOEDriver(Driver):
         self._name = ''
         self._problem_comm = None
         self._color = None
+
+        self._indep_list = []
+        self._quantities = []
+        self._total_jac_format = 'dict'
 
     def _declare_options(self):
         """
@@ -98,7 +105,9 @@ class DOEDriver(Driver):
         """
         self._problem_comm = comm
 
-        if MPI:
+        if not MPI:
+            return comm
+        else:
             procs_per_model = self.options['procs_per_model']
 
             full_size = comm.size
@@ -109,12 +118,9 @@ class DOEDriver(Driver):
                                    "number of processors that is a multiple of %d, or "
                                    "specify a number of processors per model that divides "
                                    "into %d." % (procs_per_model, full_size))
-            color = self._color = comm.rank % size
-            model_comm = comm.Split(color)
-        else:
-            model_comm = comm
 
-        return model_comm
+            color = self._color = comm.rank % size
+            return comm.Split(color)
 
     def _set_name(self):
         """
@@ -156,9 +162,24 @@ class DOEDriver(Driver):
             Failure flag; True if failed to converge, False is successful.
         """
         self.iter_count = 0
+        self._quantities = []
 
         # set driver name with current generator
         self._set_name()
+
+        # Add all design variables
+        dv_meta = self._designvars
+        self._indep_list = list(dv_meta)
+
+        # Add all objectives
+        objs = self.get_objective_values()
+        for name in objs:
+            self._quantities.append(name)
+
+        # Add all constraints
+        con_meta = self._cons
+        for name, _ in con_meta.items():
+            self._quantities.append(name)
 
         if MPI and self.options['run_parallel']:
             case_gen = self._parallel_generator
@@ -193,7 +214,7 @@ class DOEDriver(Driver):
                 msg = "Error assigning %s = %s: " % (dv_name, dv_val) + str(err)
             finally:
                 if msg:
-                    raise(ValueError(msg))
+                    raise ValueError(msg)
 
         with RecordingDebugging(self._get_name(), self.iter_count, self) as rec:
             try:
@@ -210,6 +231,12 @@ class DOEDriver(Driver):
 
             # save reference to metadata for use in record_iteration
             self._metadata = metadata
+
+        opts = self.recording_options
+        if opts['record_derivatives']:
+            self._compute_totals(of=self._quantities,
+                                 wrt=self._indep_list,
+                                 return_format=self._total_jac_format)
 
     def _parallel_generator(self, design_vars, model=None):
         """
@@ -241,22 +268,23 @@ class DOEDriver(Driver):
         Set up case recording.
         """
         if MPI:
+            run_parallel = self.options['run_parallel']
             procs_per_model = self.options['procs_per_model']
 
             for recorder in self._rec_mgr:
-                recorder._parallel = True
-
-                # if SqliteRecorder, write cases only on procs up to the number
-                # of parallel DOEs (i.e. on the root procs for the cases)
-                if isinstance(recorder, SqliteRecorder):
+                if run_parallel:
+                    # write cases only on procs up to the number of parallel models
+                    # (i.e. on the root procs for the cases)
                     if procs_per_model == 1:
-                        recorder._record_on_proc = True
+                        recorder.record_on_process = True
                     else:
                         size = self._problem_comm.size // procs_per_model
                         if self._problem_comm.rank < size:
-                            recorder._record_on_proc = True
-                        else:
-                            recorder._record_on_proc = False
+                            recorder.record_on_process = True
+
+                elif self._problem_comm.rank == 0:
+                    # if not running cases in parallel, then just record on proc 0
+                    recorder.record_on_process = True
 
         super()._setup_recording()
 

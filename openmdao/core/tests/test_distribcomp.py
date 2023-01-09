@@ -83,9 +83,11 @@ class DistribInputComp(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         if MPI:
+            out = np.ascontiguousarray(outputs['outvec'])
             self.comm.Allgatherv(inputs['invec']*2.0,
-                                 [outputs['outvec'], self.sizes,
+                                 [out, self.sizes,
                                   self.offsets, MPI.DOUBLE])
+            outputs.set_var('outvec', out)
         else:
             outputs['outvec'] = inputs['invec'] * 2.0
 
@@ -366,6 +368,8 @@ class DistribParaboloid(om.ExplicitComponent):
 @unittest.skipUnless(MPI, "MPI is required.")
 class DistributedIO(unittest.TestCase):
 
+    N_PROCS = 2
+
     def test_driver_metadata(self):
         self.comm = MPI.COMM_WORLD
 
@@ -435,9 +439,13 @@ class MPITests(unittest.TestCase):
         model = p.model
         model.add_subsystem('indep', om.IndepVarComp('x', np.ones(size*2)))
         model.add_subsystem("Cdist", DistribInputDistribOutputComp(arr_size=size*2))
+        if p.comm.rank == 0:
+            inds = [0,1,2]
+        else:
+            inds = [3,4]
         model.add_subsystem("Cdist2", DistribInputDistribOutputComp(arr_size=size))
         model.connect('indep.x', 'Cdist.invec')
-        model.connect('Cdist.outvec', 'Cdist2.invec')
+        model.connect('Cdist.outvec', 'Cdist2.invec', src_indices=inds)
 
         p.setup()
         p.run_model()

@@ -1,30 +1,25 @@
 """Some miscellaneous utility functions."""
-from contextlib import contextmanager
 import os
 import re
 import sys
-import warnings
+import types
 import unittest
+from contextlib import contextmanager
 from fnmatch import fnmatchcase
 from io import StringIO
-from numbers import Number
+from numbers import Integral
+from inspect import currentframe, getouterframes
 
-# note: this is a Python 3.3 change, clean this up for OpenMDAO 3.x
-try:
-    from collections.abc import Iterable
-except ImportError:
-    from collections import Iterable
-
-import numbers
+from collections.abc import Iterable
 
 import numpy as np
 
-from openmdao.core.constants import INT_DTYPE, INF_BOUND
-from openmdao.utils.om_warnings import issue_warning, _warn_simple_format, warn_deprecation
+from openmdao.core.constants import INF_BOUND
+from openmdao.utils.om_warnings import issue_warning, warn_deprecation
+from openmdao.utils.array_utils import shape_to_len
 
-# Certain command line tools can make use of this to allow visualization of models when errors
-# are present that would normally cause setup to abort.
-_ignore_errors = False
+
+_float_inf = float('inf')
 
 
 def _convert_auto_ivc_to_conn_name(conns_dict, name):
@@ -48,70 +43,6 @@ def _convert_auto_ivc_to_conn_name(conns_dict, name):
             return key
 
 
-def ignore_errors(flag=None):
-    """
-    Disable certain errors that will prevent setup from completing.
-
-    Parameters
-    ----------
-    flag : bool or None
-        If not None, set the value of _ignore_errors to this value.
-
-    Returns
-    -------
-    bool
-        The current value of _ignore_errors.
-    """
-    global _ignore_errors
-    if flag is not None:
-        _ignore_errors = flag
-    return _ignore_errors
-
-
-def conditional_error(msg, exc=RuntimeError, category=UserWarning, err=None):
-    """
-    Raise an exception or issue a warning, depending on the value of _ignore_errors.
-
-    Parameters
-    ----------
-    msg : str
-        The error/warning message.
-    exc : Exception class
-        This exception class is used to create the exception to be raised.
-    category : warning class
-        This category is the class of warning to be issued.
-    err : bool
-        If None, use ignore_errors(), otherwise use value of err to determine whether to
-        raise an exception (err=True) or issue a warning (err=False).
-    """
-    if (err is None and ignore_errors()) or err is False:
-        issue_warning(msg, category=category)
-    else:
-        raise exc(msg)
-
-
-@contextmanager
-def ignore_errors_context(flag=True):
-    """
-    Set ignore_errors to the given flag in this context.
-
-    Parameters
-    ----------
-    flag : bool
-        If not None, set ignore_errors to this value.
-
-    Yields
-    ------
-    None
-    """
-    save = ignore_errors()
-    ignore_errors(flag)
-    try:
-        yield
-    finally:
-        ignore_errors(save)
-
-
 def simple_warning(msg, category=UserWarning, stacklevel=2):
     """
     Display a simple warning message without the annoying extra line showing the warning call.
@@ -127,12 +58,7 @@ def simple_warning(msg, category=UserWarning, stacklevel=2):
     """
     warn_deprecation('simple_warning is deprecated. '
                      'Use openmdao.utils.om_warnings.issue_warning instead.')
-    old_format = warnings.formatwarning
-    warnings.formatwarning = _warn_simple_format
-    try:
-        warnings.warn(msg, category, stacklevel)
-    finally:
-        warnings.formatwarning = old_format
+    issue_warning(msg, stacklevel=stacklevel, category=category)
 
 
 def ensure_compatible(name, value, shape=None, indices=None):
@@ -168,7 +94,7 @@ def ensure_compatible(name, value, shape=None, indices=None):
 
     # if shape is not given, infer from value (if not scalar) or indices
     if shape is not None:
-        if isinstance(shape, numbers.Integral):
+        if isinstance(shape, Integral):
             shape = (shape,)
         elif isinstance(shape, list):
             shape = tuple(shape)
@@ -177,16 +103,16 @@ def ensure_compatible(name, value, shape=None, indices=None):
 
     if indices is not None:
         if not indices._flat_src and shape is None:
-            raise RuntimeError("src_indices for '%s' is not flat, so its input "
-                               "shape must be provided." % name)
+            raise RuntimeError(f"src_indices for '{name}' is not flat, so its input "
+                               "shape must be provided.")
         try:
             indshape = indices.indexed_src_shape
         except (RuntimeError, ValueError, TypeError):
             pass  # use shape provided or shape of value and check vs. shape of indices later
         else:
-            if shape is not None and np.product(indshape) != np.product(shape):
-                raise ValueError("Shape of indices %s does not match shape of %s for '%s'." %
-                                 (indshape, shape, name))
+            if shape is not None and shape_to_len(indshape) != shape_to_len(shape):
+                raise ValueError(f"Shape of indices {indshape} does not match shape of {shape} for"
+                                 f" '{name}'.")
             if shape is None:
                 shape = indshape
 
@@ -197,13 +123,13 @@ def ensure_compatible(name, value, shape=None, indices=None):
     else:
         # shape is determined, if value is scalar assign it to array of shape
         # otherwise make sure value is an array of the determined shape
-        if np.isscalar(value) or value.shape == () or value.shape == (1,):
-            value = np.ones(shape) * value
+        if np.ndim(value) == 0 or value.shape == (1,):
+            value = np.full(shape, value)
         else:
             value = np.atleast_1d(value).astype(np.float64)
             if value.shape != shape:
-                raise ValueError("Incompatible shape for '%s': Expected %s but got %s." %
-                                 (name, shape, value.shape))
+                raise ValueError(f"Incompatible shape for '{name}': Expected {shape} but got "
+                                 f"{value.shape}.")
 
     return value, shape
 
@@ -366,26 +292,27 @@ def format_as_float_or_array(name, values, val_if_none=0.0, flatten=False):
         If values is scalar, not None, and not a Number.
     """
     # Convert adder to ndarray/float as necessary
-    if isinstance(values, np.ndarray):
-        if flatten:
-            values = values.flatten()
-    elif not isinstance(values, str) \
-            and isinstance(values, Iterable):
-        values = np.asarray(values, dtype=float)
+    if isinstance(values, float):
+        if values == _float_inf:
+            values = INF_BOUND
+        elif values == -_float_inf:
+            values = -INF_BOUND
+    elif isinstance(values, np.ndarray):
         if flatten:
             values = values.flatten()
     elif values is None:
         values = val_if_none
-    elif values == float('inf'):
-        values = INF_BOUND
-    elif values == -float('inf'):
-        values = -INF_BOUND
-    elif isinstance(values, numbers.Number):
-        values = float(values)
+    elif isinstance(values, Iterable) and not isinstance(values, str):
+        values = np.asarray(values, dtype=float)
+        if flatten:
+            values = values.flatten()
     else:
-        raise TypeError('Expected values of {0} to be an Iterable of '
-                        'numeric values, or a scalar numeric value. '
-                        'Got {1} instead.'.format(name, values))
+        try:
+            values = float(values)
+        except Exception:
+            raise TypeError(f'Expected values of {name} to be an Iterable of '
+                            'numeric values, or a scalar numeric value. '
+                            f'Got {values} instead.')
     return values
 
 
@@ -456,6 +383,28 @@ def find_matches(pattern, var_list):
     return [name for name in var_list if fnmatchcase(name, pattern)]
 
 
+def _find_dict_meta(dct, key):
+    """
+    Return True if the given key is found in any metadata values in the given dict.
+
+    Parameters
+    ----------
+    dct : dict
+        The metadata dictionary (a dict of dicts).
+    key : str
+        The metadata key being searched for.
+
+    Returns
+    -------
+    bool
+        True if non-None metadata at the given key was found.
+    """
+    for meta in dct.values():
+        if key in meta and meta[key] is not None:
+            return True
+    return False
+
+
 def pad_name(name, pad_num=10, quotes=False):
     """
     Pad a string so that they all line up when stacked.
@@ -474,21 +423,37 @@ def pad_name(name, pad_num=10, quotes=False):
     str
         Padded string.
     """
-    l_name = len(name)
-    quotes_len = 2 if quotes else 0
-    if l_name + quotes_len < pad_num:
-        pad = pad_num - (l_name + quotes_len)
-        if quotes:
-            pad_str = "'{name}'{sep:<{pad}}"
-        else:
-            pad_str = "{name}{sep:<{pad}}"
-        pad_name = pad_str.format(name=name, sep='', pad=pad)
-        return pad_name
+    name = f"'{name}'" if quotes else name
+    if pad_num > len(name):
+        return f"{name:<{pad_num}}"
     else:
-        if quotes:
-            return "'{0}'".format(name)
-        else:
-            return '{0}'.format(name)
+        return f'{name}'
+
+
+def add_border(msg, borderstr='=', vpad=0):
+    """
+    Add border lines before and after a message.
+
+    The message is assumed not to span multiple lines.
+
+    Parameters
+    ----------
+    msg : str
+        The message to be enclosed in a border.
+    borderstr : str
+        The repeating string to be used in the border.
+    vpad : int
+        The number of blank lines between the border and the message (before and after).
+
+    Returns
+    -------
+    str
+        A string containing the original message enclosed in a border.
+    """
+    border = len(msg) * borderstr
+    # handle borderstr of more than 1 char
+    border = border[:len(msg)]
+    return f"{border}\n{msg}\n{border}"
 
 
 def run_model(prob, ignore_exception=False):
@@ -579,7 +544,8 @@ def printoptions(*args, **kwds):
 
     See Also
     --------
-        set_printoptions, get_printoptions
+        set_printoptions : Set printing options.
+        get_printoptions : Get printing options.
     """
     opts = np.get_printoptions()
 
@@ -890,7 +856,24 @@ def match_prom_or_abs(name, prom_name, includes=None, excludes=None):
     return False
 
 
-_falsey = {'0', 'false', 'no', ''}
+_falsey = {'0', 'false', 'no', 'off', 'none', ''}
+
+
+def is_truthy(s):
+    """
+    Return True if the given string is 'truthy'.
+
+    Parameters
+    ----------
+    s : str
+        The name string being tested.
+
+    Returns
+    -------
+    bool
+        True if the specified string is 'truthy'.
+    """
+    return s.lower() not in _falsey
 
 
 def env_truthy(env_var):
@@ -907,7 +890,7 @@ def env_truthy(env_var):
     bool
         True if the specified environment variable is 'truthy'.
     """
-    return os.environ.get(env_var, '0').lower() not in _falsey
+    return is_truthy(os.environ.get(env_var, ''))
 
 
 def common_subpath(pathnames):
@@ -967,85 +950,58 @@ def _is_slicer_op(indices):
     return isinstance(indices, slice)
 
 
-def _slice_indices(slicer, arr_size, arr_shape):
+def _src_name_iter(proms):
     """
-    Return an index array based on a slice or slice tuple and the array size and shape.
+    Yield keys from proms with promoted input names converted to source names.
 
     Parameters
     ----------
-    slicer : slice or tuple containing slices
-        Slice object to slice array
-    arr_size : int
-        Size of output array
-    arr_shape : tuple
-        Tuple of output array shape
-
-    Returns
-    -------
-    array
-        Returns the sliced indices.
-    """
-    if isinstance(slicer, slice):
-        # for a simple slice we can use less memory
-        start, stop, step = slicer.start, slicer.stop, slicer.step
-        if start is None:
-            start = 0
-        if stop is None:
-            stop = arr_size
-        if step is None:
-            step = 1
-        return np.arange(start, stop, step, dtype=INT_DTYPE).reshape(arr_shape)
-    else:
-        return np.arange(arr_size, dtype=INT_DTYPE).reshape(arr_shape)[slicer]
-
-
-def _prom2ivc_src_name_iter(prom_dict):
-    """
-    Yield keys from prom_dict with promoted input names converted to ivc source names.
-
-    Parameters
-    ----------
-    prom_dict : dict
+    proms : dict
         Original dict with some promoted paths.
 
     Yields
     ------
     str
-        name
+        source pathname name
     """
-    for name, meta in prom_dict.items():
-        if meta['ivc_source'] is not None:
-            yield meta['ivc_source']
-        else:
-            yield name
+    for meta in proms.values():
+        yield meta['source']
 
 
-def _prom2ivc_src_item_iter(prom_dict):
+def _src_or_alias_name(meta):
+    if 'alias' in meta:
+        alias = meta['alias']
+        if alias:
+            return alias
+    return meta['source']
+
+
+def _src_or_alias_item_iter(proms):
     """
-    Yield items from prom_dict with promoted input names converted to ivc source names.
-
-    The result is that all names are absolute.
+    Yield items from proms with promoted input names converted to source or alias names.
 
     Parameters
     ----------
-    prom_dict : dict
+    proms : dict
         Original dict with some promoted paths.
 
     Yields
     ------
     tuple
-        name, metadata
+        src_or_alias_name, metadata
     """
-    for name, meta in prom_dict.items():
-        if meta['ivc_source'] is not None:
-            yield meta['ivc_source'], meta
+    for name, meta in proms.items():
+        if 'alias' in meta and meta['alias'] is not None:
+            yield meta['alias'], meta
+        elif meta['source'] is not None:
+            yield meta['source'], meta
         else:
             yield name, meta
 
 
-def _prom2ivc_src_dict(prom_dict):
+def _src_or_alias_dict(prom_dict):
     """
-    Convert a dictionary with promoted input names into one with ivc source names.
+    Convert a dict with promoted input names into one with source or alias names.
 
     Parameters
     ----------
@@ -1055,9 +1011,9 @@ def _prom2ivc_src_dict(prom_dict):
     Returns
     -------
     dict
-        New dict with ivc source pathnames.
+        New dict with source pathnames or alias names.
     """
-    return {name: meta for name, meta in _prom2ivc_src_item_iter(prom_dict)}
+    return {name: meta for name, meta in _src_or_alias_item_iter(prom_dict)}
 
 
 def convert_src_inds(parent_src_inds, parent_src_shape, my_src_inds, my_src_shape):
@@ -1102,14 +1058,22 @@ def shape2tuple(shape):
 
     Returns
     -------
-    tuple
-        The shape as a tuple.
+    tuple or None
+        The shape as a tuple or None if shape is None.
     """
-    if isinstance(shape, Number):
+    if isinstance(shape, tuple):
+        return shape
+    elif isinstance(shape, int):
         return (shape,)
     elif shape is None:
         return shape
-    return tuple(shape)
+    else:
+        try:
+            return tuple(shape)
+        except TypeError:
+            if not isinstance(shape, Integral):
+                raise TypeError(f"{type(shape).__name__} is not a valid shape type.")
+            return (shape,)
 
 
 def get_connection_owner(system, tgt):
@@ -1128,7 +1092,7 @@ def get_connection_owner(system, tgt):
     Returns
     -------
     tuple
-        (wning group, promoted source name, promoted target name).
+        (owning group, promoted source name, promoted target name).
     """
     from openmdao.core.group import Group
 
@@ -1143,9 +1107,9 @@ def get_connection_owner(system, tgt):
                 if g._manual_connections:
                     tprom = g._var_allprocs_abs2prom['input'][tgt]
                     if tprom in g._manual_connections:
-                        return g.pathname, g._var_allprocs_abs2prom['output'][src], tprom
+                        return g, g._var_allprocs_abs2prom['output'][src], tprom
 
-    return None, None, None
+    return system, src, tgt
 
 
 def wing_dbg():
@@ -1269,3 +1233,18 @@ class LocalRangeIterable(object):
             An iterator over our indices.
         """
         return self._iter()
+
+
+def make_traceback():
+    """
+    Create a traceback for use later with an exception.
+
+    The traceback will begin at the stack frame *above* the caller of make_traceback.
+
+    Returns
+    -------
+    traceback
+        The newly constructed traceback.
+    """
+    finfo = getouterframes(currentframe())[2]
+    return types.TracebackType(None, finfo.frame, finfo.frame.f_lasti, finfo.frame.f_lineno)

@@ -3,13 +3,7 @@ RecordingManager class definition.
 """
 import time
 
-from openmdao.utils.general_utils import simple_warning
-from openmdao.utils.om_warnings import warn_deprecation
-
-try:
-    from openmdao.utils.mpi import MPI
-except ImportError:
-    MPI = None
+from openmdao.utils.om_warnings import issue_warning
 
 
 class RecordingManager(object):
@@ -20,10 +14,6 @@ class RecordingManager(object):
     ----------
     _recorders : list of CaseRecorder
         All of the recorders attached to the current object.
-    rank : int
-        Rank of the iteration coordinate.
-    _has_serial_recorders : bool
-        True if any of the recorders managed by this object are serial recorders.
     """
 
     def __init__(self):
@@ -31,12 +21,6 @@ class RecordingManager(object):
         init.
         """
         self._recorders = []
-        self._has_serial_recorders = False
-
-        if MPI:
-            self.rank = MPI.COMM_WORLD.rank
-        else:
-            self.rank = 0
 
     def __getitem__(self, index):
         """
@@ -76,7 +60,7 @@ class RecordingManager(object):
         """
         self._recorders.append(recorder)
 
-    def startup(self, recording_requester):
+    def startup(self, recording_requester, comm=None):
         """
         Run startup on each recorder in the manager.
 
@@ -84,30 +68,11 @@ class RecordingManager(object):
         ----------
         recording_requester : object
             The object that needs an iteration of itself recorded.
+        comm : MPI.Comm or <FakeComm> or None
+            The communicator for recorders (should be the comm for the Problem).
         """
-        # Will only add parallel code for Drivers. Use the old method for System and Solver
-        from openmdao.core.driver import Driver
-        if not isinstance(recording_requester, Driver):
-            for recorder in self._recorders:
-                recorder.startup(recording_requester)
-            return
-
-        # The remaining code only works for recording of Drivers
-        model = recording_requester._problem().model
-        if MPI:
-            # TODO Eventually, we think we can get rid of this next check. But to be safe,
-            #       we are leaving it in there.
-            if not model.is_active():
-                raise RuntimeError("RecordingManager.startup should never be called when "
-                                   "running in parallel on an inactive System")
-
         for recorder in self._recorders:
-            # Each of the recorders determines its self._filtered_* list of vars
-            #   to record
-            recorder.startup(recording_requester)
-
-            if not recorder._parallel:
-                self._has_serial_recorders = True
+            recorder.startup(recording_requester, comm)
 
     def shutdown(self):
         """
@@ -134,23 +99,10 @@ class RecordingManager(object):
             return
 
         if metadata is not None:
-            metadata['timestamp'] = time.time()
+            metadata['timestamp'] = time.perf_counter()
 
         for recorder in self._recorders:
-            if recorder._parallel or MPI is None or self.rank == 0:
-                recorder.record_iteration(recording_requester, data, metadata)
-
-    def record_metadata(self, recording_requester):
-        """
-        Call record_metadata for all recorders.
-
-        Parameters
-        ----------
-        recording_requester : object
-            The object that needs its metadata recorded.
-        """
-        warn_deprecation("The 'record_metadata' function is deprecated. "
-                         "All system and solver options are recorded automatically.")
+            recorder.record_iteration(recording_requester, data, metadata)
 
     def record_derivatives(self, recording_requester, data, metadata):
         """
@@ -169,11 +121,10 @@ class RecordingManager(object):
             return
 
         if metadata is not None:
-            metadata['timestamp'] = time.time()
+            metadata['timestamp'] = time.perf_counter()
 
         for recorder in self._recorders:
-            if recorder._parallel or MPI is None or self.rank == 0:
-                recorder.record_derivatives(recording_requester, data, metadata)
+            recorder.record_derivatives(recording_requester, data, metadata)
 
     def has_recorders(self):
         """
@@ -187,7 +138,7 @@ class RecordingManager(object):
         return True if self._recorders else False
 
     def _check_parallel(self):
-        pset = {bool(r._parallel) for r in self._recorders}
+        pset = {bool(r.parallel) for r in self._recorders}
 
         # check to make sure we don't have mixed parallel/non-parallel, because that
         # currently won't work properly.
@@ -241,25 +192,16 @@ def record_viewer_data(problem):
     # if any recorders were found, get the viewer data and record it
     if recorders:
         from openmdao.visualization.n2_viewer.n2_viewer import _get_viewer_data
-        viewer_data = _get_viewer_data(problem)
+        try:
+            viewer_data = _get_viewer_data(problem)
+        except TypeError as err:
+            viewer_data = {}
+            issue_warning(str(err))
+
         viewer_data['md5_hash'] = problem.model._generate_md5_hash()
         viewer_data.pop('abs2prom', None)  # abs2prom already recorded in metadata table
         for recorder in recorders:
             recorder.record_viewer_data(viewer_data)
-
-
-def record_system_options(problem):
-    """
-    Record the system options for all systems in the model.
-
-    Parameters
-    ----------
-    problem : Problem
-        The problem for which all its systems' options are to be recorded.
-    """
-    warn_deprecation("The 'record_system_options' function is deprecated. "
-                     "Use 'record_model_options' instead.")
-    record_model_options(problem)
 
 
 def record_model_options(problem, run_number):

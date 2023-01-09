@@ -10,7 +10,7 @@ from numpy.testing import assert_almost_equal
 import scipy
 from io import StringIO
 
-from distutils.version import LooseVersion
+from packaging.version import Version
 
 try:
     from parameterized import parameterized
@@ -20,7 +20,8 @@ except ImportError:
 import openmdao.api as om
 from openmdao.components.exec_comp import _expr_dict, _temporary_expr_dict
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_warning
-from openmdao.utils.om_warnings import OMDeprecationWarning
+from openmdao.utils.general_utils import env_truthy
+from openmdao.utils.om_warnings import OMDeprecationWarning, SetupWarning
 
 _ufunc_test_data = {
     'min': {
@@ -278,7 +279,7 @@ _ufunc_test_data = {
 
 
 # 'factorial' will raise a RuntimeError or a deprecation warning depending on scipy version
-if LooseVersion(scipy.__version__) >= LooseVersion("1.5.0"):
+if Version(scipy.__version__) >= Version("1.5.0"):
     _ufunc_test_data['factorial'] = {
         'str': 'f=factorial(x)',
         'args': {'f': {'val': np.zeros(6)},
@@ -786,13 +787,13 @@ class TestExecComp(unittest.TestCase):
 
     def test_arctan_complex_step(self):
         prob = om.Problem()
-        C1 = prob.model.add_subsystem('C1', om.ExecComp('y=2.0*arctan2(y, x)', x=np.array([1+2j]), y=1))
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('z=2.0*arctan2(y, x)', x=np.array([1+2j]), y=1))
 
         prob.setup()
         prob.set_solver_print(level=0)
         prob.run_model()
 
-        assert_near_equal(C1._outputs['y'], np.array([1.57079633]), 1e-8)
+        assert_near_equal(C1._outputs['z'], np.array([1.57079633]), 1e-8)
 
     def test_abs_array_complex_step(self):
         prob = om.Problem()
@@ -883,7 +884,7 @@ class TestExecComp(unittest.TestCase):
         p.setup()
         p.final_setup()
 
-        # make sure only the partials that are needed are declared
+        ## make sure only the partials that are needed are declared
         declared_partials = comp._declared_partials
         self.assertListEqual( sorted([('y1', 'x1'), ('y2', 'x2') ]),
                               sorted(declared_partials.keys()))
@@ -1412,6 +1413,121 @@ class TestExecComp(unittest.TestCase):
         assert_almost_equal(p.get_val('z'), 8.7, 1e-8)
         assert_almost_equal(p.get_val('y'), 3.0, 1e-8)
 
+    def test_val_type(self):
+        class ConfigGroup(om.Group):
+            def setup(self):
+                excomp = om.ExecComp('y=x',
+                                     x={'val': 3.0, 'units': 'mm'},
+                                     y={'shape': (1,), 'units': 'cm'})
+
+                self.add_subsystem('excomp', excomp, promotes=['*'])
+
+            def configure(self):
+                self.excomp.add_expr('z = 2.9*x',
+                                     z={'shape': (1,), 'units': 's'})
+
+        p = om.Problem()
+        p.model.add_subsystem('sub', ConfigGroup(), promotes=['*'])
+        p.setup()
+
+        # check that 'val' has been saved as a numpy array (see issue #2415)
+        abs2meta = p.model._var_abs2meta
+        for typ in ['input', 'output']:
+            for abs_name in abs2meta[typ]:
+                val = abs2meta[typ][abs_name]['val']
+                if not isinstance(val, np.ndarray):
+                    self.fail(f"The {typ} variable '{abs_name}' has a value of {val} "
+                              f"with type {type(val)}, but it should be a numpy array.")
+
+
+    def test_constants_simple(self):
+        prob = om.Problem()
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'val': 6, 'constant':True}))
+
+        prob.setup()
+        prob.final_setup()
+
+        self.assertFalse('a' in C1._inputs)
+        self.assertTrue('b' in C1._inputs)
+        self.assertTrue('x' in C1._outputs)
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(C1._outputs['x'], 7.0, 0.00001)
+
+    def test_constants_val_not_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True}))
+
+        with self.assertRaises(RuntimeError) as cm:
+            prob.setup()
+            self.assertEqual(str(cm.exception), "C1' <class ExecComp>: arg 'a' in call to ExecComp() is a constant but no value is given")
+
+    def test_constants_units_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True, 'val': 6, 'units': 'ft'}))
+
+        expected_warning_msg = "'C1' <class ExecComp>: arg 'a' in call to " \
+                               "ExecComp() is a constant. The units will be ignored"
+        with assert_warning(SetupWarning, expected_warning_msg):
+            prob.setup()
+
+    def test_constants_shape_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True, 'val': 6, 'shape': (1,)}))
+
+        expected_warning_msg = "'C1' <class ExecComp>: arg 'a' in call to " \
+                               "ExecComp() is a constant. The shape will be ignored"
+        with assert_warning(SetupWarning, expected_warning_msg):
+            prob.setup()
+
+    def test_constants_set_constant_false(self):
+        prob = om.Problem()
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'val': 6, 'constant':False}))
+
+        prob.setup()
+
+        # Conclude setup but don't run model.
+        prob.final_setup()
+
+        self.assertTrue('a' in C1._inputs)
+        self.assertTrue('b' in C1._inputs)
+        self.assertTrue('x' in C1._outputs)
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(C1._outputs['x'], 7.0, 0.00001)
+
+    def test_constants_multiple_equations(self):
+        prob = om.Problem()
+        model = prob.model
+        comp = om.ExecComp(['y1=2.0*x1+a', 'y2=3.0*x2-a'], x1=1.0, x2=2.0, a={'val': 6, 'constant':True})
+        model.add_subsystem('comp', comp)
+        prob.setup()
+        prob.run_model()
+
+        assert_near_equal(comp._outputs['y1'], 8.0, 0.00001)
+        assert_near_equal(comp._outputs['y2'], 0.0, 0.00001)
+
+    def test_constants_arrays(self):
+        prob = om.Problem()
+        model = prob.model
+
+        comp = model.add_subsystem('comp', om.ExecComp('y=x+a',
+                                                       y={'shape': (3,), 'val': np.zeros(3)},
+
+                                                x=np.array([1., 2., 3.]),
+                                                a={ 'val': np.array([1., 2., 3.]), 'constant':True}))
+
+        prob.setup()
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(comp._outputs['y'], 2.0 * np.array([1., 2., 3.]), 0.00001)
+
 
 class TestFunctionRegistration(unittest.TestCase):
 
@@ -1570,7 +1686,10 @@ class TestFunctionRegistration(unittest.TestCase):
             assert_near_equal(p['comp.area_square'], np.ones(size) * 9., 1e-11)
 
             data = p.check_partials(out_stream=None)
-            self.assertEqual(list(data), [])
+            if env_truthy('CI'):
+                self.assertEqual(list(data), ['comp'])
+            else:
+                self.assertEqual(list(data), [])
 
     def test_register_simple_arr_manual_partials_cs(self):
         with _temporary_expr_dict():
@@ -1655,8 +1774,7 @@ class TestFunctionRegistration(unittest.TestCase):
 
             # have to use regex to handle differences in numpy print formats for shape
             msg = "'comp' <class ExecComp>: Error occurred evaluating 'y = double\(x\) \* 3\.':\n" \
-                  "'comp' <class ExecComp>: Failed to set value of 'y': could not broadcast " \
-                  "input array from shape \(10.*\) into shape \(8.*\)."
+                  "could not broadcast input array from shape \(10.*\) into shape \(8.*\)"
             with self.assertRaisesRegex(Exception, msg) as cm:
                 p.run_model()
 
@@ -1757,7 +1875,7 @@ class TestFunctionRegistrationColoring(unittest.TestCase):
         except OSError:
             pass
 
-    def test_coloring(self):
+    def test_manual_coloring(self):
         with _temporary_expr_dict():
 
             prob = om.Problem(coloring_dir=self.tempdir)
@@ -1775,6 +1893,32 @@ class TestFunctionRegistrationColoring(unittest.TestCase):
                                                             y=np.ones(sparsity.shape[0])))
             comp.declare_coloring('x', method='cs')
 
+            prob.setup(mode='fwd')
+            prob.set_solver_print(level=0)
+            prob.run_model()
+
+            J = prob.compute_totals('comp.y', 'comp.x')
+
+            assert_near_equal(J['comp.y', 'comp.x'], sparsity)
+
+            self.assertTrue(np.all(comp._coloring_info['coloring'].get_dense_sparsity() == _MASK))
+
+    def test_auto_coloring(self):
+        with _temporary_expr_dict():
+
+            prob = om.Problem(coloring_dir=self.tempdir)
+            model = prob.model
+
+            sparsity = setup_sparsity(_MASK)
+
+            def mydot(x):
+                return sparsity.dot(x)
+
+            om.ExecComp.register('mydot', mydot, complex_safe=True)
+
+            comp = model.add_subsystem('comp', om.ExecComp('y=mydot(x)',
+                                                            x=np.ones(sparsity.shape[1]),
+                                                            y=np.ones(sparsity.shape[0])))
             prob.setup(mode='fwd')
             prob.set_solver_print(level=0)
             prob.run_model()

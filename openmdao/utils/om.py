@@ -5,18 +5,33 @@ A console script wrapper for multiple openmdao functions.
 import sys
 import os
 import argparse
+if sys.version_info.minor > 7:
+    import importlib.metadata as ilmd
+else:
+    ilmd = None
+
+import re
 from openmdao import __version__ as version
 
 try:
-    import pkg_resources
+    import coverage
 except ImportError:
-    pkg_resources = None
+    pass
+else:
+    # the following allows us to do coverage on our command line tools.  It will do nothing
+    # unless COVERAGE_PROCESS_START is set in the environment.
+    try:
+        coverage.process_startup()
+    except Exception:
+        pass  # in case they're using an old version of coverage
+
 
 import openmdao.utils.hooks as hooks
-from openmdao.visualization.n2_viewer.n2_viewer import n2
+from openmdao.visualization.n2_viewer.n2_viewer import _n2_setup_parser, _n2_cmd
 from openmdao.visualization.connection_viewer.viewconns import view_connections
 from openmdao.visualization.scaling_viewer.scaling_report import _scaling_setup_parser, \
     _scaling_cmd
+from openmdao.visualization.timing_viewer.timing_viewer import _timing_setup_parser, _timing_cmd
 from openmdao.visualization.dyn_shape_plot import _view_dyn_shapes_setup_parser, \
     _view_dyn_shapes_cmd
 try:
@@ -43,76 +58,12 @@ from openmdao.utils.coloring import _total_coloring_setup_parser, _total_colorin
     _partial_coloring_setup_parser, _partial_coloring_cmd, \
     _view_coloring_setup_parser, _view_coloring_exec
 from openmdao.utils.scaffold import _scaffold_setup_parser, _scaffold_exec
-from openmdao.utils.file_utils import _load_and_exec, _to_filename
+from openmdao.utils.file_utils import _load_and_exec, _iter_entry_points
 from openmdao.utils.entry_points import _list_installed_setup_parser, _list_installed_cmd, \
     split_ep, _compute_entry_points_setup_parser, _compute_entry_points_exec, \
         _find_plugins_setup_parser, _find_plugins_exec
-from openmdao.utils.general_utils import ignore_errors
-from openmdao.utils.om_warnings import warn_deprecation
-
-
-def _n2_setup_parser(parser):
-    """
-    Set up the openmdao subparser for the 'openmdao n2' command.
-
-    Parameters
-    ----------
-    parser : argparse subparser
-        The parser we're adding options to.
-    """
-    parser.add_argument('file', nargs=1,
-                        help='Python script or recording containing the model. '
-                        'If metadata from a parallel run was recorded in a separate file, '
-                        'specify both database filenames delimited with a comma.')
-    parser.add_argument('-o', default='n2.html', action='store', dest='outfile',
-                        help='html output file.')
-    parser.add_argument('--no_browser', action='store_true', dest='no_browser',
-                        help="don't display in a browser.")
-    parser.add_argument('--embed', action='store_true', dest='embeddable',
-                        help="create embeddable version.")
-    parser.add_argument('--title', default=None,
-                        action='store', dest='title', help='diagram title.')
-    parser.add_argument('--use_declare_partial_info', action='store_true',
-                        dest='use_declare_partial_info',
-                        help="ignored, now always true.")
-
-
-def _n2_cmd(options, user_args):
-    """
-    Process command line args and call n2 on the specified file.
-
-    Parameters
-    ----------
-    options : argparse Namespace
-        Command line options.
-    user_args : list of str
-        Command line options after '--' (if any).  Passed to user script.
-    """
-    filename = _to_filename(options.file[0])
-
-    if filename.endswith('.py'):
-        # the file is a python script, run as a post_setup hook
-        def _noraise(prob):
-            prob.model._raise_connection_errors = False
-
-        if options.use_declare_partial_info:
-            warn_deprecation("'--use_declare_partial_info' is now the"
-                             " default and the option is ignored.")
-
-        def _viewmod(prob):
-            n2(prob, outfile=options.outfile, show_browser=not options.no_browser,
-                title=options.title, embeddable=options.embeddable)
-            exit()  # could make this command line selectable later
-
-        hooks._register_hook('setup', 'Problem', pre=_noraise)
-        hooks._register_hook('final_setup', 'Problem', post=_viewmod)
-
-        ignore_errors(True)
-        _load_and_exec(options.file[0], user_args)
-    else:
-        # assume the file is a recording, run standalone
-        n2(filename, outfile=options.outfile, title=options.title,
-            show_browser=not options.no_browser, embeddable=options.embeddable)
+from openmdao.utils.reports_system import _list_reports_setup_parser, _list_reports_cmd, \
+    _view_reports_setup_parser, _view_reports_cmd
 
 
 def _view_connections_setup_parser(parser):
@@ -154,16 +105,15 @@ def _view_connections_cmd(options, user_args):
             title = "Connections for %s" % os.path.basename(options.file[0])
         view_connections(prob, outfile=options.outfile, show_browser=not options.no_browser,
                          show_values=options.show_values, title=title)
-        exit()
 
     # register the hook
     if options.show_values:
         funcname = 'final_setup'
     else:
         funcname = 'setup'
-    hooks._register_hook(funcname, class_name='Problem', inst_id=options.problem, post=_viewconns)
+    hooks._register_hook(funcname, class_name='Problem', inst_id=options.problem, post=_viewconns,
+                         exit=True)
 
-    ignore_errors(True)
     _load_and_exec(options.file[0], user_args)
 
 
@@ -259,9 +209,8 @@ def _meta_model_cmd(options, user_args):
                 else:
                     print("\n'{}' is not a Metamodel. Try the following:\n".format(pathname))
                 _mm_list(mm_names, options)
-        exit()
 
-    hooks._register_hook('final_setup', 'Problem', post=_view_metamodel)
+    hooks._register_hook('final_setup', 'Problem', post=_view_metamodel, exit=True)
 
     _load_and_exec(options.file[0], user_args)
 
@@ -289,13 +238,7 @@ def _config_summary_cmd(options, user_args):
     user_args : list of str
         Args to be passed to the user script.
     """
-    def summary(prob):
-        config_summary(prob)
-        sys.exit(0)
-
-    hooks._register_hook('final_setup', 'Problem', post=summary)
-
-    ignore_errors(True)
+    hooks._register_hook('final_setup', 'Problem', post=config_summary, exit=True)
     _load_and_exec(options.file[0], user_args)
 
 
@@ -397,16 +340,14 @@ def _tree_cmd(options, user_args):
         tree(prob, show_colors=options.show_colors, show_sizes=options.show_sizes,
              show_approx=options.show_approx, filter=filt, max_depth=options.depth,
              rank=options.rank, stream=out)
-        exit()
 
     # register the hook
     if options.vecvars or options.show_sizes or options.show_approx:
         funcname = 'final_setup'
     else:
         funcname = 'setup'
-    hooks._register_hook(funcname, class_name='Problem', inst_id=options.problem, post=_tree)
-
-    ignore_errors(True)
+    hooks._register_hook(funcname, class_name='Problem', inst_id=options.problem, post=_tree,
+                         exit=True)
     _load_and_exec(options.file[0], user_args)
 
 
@@ -448,12 +389,35 @@ def _cite_cmd(options, user_args):
     def _cite(prob):
         if not MPI or MPI.COMM_WORLD.rank == 0:
             print_citations(prob, classes=options.classes, out_stream=out)
-        exit()
 
-    hooks._register_hook('setup', 'Problem', post=_cite)
-
-    ignore_errors(True)
+    hooks._register_hook('setup', 'Problem', post=_cite, exit=True)
     _load_and_exec(options.file[0], user_args)
+
+
+def _get_deps(dep_dict: dict, package_name: str) -> None:
+    """
+    Recursively determine all installed depenency versions and add newly found ones to dep_dict.
+
+    Parameters
+    ----------
+    dep_dict : dict
+        Dictionary with package names as keys and installed versions as values
+    package_name : str
+        The name of the package to query
+    """
+    if package_name not in dep_dict:
+        try:
+            dep_dict[package_name] = ilmd.version(package_name)
+            dependencies = ilmd.requires(package_name)
+            if dependencies is not None:
+                for dep_fullname in dependencies:
+                    # requires() returns the full specs, we just want the package name:
+                    dep_basename = re.sub(r'^([\w-]+)\W*.*$', r'\1', dep_fullname)
+                    _get_deps(dep_dict, dep_basename)
+
+        except ilmd.PackageNotFoundError:
+            # Some packages list optional dependencies which are not installed, ignore them
+            pass
 
 
 # this dict should contain names mapped to tuples of the form:
@@ -475,6 +439,8 @@ _command_map = {
                      'Generate total timings of calls to particular object instances.'),
     'list_installed': (_list_installed_setup_parser, _list_installed_cmd,
                        'List installed types recognized by OpenMDAO.'),
+    'list_reports': (_list_reports_setup_parser, _list_reports_cmd,
+                     'List available reports.'),
     'mem': (_mem_prof_setup_parser, _mem_prof_exec,
             'Profile memory used by OpenMDAO related functions.'),
     'mempost': (_mempost_setup_parser, _mempost_exec, 'Post-process memory profile output.'),
@@ -483,8 +449,10 @@ _command_map = {
                          'Compute coloring(s) for specified partial jacobians.'),
     'scaffold': (_scaffold_setup_parser, _scaffold_exec,
                  'Generate a simple scaffold for a component.'),
+    'scaling': (_scaling_setup_parser, _scaling_cmd, 'View driver scaling report.'),
     'summary': (_config_summary_setup_parser, _config_summary_cmd,
                 'Print a short top-level summary of the problem.'),
+    'timing': (_timing_setup_parser, _timing_cmd, 'Collect timing information for all systems.'),
     'total_coloring': (_total_coloring_setup_parser, _total_coloring_cmd,
                        'Compute a coloring for the total jacobian.'),
     'trace': (_itrace_setup_parser, _itrace_exec, 'Dump trace output.'),
@@ -495,7 +463,8 @@ _command_map = {
     'view_dyn_shapes': (_view_dyn_shapes_setup_parser, _view_dyn_shapes_cmd,
                         'View the dynamic shape dependency graph.'),
     'view_mm': (_meta_model_parser, _meta_model_cmd, "View a metamodel."),
-    'scaling': (_scaling_setup_parser, _scaling_cmd, 'View driver scaling report.'),
+    'view_reports': (_view_reports_setup_parser, _view_reports_cmd,
+                     'View existing reports.'),
 }
 
 
@@ -513,14 +482,17 @@ def openmdao_cmd():
         user_args = []
 
     parser = argparse.ArgumentParser(description='OpenMDAO Command Line Tools',
-                                     usage='openmdao [-h] [--version] command [command_options] '
-                                     'filename',
-                                     epilog='Use -h after any sub-command for sub-command help.'
-                                     ' If using a tool on a script that takes its own command line'
-                                     ' arguments, place those arguments after a "--". For example:'
-                                     ' openmdao n2 -o foo.html myscript.py -- -x --myarg=bar')
+                                     epilog='Use -h after any sub-command for sub-command help, '
+                                     'for example, "openmdao tree -h" for help on the "tree" '
+                                     'command. If using a tool on a script that takes its own '
+                                     'command line arguments, place those arguments after a "--". '
+                                     'For example: '
+                                     '"openmdao n2 -o foo.html myscript.py -- -x --myarg=bar"')
 
-    parser.add_argument('--version', action='version', version=version)
+    ver_group = parser.add_mutually_exclusive_group()
+    ver_group.add_argument('--version', action='version', version=version)
+    ver_group.add_argument('--dependency_versions', action='store_true', default=False,
+                           help="show versions of OpenMDAO and all dependencies, then exit")
 
     # setting 'dest' here will populate the Namespace with the active subparser name
     subs = parser.add_subparsers(title='Tools', metavar='', dest="subparser_name")
@@ -529,36 +501,33 @@ def openmdao_cmd():
         parser_setup_func(subp)
         subp.set_defaults(executor=executor)
 
-    if pkg_resources is None:
-        print("\npkg_resources was not found, so no plugin entry points can be loaded.\n")
-    else:
-        # now add any plugin openmdao commands
-        epdict = {}
-        for ep in pkg_resources.iter_entry_points(group='openmdao_command'):
-            cmd, module, target = split_ep(ep)
-            # don't let plugins override the builtin commands
-            if cmd in _command_map:
-                raise RuntimeError("openmdao plugin command '{}' defined in {} conflicts with "
-                                   "builtin command '{}'.".format(cmd, module, cmd))
-            elif cmd in epdict:
-                raise RuntimeError("openmdao plugin command '{}' defined in {} conflicts with a "
-                                   "another plugin command defined in {}."
-                                   .format(cmd, module, epdict[cmd][1]))
-            epdict[cmd] = (ep, module)
+    # now add any plugin openmdao commands
+    epdict = {}
+    for ep in _iter_entry_points('openmdao_command'):
+        cmd, module, target = split_ep(ep)
+        # don't let plugins override the builtin commands
+        if cmd in _command_map:
+            raise RuntimeError("openmdao plugin command '{}' defined in {} conflicts with "
+                               "builtin command '{}'.".format(cmd, module, cmd))
+        elif cmd in epdict:
+            raise RuntimeError("openmdao plugin command '{}' defined in {} conflicts with a "
+                               "another plugin command defined in {}."
+                               .format(cmd, module, epdict[cmd][1]))
+        epdict[cmd] = (ep, module)
 
-        # sort commands by module and then by command name so commands from plugins will
-        # be grouped together.
-        for cmd, (ep, module) in sorted(epdict.items(), key=lambda x: x[1][1] + x[0]):
-            func = ep.load()
-            parser_setup_func, executor, help_str = func()
-            pkg = module.split('.', 1)[0]
-            subp = subs.add_parser(cmd, help='(%s plugin) ' % pkg + help_str)
-            parser_setup_func(subp)
-            subp.set_defaults(executor=executor)
+    # sort commands by module and then by command name so commands from plugins will
+    # be grouped together.
+    for cmd, (ep, module) in sorted(epdict.items(), key=lambda x: x[1][1] + x[0]):
+        func = ep.load()
+        parser_setup_func, executor, help_str = func()
+        pkg = module.split('.', 1)[0]
+        subp = subs.add_parser(cmd, help='(%s plugin) ' % pkg + help_str)
+        parser_setup_func(subp)
+        subp.set_defaults(executor=executor)
 
     # handle case where someone just runs `openmdao <script> [dashed-args]`
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
-    cmdargs = [a for a in sys.argv[1:] if a not in ('-h', '--version')]
+    cmdargs = [a for a in sys.argv[1:] if a not in ('-h', '--version', '--dependency_versions')]
     if not set(args).intersection(subs.choices) and len(args) == 1 and os.path.isfile(cmdargs[0]):
         _load_and_exec(args[0], user_args)
     else:
@@ -580,6 +549,12 @@ def openmdao_cmd():
 
         if hasattr(options, 'executor'):
             options.executor(options, user_args)
+        elif options.dependency_versions is True and ilmd is not None:
+            dep_versions = {}
+            _get_deps(dep_versions, 'openmdao')
+
+            for dep_basename in sorted(dep_versions.keys()):
+                print(f'{dep_basename}: {dep_versions[dep_basename]}')
         else:
             print("\nNothing to do.")
 

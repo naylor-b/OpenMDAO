@@ -4,8 +4,8 @@ import numpy as np
 
 import openmdao.api as om
 from openmdao.utils.array_utils import evenly_distrib_idxs
-from openmdao.utils.assert_utils import assert_near_equal
-from openmdao.utils.mpi import MPI
+from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials
+from openmdao.utils.mpi import MPI, multi_proc_exception_check
 
 try:
     from openmdao.parallel_api import PETScVector
@@ -55,6 +55,30 @@ class TestVector(unittest.TestCase):
         p.model._residuals.set_val(3.)
 
         self.assertEqual(p.model._residuals.dot(p.model._outputs), 9.)
+
+    def test_get_hash(self):
+        p = om.Problem()
+        comp = om.IndepVarComp()
+        comp.add_output('v1', val=np.ones(10))
+        p.model.add_subsystem('des_var', comp, promotes=['*'])
+        p.setup()
+        p.final_setup()
+
+        rnd = np.random.random(10)
+        p.model.des_var._outputs.set_val(rnd)
+        hash1 = p.model.des_var._outputs.get_hash()
+
+        rnd[3] += 1e-10
+        p.model.des_var._outputs.set_val(rnd)
+        hash2 = p.model.des_var._outputs.get_hash()
+
+        self.assertNotEqual(hash1, hash2)
+
+        rnd[3] -= 1e-10
+        p.model.des_var._outputs.set_val(rnd)
+        hash3 = p.model.des_var._outputs.get_hash()
+
+        self.assertEqual(hash1, hash3)
 
 
 A = np.array([[1.0, 8.0, 0.0], [-1.0, 10.0, 2.0], [3.0, 100.5, 1.0]])
@@ -200,9 +224,9 @@ class TestPETScVector3Proc(unittest.TestCase):
         model.add_subsystem('des_vars', comp)
 
         sub = model.add_subsystem('pp', om.ParallelGroup())
-        sub.add_subsystem('calc1', om.ExecComp('y = 2.0*x', x=np.ones((3, )), y=np.ones((3, ))))
-        sub.add_subsystem('calc2', om.ExecComp('y = 5.0*x', x=np.ones((3, )), y=np.ones((3, ))))
-        sub.add_subsystem('calc3', om.ExecComp('y = 7.0*x', x=np.ones((3, )), y=np.ones((3, ))))
+        c1 = sub.add_subsystem('calc1', om.ExecComp('y = 2.0*x', x=np.ones((3, )), y=np.ones((3, ))))
+        c2 = sub.add_subsystem('calc2', om.ExecComp('y = 5.0*x', x=np.ones((3, )), y=np.ones((3, ))))
+        c3 = sub.add_subsystem('calc3', om.ExecComp('y = 7.0*x', x=np.ones((3, )), y=np.ones((3, ))))
 
         model.connect('des_vars.v1', 'pp.calc1.x')
         model.connect('des_vars.v1', 'pp.calc2.x')
@@ -210,25 +234,33 @@ class TestPETScVector3Proc(unittest.TestCase):
 
         model.linear_solver = om.LinearBlockGS()
 
-        prob.setup()
+        with multi_proc_exception_check(prob.comm):
+            prob.setup()
 
-        prob.run_model()
+        with multi_proc_exception_check(prob.comm):
+            prob.run_model()
 
-        vec = prob.model._vectors['output']['nonlinear']
-        norm_val = vec.get_norm()
-        assert_near_equal(norm_val, 89.61584681293817, 1e-10)
+        with multi_proc_exception_check(prob.comm):
+            vec = prob.model._vectors['output']['nonlinear']
+            norm_val = vec.get_norm()
+            assert_near_equal(norm_val, 89.61584681293817, 1e-10)
 
-        J = prob.compute_totals(of=['pp.calc1.y', 'pp.calc2.y', 'pp.calc3.y'], wrt=['des_vars.v1'])
+        with multi_proc_exception_check(prob.comm):
+            J = prob.compute_totals(of=['pp.calc1.y', 'pp.calc2.y', 'pp.calc3.y'], wrt=['des_vars.v1'])
 
-        vec = prob.model._vectors['output']['linear']
-        norm_val = vec.get_norm()
-        assert_near_equal(norm_val, 8.888194417315589, 1e-10)
+        with multi_proc_exception_check(prob.comm):
+            vec = prob.model._vectors['output']['linear']
+            norm_val = vec.get_norm()
+            assert_near_equal(norm_val, 8.888194417315589, 1e-10)
 
         # test petsc dot while we're at it
-        vec.set_val(3.)
+        with multi_proc_exception_check(prob.comm):
+            vec.set_val(3.)
         vec2 = prob.model._vectors['residual']['linear']
-        vec2.set_val(4.)
-        assert_near_equal(vec.dot(vec2), 12.*13, 1e-10)
+        with multi_proc_exception_check(prob.comm):
+            vec2.set_val(4.)
+        with multi_proc_exception_check(prob.comm):
+            assert_near_equal(vec.dot(vec2), 12.*13, 1e-10)
 
 
 if __name__ == '__main__':

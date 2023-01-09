@@ -2,26 +2,18 @@
 
 
 import sys
-import os
-from itertools import product, chain
+import pathlib
+from io import StringIO
 
 import numpy as np
 from contextlib import contextmanager
 from collections import Counter
 
-from openmdao.core.problem import Problem
-from openmdao.core.group import Group, System
-from openmdao.core.implicitcomponent import ImplicitComponent
-from openmdao.approximation_schemes.finite_difference import FiniteDifference
-from openmdao.approximation_schemes.complex_step import ComplexStep
-from openmdao.utils.mpi import MPI
-from openmdao.utils.name_maps import abs_key2rel_key, rel_key2abs_key
-from openmdao.utils.general_utils import simple_warning
 from openmdao.core.constants import _SetupStatus
+from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning, MPIWarning
-
-# an object used to detect when a named value isn't found
-_notfound = object()
+from openmdao.utils.reports_system import register_report
+from openmdao.utils.file_utils import text2html
 
 
 class _NoColor(object):
@@ -98,6 +90,10 @@ def tree(top, show_solvers=True, show_jacs=True, show_colors=True, show_approx=T
     stream : File-like
         Where dump output will go.
     """
+    from openmdao.core.problem import Problem
+    from openmdao.core.group import Group
+    from openmdao.core.implicitcomponent import ImplicitComponent
+
     cprint, Fore, Back, Style = _get_color_printer(stream, show_colors, rank=rank)
 
     tab = 0
@@ -201,8 +197,8 @@ def tree(top, show_solvers=True, show_jacs=True, show_colors=True, show_approx=T
             cprint("%s%s: %s\n" % (vindent, name, val))
 
 
-def _get_printer(comm, stream):
-    if comm.rank == 0:
+def _get_printer(comm, stream, rank=0):
+    if comm.rank == rank:
         def p(*args, **kwargs):
             print(*args, file=stream, **kwargs)
     else:
@@ -223,6 +219,8 @@ def config_summary(problem, stream=sys.stdout):
     stream : File-like
         Where the output will be written.
     """
+    from openmdao.core.group import Group
+
     model = problem.model
     meta = model._var_allprocs_abs2meta
     locsystems = list(model.system_iter(recurse=True, include_self=True))
@@ -236,7 +234,7 @@ def config_summary(problem, stream=sys.stdout):
                          if s.nonlinear_solver is not None]
 
     max_depth = max([len(name.split('.')) for name in sysnames])
-    setup_done = model._problem_meta['setup_status'] == _SetupStatus.POST_FINAL_SETUP
+    setup_done = model._problem_meta['setup_status'] >= _SetupStatus.POST_FINAL_SETUP
 
     if problem.comm.size > 1:
         local_max = np.array([max_depth])
@@ -356,6 +354,18 @@ def config_summary(problem, stream=sys.stdout):
         else:
             nlstr.append(slvname)
     printer("Nonlinear Solvers: [{}]".format(', '.join(nlstr)))
+
+
+def _summary_report(prob):
+    path = str(pathlib.Path(prob.get_reports_dir()).joinpath('summary.html'))
+    s = StringIO()
+    config_summary(prob, s)
+    with open(path, 'w') as f:
+        f.write(text2html(s.getvalue()))
+
+
+def _summary_report_register():
+    register_report('summary', _summary_report, 'Model summary', 'Problem', 'final_setup', 'post')
 
 
 @contextmanager
@@ -506,3 +516,34 @@ def trace_mpi(fname='mpi_trace', skip=(), flush=True):
             _print_c_func(frame, arg, _c_map[event])
 
     sys.setprofile(_mpi_trace_callback)
+
+
+def prom_info_dump(system, tgt):
+    """
+    Dump the promotion src_indices/src_shape data for the given absolute target name.
+
+    The data actually lives in the Problem metadata, but is more convenient to access during
+    debugging by using a System instance to access that metadata.
+
+    Promotion src_indices/src_shape data is displayed for all inputs, including tgt, that
+    are connected to the same source.
+
+    Parameters
+    ----------
+    system : System
+        Any System instance.
+    tgt : str
+        Absolute name of an input variable.
+    """
+    probmeta = system._problem_meta
+    model = probmeta['model_ref']()
+    src = model._conn_global_abs_in2out[tgt]
+    abs_in2prom_info = probmeta['abs_in2prom_info']
+    print('For tgt', tgt, 'and src', src, 'connected tgts and prom info are:')
+    for t, s in model._conn_global_abs_in2out.items():
+        if s == src:
+            print('    ', t)
+            if t in abs_in2prom_info:
+                for p in abs_in2prom_info[t]:
+                    print('        ', p)
+    print(flush=True)

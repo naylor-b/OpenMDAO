@@ -159,7 +159,7 @@ class TestBryoden(unittest.TestCase):
         with self.assertRaises(om.AnalysisError) as context:
             prob.run_model()
 
-        msg = "Solver 'BROYDEN' on system 'g1' failed to converge in 1 iterations."
+        msg = "Solver 'NL: BROYDEN' on system 'g1' failed to converge in 1 iterations."
         self.assertEqual(str(context.exception), msg)
 
     def test_error_badname(self):
@@ -560,9 +560,6 @@ class TestBryoden(unittest.TestCase):
 
         top.model.linear_solver = om.DirectSolver()
 
-        top.setup()
-
-        # Setup again because we assigned a new linesearch
         top.setup()
 
         top.set_solver_print(level=2)

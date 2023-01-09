@@ -4,7 +4,7 @@ Utils for dealing with arrays.
 import sys
 from itertools import product
 from copy import copy
-from numbers import Integral
+import hashlib
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -12,31 +12,51 @@ from scipy.sparse import coo_matrix
 from openmdao.core.constants import INT_DTYPE
 
 
-def shape_to_len(shape):
-    """
-    Compute length given a shape tuple.
+if sys.version_info >= (3, 8):
+    from math import prod
 
-    For realistic-dimension arrays, looping over the shape tuple is much faster than np.prod.
+    def shape_to_len(shape):
+        """
+        Compute length given a shape tuple.
 
-    Parameters
-    ----------
-    shape : tuple
-        Numpy shape tuple.
+        Parameters
+        ----------
+        shape : tuple of int or None
+            Numpy shape tuple.
 
-    Returns
-    -------
-    int
-        Length of multidimensional array.
-    """
-    if shape is None:
-        return None
+        Returns
+        -------
+        int
+            Length of array.
+        """
+        if shape is None:
+            return None
+        return prod(shape)
+else:
+    def shape_to_len(shape):
+        """
+        Compute length given a shape tuple.
 
-    length = 1
-    if not isinstance(shape, Integral):
+        For realistic-dimension arrays, looping over the shape tuple is much faster than np.prod.
+
+        Parameters
+        ----------
+        shape : tuple of int
+            Numpy shape tuple.
+
+        Returns
+        -------
+        int
+            Length of multidimensional array.
+        """
+        if shape is None:
+            return None
+
+        length = 1
         for dim in shape:
             length *= dim
 
-    return length
+        return length
 
 
 def evenly_distrib_idxs(num_divisions, arr_size):
@@ -73,6 +93,62 @@ def evenly_distrib_idxs(num_divisions, arr_size):
     return sizes, offsets
 
 
+def scatter_dist_to_local(dist_val, comm, sizes):
+    """
+    Scatter a full distributed value to local values in each MPI process.
+
+    Parameters
+    ----------
+    dist_val : ndarray
+        The full distributed value.
+    comm : MPI communicator
+        The MPI communicator.
+    sizes : ndarray
+        The array of sizes for each process.
+
+    Returns
+    -------
+    ndarray
+        The local value on this process.
+    """
+    from openmdao.utils.mpi import MPI
+    offsets = np.zeros(sizes.shape, dtype=INT_DTYPE)
+    offsets[1:] = np.cumsum(sizes)[:-1]
+    local = np.zeros(sizes[comm.rank])
+    comm.Scatterv([dist_val, sizes, offsets, MPI.DOUBLE], local, root=0)
+    return local
+
+
+def get_evenly_distributed_size(comm, full_size):
+    """
+    Return the size of the current rank's part of an array of the given size.
+
+    Given a communicator and the size of an array, chop the array up
+    into pieces according to the size of the communicator, keeping the
+    distribution of entries as even as possible.
+
+    Parameters
+    ----------
+    comm : MPI communicator
+        The communicator we're distributing the array across.
+    full_size : int
+        Number of entries in the array.
+
+    Returns
+    -------
+    int
+        The size of this rank's part of the full distributed array.
+    """
+    base, leftover = divmod(full_size, comm.size)
+    sizes = np.full(comm.size, base, dtype=INT_DTYPE)
+
+    # evenly distribute the remainder across full_size-leftover procs,
+    # instead of giving the whole remainder to one proc
+    sizes[:leftover] += 1
+
+    return sizes[comm.rank]
+
+
 def take_nth(rank, size, seq):
     """
     Iterate returning every nth value.
@@ -95,7 +171,7 @@ def take_nth(rank, size, seq):
     ------
     generator
     """
-    assert(rank < size)
+    assert rank < size
     it = iter(seq)
     while True:
         for proc in range(size):
@@ -109,28 +185,6 @@ def take_nth(rank, size, seq):
                     next(it)
                 except StopIteration:
                     return
-
-
-def convert_neg(arr, size):
-    """
-    Convert any negative indices into their positive equivalent.
-
-    This only works for a 1D array.
-
-    Parameters
-    ----------
-    arr : ndarray
-        Array having negative indices converted.
-    size : int
-        Dimension of the array.
-
-    Returns
-    -------
-    ndarray
-        The converted array.
-    """
-    arr[arr < 0] += size
-    return arr
 
 
 def array_viz(arr, prob=None, of=None, wrt=None, stream=sys.stdout):
@@ -268,13 +322,13 @@ def tile_sparse_jac(data, rows, cols, nrow, ncol, num_nodes):
     """
     nnz = len(rows)
 
-    if np.isscalar(data):
+    if np.ndim(data) == 0:
         data = data * np.ones(nnz)
 
-    if not np.isscalar(nrow):
+    if np.ndim(nrow) > 0:
         nrow = shape_to_len(nrow)
 
-    if not np.isscalar(ncol):
+    if np.ndim(ncol) > 0:
         ncol = shape_to_len(ncol)
 
     repeat_arr = np.repeat(np.arange(num_nodes), nnz)
@@ -345,6 +399,26 @@ def get_input_idx_split(full_idxs, inputs, outputs, use_full_cols, is_total):
         return [(outputs, full_idxs)]
     else:
         return [(inputs, full_idxs)]
+
+
+def convert_neg(arr, size):
+    """
+    Convert negative indices based on full array size.
+
+    Parameters
+    ----------
+    arr : ndarray
+        The index array.
+    size : int
+        The full size of the array.
+
+    Returns
+    -------
+    ndarray
+        The array with negative indices converted to positive.
+    """
+    arr[arr < 0] += size
+    return arr
 
 
 def _flatten_src_indices(src_indices, shape_in, shape_out, size_out):
@@ -545,3 +619,24 @@ def identity_column_iter(column):
         column[i - 1] = 0
         column[i] = 1
         yield column
+
+
+def array_hash(arr, alg=hashlib.sha1):
+    """
+    Return a hash of the given numpy array.
+
+    arr must be C-contiguous.
+
+    Parameters
+    ----------
+    arr : ndarray
+        The array to be hashed.
+    alg : hashing algorithm
+        Algorithm defaults to hashlib.sha1.
+
+    Returns
+    -------
+    str
+        The computed hash.
+    """
+    return alg(arr.view(np.uint8)).hexdigest()

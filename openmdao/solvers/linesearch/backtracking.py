@@ -202,7 +202,9 @@ class BoundsEnforceLS(LinesearchSolver):
 
         # Remove unused options from base options here, so that users
         # attempting to set them will get KeyErrors.
-        for unused_option in ("atol", "rtol", "maxiter", "err_on_non_converge"):
+        unused_options = ("atol", "rtol", "maxiter", "err_on_non_converge",
+                          "restart_from_successful")
+        for unused_option in unused_options:
             opt.undeclare(unused_option)
 
     def _solve(self):
@@ -213,7 +215,7 @@ class BoundsEnforceLS(LinesearchSolver):
         system = self._system()
 
         u = system._outputs
-        du = system._vectors['output']['linear']
+        du = system._doutputs
 
         if not system._has_bounds:
             u += du
@@ -291,7 +293,7 @@ class ArmijoGoldsteinLS(LinesearchSolver):
         self.alpha = alpha = self.options['alpha']
 
         u = system._outputs
-        du = system._vectors['output']['linear']
+        du = system._doutputs
 
         self._run_apply()
         phi0 = self._line_search_objective()
@@ -347,7 +349,6 @@ class ArmijoGoldsteinLS(LinesearchSolver):
         Perform the operations in the iteration loop.
         """
         self._analysis_error_raised = False
-        system = self._system()
 
         # Hybrid newton support.
         if self._do_subsolve and self._iter_count > 0:
@@ -424,7 +425,7 @@ class ArmijoGoldsteinLS(LinesearchSolver):
 
         system = self._system()
         u = system._outputs
-        du = system._vectors['output']['linear']  # Newton step
+        du = system._doutputs  # Newton step
 
         self._iter_count = 0
         phi = self._iter_initialize()

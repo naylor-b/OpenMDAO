@@ -7,6 +7,7 @@ import numpy as np
 
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.utils import cs_safe
+from openmdao.utils.array_utils import shape_to_len
 
 
 class BalanceComp(ImplicitComponent):
@@ -162,7 +163,10 @@ class BalanceComp(ImplicitComponent):
         for name, options in self._state_vars.items():
             lhs = inputs[options['lhs_name']]
             rhs = inputs[options['rhs_name']]
-            _scale_factor = np.ones((rhs.shape))
+
+            # set dtype to rhs.dtype to prevent
+            # "Casting complex values to real discards the imaginary part" warning.
+            _scale_factor = np.ones((rhs.shape), dtype=rhs.dtype)
 
             if options['normalize']:
                 # Indices where the rhs is near zero or not near zero
@@ -309,7 +313,7 @@ class BalanceComp(ImplicitComponent):
         if val is None:
             # If user doesn't specify initial guess for val, we can size problem from initial
             # rhs_val.
-            if 'shape' not in kwargs and not np.isscalar(rhs_val):
+            if 'shape' not in kwargs and np.ndim(rhs_val) > 0:
                 kwargs['shape'] = rhs_val.shape
 
         else:
@@ -336,7 +340,7 @@ class BalanceComp(ImplicitComponent):
                            val=options['mult_val'] * np.ones(shape),
                            units=None)
 
-        ar = np.arange(np.prod(shape))
+        ar = np.arange(shape_to_len(shape))
         self.declare_partials(of=name, wrt=options['lhs_name'], rows=ar, cols=ar, val=1.0)
         self.declare_partials(of=name, wrt=options['rhs_name'], rows=ar, cols=ar, val=1.0)
 

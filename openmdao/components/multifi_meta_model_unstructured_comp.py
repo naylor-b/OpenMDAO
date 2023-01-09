@@ -4,6 +4,7 @@ from itertools import chain
 import numpy as np
 
 from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
+from openmdao.utils.array_utils import shape_to_len
 
 
 def _get_name_fi(name, fi_index):
@@ -180,15 +181,9 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         # Add train_<invar>_fi<n>
         for fi in range(self._nfi):
             if fi > 0:
-                name_with_fi = 'train_' + _get_name_fi(name, fi)
-                good_name = 'train_' + _get_name_fi(name, fi)
+                train_name = 'train_' + _get_name_fi(name, fi)
                 self.options.declare(
-                    name_with_fi, default=None, desc='Training data for %s' % name_with_fi,
-                    deprecation=(f"The option '{name_with_fi}' has been deprecated because "
-                                 f"it's not a valid python name.  Use '{good_name}' "
-                                 "instead.", good_name))
-                self.options.declare(
-                    good_name, default=None, desc='Training data for %s' % good_name)
+                    train_name, default=None, desc='Training data for %s' % train_name)
                 if self._static_mode:
                     self._static_input_sizes[fi] += input_size
                 else:
@@ -264,15 +259,9 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         # Add train_<outvar>_fi<n>
         for fi in range(self._nfi):
             if fi > 0:
-                name_with_fi = 'train_' + _get_name_fi(name, fi)
-                good_name = 'train_' + _get_name_fi(name, fi)
+                train_name = 'train_' + _get_name_fi(name, fi)
                 self.options.declare(
-                    name_with_fi, default=None, desc='Training data for %s' % name_with_fi,
-                    deprecation=(f"The option '{name_with_fi}' has been deprecated because "
-                                 f"it's not a valid python name.  Use '{good_name}' "
-                                 "instead.", good_name))
-                self.options.declare(
-                    good_name, default=None, desc='Training data for %s' % good_name)
+                    train_name, default=None, desc='Training data for %s' % train_name)
 
     def _train(self):
         """
@@ -316,7 +305,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         # add training data for each output
         outputs = self._nfi * [None]
         for name_root, shape in self._surrogate_output_names:
-            output_size = np.prod(shape)
+            output_size = shape_to_len(shape)
             for fi in range(self._nfi):
                 name_fi = _get_name_fi(name_root, fi)
                 outputs[fi] = np.zeros((num_sample[fi], output_size))

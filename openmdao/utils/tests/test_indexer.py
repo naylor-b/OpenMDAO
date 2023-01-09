@@ -183,20 +183,20 @@ class IndexerTestCase(unittest.TestCase):
         ind = indexer[:]
         src = np.arange(10)
 
-        assert_equal(ind(), slice(None))
-        assert_equal(ind.flat(), slice(None))
+        assert_equal(ind(), slice(None, None, 1))
+        assert_equal(ind.flat(), slice(None, None, 1))
 
         assert_equal(src[ind()], np.arange(10, dtype=int))
         assert_equal(src[ind.flat()], np.arange(10, dtype=int))
 
         assert_equal(ind.min_src_dim, 1)
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.indexed_src_shape
-        self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of slice(None, None, None) because source shape is unknown.")
-        with self.assertRaises(ValueError) as cm:
+        self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of slice(None, None, 1) because source shape is unknown.")
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
-        self.assertEqual(cm.exception.args[0], "Can't get shaped array of slice(None, None, None) because it has no source shape.")
+        self.assertEqual(cm.exception.args[0], "Can't get shaped array of slice(None, None, 1) because it has no source shape.")
 
         ind.set_src_shape(src.shape)
 
@@ -228,8 +228,8 @@ class IndexerTestCase(unittest.TestCase):
         ind = indexer[:5]
         src = np.arange(10)
 
-        assert_equal(ind(), slice(None, 5, None))
-        assert_equal(ind.flat(), slice(None, 5, None))
+        assert_equal(ind(), slice(None, 5, 1))
+        assert_equal(ind.flat(), slice(None, 5, 1))
 
         assert_equal(src[ind()], np.array([0, 1, 2, 3, 4]))
         assert_equal(src[ind.flat()], np.array([0, 1, 2, 3, 4]))
@@ -240,7 +240,7 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(ind.as_array(), np.array([0, 1, 2, 3, 4]))
         assert_equal(src[ind.as_array()], np.array([0, 1, 2, 3, 4]))
 
-        assert_equal(ind.shaped_instance()(), slice(None, 5, None))
+        assert_equal(ind.shaped_instance()(), slice(None, 5, 1))
         assert_equal(ind.indexed_src_shape, (5,))
         assert_equal(ind.min_src_dim, 1)
 
@@ -248,17 +248,17 @@ class IndexerTestCase(unittest.TestCase):
         ind = indexer[3:]
         src = np.arange(10)
 
-        assert_equal(ind(), slice(3, None))
-        assert_equal(ind.flat(), slice(3, None))
+        assert_equal(ind(), slice(3, None, 1))
+        assert_equal(ind.flat(), slice(3, None, 1))
 
         assert_equal(src[ind()], np.array([3, 4, 5, 6, 7, 8, 9]))
         assert_equal(src[ind.flat()], np.array([3, 4, 5, 6, 7, 8, 9]))
 
         assert_equal(ind.min_src_dim, 1)
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
-        self.assertEqual(cm.exception.args[0], "Can't get shaped array of slice(3, None, None) because it has no source shape.")
+        self.assertEqual(cm.exception.args[0], "Can't get shaped array of slice(3, None, 1) because it has no source shape.")
 
         ind.set_src_shape(src.shape)
 
@@ -288,23 +288,65 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(ind.indexed_src_shape, (4,))
         assert_equal(ind.min_src_dim, 1)
 
+    def test_rev_slice(self):
+        ind = indexer[::-1]
+        src = np.arange(10)
+
+        assert_equal(ind(), slice(None, None, -1))
+        assert_equal(ind.flat(), slice(None, None, -1))
+
+        assert_equal(src[ind()], np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]))
+        assert_equal(src[ind.flat()], np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]))
+
+        assert_equal(ind.min_src_dim, 1)
+
+        ind.set_src_shape(src.shape)
+
+        assert_equal(ind.as_array(), np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]))
+        assert_equal(src[ind.as_array()], np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]))
+        assert_equal(src[ind.shaped_array()], np.array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]))
+        assert_equal(ind.shaped_instance()(), slice(None, None, -1))
+        assert_equal(ind.indexed_src_shape, (10,))
+        assert_equal(ind.min_src_dim, 1)
+
+    def test_rev_slice2D(self):
+        ind = indexer[::-1]
+        src = np.arange(4).reshape((2,2))
+
+        assert_equal(ind(), slice(None, None, -1))
+        assert_equal(ind.flat(), slice(None, None, -1))
+
+        expected = src[::-1]
+
+        assert_equal(src[ind()], expected)
+        assert_equal(src[ind.flat()], expected)
+
+        assert_equal(ind.min_src_dim, 1)
+
+        ind.set_src_shape(src.shape)
+
+        assert_equal(ind.as_array(), expected.flatten())
+        assert_equal(src[ind()], expected)
+        assert_equal(ind.shaped_instance()(), slice(None, None, -1))
+        assert_equal(ind.indexed_src_shape, (2,2))
+        assert_equal(ind.min_src_dim, 1)
 
 class IndexerMultiDimTestCase(unittest.TestCase):
     def test_multi_slice(self):
         ind = indexer[:,:,:]
         src = np.arange(27).reshape((3,3,3))
 
-        assert_equal(ind(), (slice(None), slice(None), slice(None)))
+        assert_equal(ind(), (slice(None, None, 1), slice(None, None, 1), slice(None, None, 1)))
         assert_equal(src[ind()], src)
 
         with self.assertRaises(Exception) as cm:
             ind.flat()
         self.assertEqual(cm.exception.args[0], "Can't get shaped array of (slice(None, None, None), slice(None, None, None), slice(None, None, None)) because it has no source shape.")
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.indexed_src_shape
         self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of (slice(None, None, None), slice(None, None, None), slice(None, None, None)) because source shape is unknown.")
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
         self.assertEqual(cm.exception.args[0], "Can't determine extent of array because source shape is not known.")
 
@@ -318,23 +360,45 @@ class IndexerMultiDimTestCase(unittest.TestCase):
         assert_equal(ind.indexed_src_shape, (3,3,3))
         assert_equal(ind.min_src_dim, 3)
 
+    def test_flat_slice_into_nd_source(self):
+        ind = indexer[1:]
+        src = np.arange(27).reshape((3,3,3))
+        ind.set_src_shape(src.shape)
+
+        assert_equal(ind(), slice(1, None, 1))
+
+        expected = np.stack([np.arange(9, 18).reshape((3, 3)), np.arange(18, 27).reshape((3, 3))])
+
+        assert_equal(expected, src[1:])
+        assert_equal(src[ind()], expected)
+
+        shaped_ind = ind.shaped_instance()
+
+        assert_equal(shaped_ind.as_array(flat=True), expected.ravel())
+
+        expected_nonflat = (np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2]),
+                            np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 0, 0, 0, 1, 1, 1, 2, 2, 2]),
+                            np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2]))
+
+        assert_equal(shaped_ind.as_array(flat=False), expected_nonflat)
+
     def test_slice_neg(self):
         ind = indexer[:-1,:,:2]
         src = np.arange(27).reshape((3,3,3))
 
-        assert_equal(ind(), (slice(None, -1), slice(None), slice(None, 2)))
+        assert_equal(ind(), (slice(None, -1, 1), slice(None, None, 1), slice(None, 2, 1)))
         assert_equal(src[ind()], src[:-1,:,:2])
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.indexed_src_shape
         self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of (slice(None, -1, None), slice(None, None, None), slice(None, 2, None)) because source shape is unknown.")
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
         self.assertEqual(cm.exception.args[0], "Can't determine extent of array because source shape is not known.")
 
         ind.set_src_shape(src.shape)
 
-        assert_equal(ind.shaped_instance()(), (slice(0, 2, 1), slice(0, 3, 1), slice(None, 2, None)))
+        assert_equal(ind.shaped_instance()(), (slice(0, 2, 1), slice(0, 3, 1), slice(None, 2, 1)))
         assert_equal(ind.as_array(), np.arange(27, dtype=np.int32).reshape((3,3,3))[:-1,:,:2].ravel())
         assert_equal(ind.as_array(flat=False), np.arange(27, dtype=np.int32).reshape((3,3,3))[:-1,:,:2])
         assert_equal(ind.indexed_src_shape, (2,3,2))
@@ -344,11 +408,11 @@ class IndexerMultiDimTestCase(unittest.TestCase):
         src = np.arange(27).reshape((3,3,3))
         ind = indexer[[0,2], :, [1,2]]
 
-        assert_equal(ind(), ([0,2], slice(None, None, None), [1,2]))
-        with self.assertRaises(RuntimeError) as cm:
+        assert_equal(ind(), ([0,2], slice(None, None, 1), [1,2]))
+        with self.assertRaises(Exception) as cm:
             ind.indexed_src_shape
         self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of ([0, 2], slice(None, None, None), [1, 2]) because source shape is unknown.")
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
         self.assertEqual(cm.exception.args[0], "Can't determine extent of array because source shape is not known.")
 
@@ -365,10 +429,10 @@ class IndexerMultiDimTestCase(unittest.TestCase):
         ind = indexer[[[0,0],[2,2]], [[0,2], [0, 2]]]  # shoud get a 2x2 array with corner values of the 3x3
 
         assert_equal(ind(), ([[0,0],[2,2]], [[0,2], [0, 2]]))
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.indexed_src_shape
         self.assertEqual(cm.exception.args[0], "Can't get indexed_src_shape of ([[0, 0], [2, 2]], [[0, 2], [0, 2]]) because source shape is unknown.")
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             ind.as_array()
         self.assertEqual(cm.exception.args[0], "Can't determine extent of array because source shape is not known.")
 

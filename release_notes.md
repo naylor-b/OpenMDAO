@@ -1,5 +1,424 @@
 ***********************************
-# Release Notes for OpenMDAO 3.14.0
+# Release Notes for OpenMDAO 3.22.0
+
+December 14, 2022
+
+OpenMDAO 3.22.0 contains a variety of new user-facing capabilities and bug fixes.
+Here are some of the highlights:
+
+We've removed our dependency on the tabulate package.
+The dependencies on pyDOE2 and pyparsing are no longer required unless the user
+attempts to use an OpenMDAO feature that requires them. In this case, that means
+the DOEDriver or the external code file-wrapping capabilities, respectively.
+
+OpenMDAO will now raise an exception if a single solver instance is attached to multiple systems.
+
+We've implemented several [POEMs](https://github.com/OpenMDAO/POEMs) in this release.
+POEM 74 is implemented, and OpenMDAO will suggest closely-matching connection targets if you happen to misspell it during the `connect` call.
+POEM 70 adds a new _inputs report_ (`inputs.html`) that allows the user to quickly view the available inputs in a model, see which are ultimately connected to IndepVarComps, and to see which are design variables controlled by the Driver.
+POEM 69 allows users to provide more clear names for the residuals associated with implicit outputs, rather than assigning them the same name.
+Users were sometimes confused that the existing implementation seemed to associate some residuals specifically with some outputs, when in reality it often just matters that a solver be given `N` implicit outputs and `N` corresponding residuals.
+
+## New Deprecations
+
+- Setting `prob.model` to a component is now deprecated, as the technical burden of supporting this corner case has outweighed its usefulness. The `model` assigned to a Problem should now always be a Group.
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- **POEM 70** implementation: Added the inputs report, and a generate_table function to eliminate dependency on the tabulate package. [#2655](https://github.com/OpenMDAO/OpenMDAO/pull/2655)
+- Added a command line test for the scaling report. [#2657](https://github.com/OpenMDAO/OpenMDAO/pull/2657)
+- Changed ImplicitComponent.apply_nonlinear() to raise NotImplementedError [#2664](https://github.com/OpenMDAO/OpenMDAO/pull/2664)
+- Changed check_partials to skip components with no outputs or no inputs [#2667](https://github.com/OpenMDAO/OpenMDAO/pull/2667)
+- OpenMDAO will now consider relevance information when running _linearize. As a result of this change, a component with finite differenced or complex stepped partials will not compute them for inputs that do not contribute to the model relevancy (as measured from the model's objectives and constraints to the design variables.) [#2675](https://github.com/OpenMDAO/OpenMDAO/pull/2675)
+- **POEM 74** implementation: Suggest variables for failed connection [#2681](https://github.com/OpenMDAO/OpenMDAO/pull/2681)
+- Made pyDOE2 an optional dependency. [#2689](https://github.com/OpenMDAO/OpenMDAO/pull/2689)
+- Added support for constraint alias in the case reader. [#2698](https://github.com/OpenMDAO/OpenMDAO/pull/2698)
+- **POEM 69** implementation: Allow residual names to be different from the corresponding implicit output names. [#2709](https://github.com/OpenMDAO/OpenMDAO/pull/2709)
+- Changed default for Driver supports['optimization'] to False [#2715](https://github.com/OpenMDAO/OpenMDAO/pull/2715)
+- Deprecated Component as a model, handle gracefully. [#2716](https://github.com/OpenMDAO/OpenMDAO/pull/2716)
+- Added pyoptsparse to windows build on GitHub Actions. [#2718](https://github.com/OpenMDAO/OpenMDAO/pull/2718)
+- Removed pyparsing as an explicit OpenMDAO dependency. [#2723](https://github.com/OpenMDAO/OpenMDAO/pull/2723)
+- OpenMDAO will now raise an exception if a solver is assigned to more than one System [#2724](https://github.com/OpenMDAO/OpenMDAO/pull/2724)
+- Cached setup errors so they can be raised at one time. [#2726](https://github.com/OpenMDAO/OpenMDAO/pull/2726)
+
+## Bug Fixes
+
+- Added `indep_var` tag to work with inputs report for backward compatibility. [#2683](https://github.com/OpenMDAO/OpenMDAO/pull/2683)
+- Fixed an issue with embedded newlines in tables and added some '*grid' formats. [#2679](https://github.com/OpenMDAO/OpenMDAO/pull/2679)
+- Fixed doc for linking [#2680](https://github.com/OpenMDAO/OpenMDAO/pull/2680)
+- Fixed an issue with hang in guess_nonlinear in ParallelGroup [#2671](https://github.com/OpenMDAO/OpenMDAO/pull/2671)
+- Fixed various numpy deprecation warnings. [#2708](https://github.com/OpenMDAO/OpenMDAO/pull/2708)
+
+## Miscellaneous
+
+- Moved filterwarnings into catch_warnings context. [#2677](https://github.com/OpenMDAO/OpenMDAO/pull/2677)
+- Dropped required Python version back to 3.7. [#2662](https://github.com/OpenMDAO/OpenMDAO/pull/2662)
+- Changed map test to use weighted interpolant. [#2658](https://github.com/OpenMDAO/OpenMDAO/pull/2658)
+- Incremented version in issue template. [#2661](https://github.com/OpenMDAO/OpenMDAO/pull/2661)
+- Added document describing how to contribute to OpenMDAO via issues, POEMS and pull requests. [#2663](https://github.com/OpenMDAO/OpenMDAO/pull/2663)
+- Added "Debugging your Optimizations" document. [#2672](https://github.com/OpenMDAO/OpenMDAO/pull/2672)
+- Updated CI to use conda vs mamba due to Python 3.11 release [#2687](https://github.com/OpenMDAO/OpenMDAO/pull/2687)
+- Updated GitHub workflow to work properly with Python 3.11 [#2699](https://github.com/OpenMDAO/OpenMDAO/pull/2699)
+- Separated vulnerabilities check from the CI build process [#2703](https://github.com/OpenMDAO/OpenMDAO/pull/2703)
+- Updated GitHub test workflow [#2704](https://github.com/OpenMDAO/OpenMDAO/pull/2704)
+- Updated version of JAX used in GitHub workflow [#2705](https://github.com/OpenMDAO/OpenMDAO/pull/2705)
+- Removed audit step from Windows job in GitHub workflow [#2707](https://github.com/OpenMDAO/OpenMDAO/pull/2707)
+- Fixed description of ExternalCodeComp 'command' option. [#2719](https://github.com/OpenMDAO/OpenMDAO/pull/2719)
+
+
+
+***********************************
+# Release Notes for OpenMDAO 3.21.0
+
+September 28, 2022
+
+OpenMDAO 3.21.0 implements several bug fixes and a few new capabilities. DOEDriver can now compute and record
+derivatives, which can be useful for testing. AnalysisError will now correctly feed back to IPOPT when using
+pyoptsparse. This feature previously worked only with SNOPT. The behavior with other optimizers varies as not all
+are capable of dealing with failed analyses. Finally, `assert_no_approx_partials`, from `openmdao.utils.assert_utils`,
+can now be used to separately test models and their children for the presence of partials approximated with
+complex-step, finite-difference, or both.
+
+## New Deprecations
+
+- None
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- Added --dependency_versions option to command line interface to show versions of OpenMDAO dependencies. [#2628](https://github.com/OpenMDAO/OpenMDAO/pull/2628)
+- Handle AnalysisError within pyoptsparse_driver using optimizers other than SNOPT. [#2646](https://github.com/OpenMDAO/OpenMDAO/pull/2646)
+- **POEM_073**: Allow DOEDriver to record derivatives to allow user to check derivatives across model. [#2648](https://github.com/OpenMDAO/OpenMDAO/pull/2648)
+- Added optional arguments `method` and `excludes` to `assert_no_approx_partials` [#2652](https://github.com/OpenMDAO/OpenMDAO/pull/2652)
+
+## Bug Fixes
+
+- Accounted for y-intercept on bounds in linear constraints given to pyoptsparse. [#2605](https://github.com/OpenMDAO/OpenMDAO/pull/2605)
+- Fixed bug where models with discrete connections were reconfigured between setup calls. [#2610](https://github.com/OpenMDAO/OpenMDAO/pull/2610)
+- Added a better error message when DirectSolver fails and broadened conditions to check for rank deficiency. [#2614](https://github.com/OpenMDAO/OpenMDAO/pull/2614)
+- Sorted information for N2 generation to ensure consistency in created diagrams and fixed an error when drawing cycle arrows. [#2616](https://github.com/OpenMDAO/OpenMDAO/pull/2616)
+- Fixed file save dialogs for the N2 diagram. [#2619](https://github.com/OpenMDAO/OpenMDAO/pull/2619)
+- Fixed a bug in check_totals when an aliased constraint is defined in a child system. [#2621](https://github.com/OpenMDAO/OpenMDAO/pull/2621)
+- Fixed the error message to be more helpful when a user calls `Problem.list_problem_vars()` before `final_setup`. [#2624](https://github.com/OpenMDAO/OpenMDAO/pull/2624)
+- Removed deprecation warnings under python 3.10 when entry points are used. [#2625](https://github.com/OpenMDAO/OpenMDAO/pull/2625)
+- Fixed failure in load_case when variable is distributed. [#2627](https://github.com/OpenMDAO/OpenMDAO/pull/2627)
+- Updated check for when coloring doesn't meet minimum improvement percentage to prevent errant messages. [#2630](https://github.com/OpenMDAO/OpenMDAO/pull/2630)
+- Fixed to allow a shape mismatch in AutoIVC if all promoted inputs have different shapes but unambiguous storage orders. [#2632](https://github.com/OpenMDAO/OpenMDAO/pull/2632)
+- Fixed a bug in `AddSubtractComp` when reusing an input defined in a previous equation. [#2636](https://github.com/OpenMDAO/OpenMDAO/pull/2636)
+- Include myst_nb with optional [notebooks] dependencies to support Google Colab. [#2638](https://github.com/OpenMDAO/OpenMDAO/pull/2638)
+- Fix for CaseViewer issue caused by matplotlib change. [#2640](https://github.com/OpenMDAO/OpenMDAO/pull/2640)
+- Fix to allow "OPENMDAO_REPORTS=none" to disable reports, per the docs. [#2649](https://github.com/OpenMDAO/OpenMDAO/pull/2649)
+
+## Miscellaneous
+
+- Added `long_description_content_type` to setup.py for rendering on pypi. [#2604](https://github.com/OpenMDAO/OpenMDAO/pull/2604)
+- Updated `Sellar` model used for testing and documentation.. [#2613](https://github.com/OpenMDAO/OpenMDAO/pull/2613)
+- Added coverage improvements. [#2615](https://github.com/OpenMDAO/OpenMDAO/pull/2615)
+- Due to issues with conda, switch github workflow to use mamba and pre-install some jupyter dependencies. [#2618](https://github.com/OpenMDAO/OpenMDAO/pull/2618)
+- Added MacOS build to CI. [#2623](https://github.com/OpenMDAO/OpenMDAO/pull/2623)
+- Replaced all calls to time.time() with time.perf_counter(). [#2643](https://github.com/OpenMDAO/OpenMDAO/pull/2643)
+- Fixed some out-of-date documentation dealing with fixed-size interpolants. [#2644](https://github.com/OpenMDAO/OpenMDAO/pull/2644)
+
+***********************************
+# Release Notes for OpenMDAO 3.20.0
+
+August 10, 2022
+
+OpenMDAO 3.20.0 adds an optimization summary to our reports, adds a new "restart from last successful" capability to
+solvers, adds the ability to only show incorrect totals in `check_totals`, and fixes several issues in the code and documentation.
+
+## New Deprecations
+
+- None
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- Added optimization summary report. [#2561](https://github.com/OpenMDAO/OpenMDAO/pull/2561)
+- Added 'restart_from_successful' option to solvers to allow restarting from the last known good state. See [POEM 068](https://github.com/OpenMDAO/POEMs/blob/master/POEM_068.md) for more information. [#2590](https://github.com/OpenMDAO/OpenMDAO/pull/2590)
+- Added 'show_only_incorrect' option to `Problem.check_totals`. [#2595](https://github.com/OpenMDAO/OpenMDAO/pull/2595)
+
+## Bug Fixes
+
+- Specified utf-8 encoding when reading certain files. [#2563](https://github.com/OpenMDAO/OpenMDAO/pull/2563)
+- Added code to close coloring plot to prevent matplotlib warnings. [#2569](https://github.com/OpenMDAO/OpenMDAO/pull/2569)
+- Fixed a bug in our petsc vector get_norm method. [#2572](https://github.com/OpenMDAO/OpenMDAO/pull/2572)
+- Fixed some issues with reports dirs and the index page displayed by 'openmdao view_reports' [#2578](https://github.com/OpenMDAO/OpenMDAO/pull/2578)
+- Fixed N2 diagram NL-solver toolbar button. [#2579](https://github.com/OpenMDAO/OpenMDAO/pull/2579)
+- Changed to wipeFilters() in Diagram and ModelData classes [#2584](https://github.com/OpenMDAO/OpenMDAO/pull/2584)
+- Fixed several minor N2 bugs [#2592](https://github.com/OpenMDAO/OpenMDAO/pull/2592)
+- Fixed a hang in opt_report when using MPI. [#2596](https://github.com/OpenMDAO/OpenMDAO/pull/2596)
+
+## Miscellaneous
+
+- Updated setup.py to reflect requirement of Python >= 3.8 plus some changes to the readme. [#2560](https://github.com/OpenMDAO/OpenMDAO/pull/2560)
+- Changed CI workflow to use mamba instead of conda due to conda issues. [#2565](https://github.com/OpenMDAO/OpenMDAO/pull/2565)
+- Fixed link to citing in readme.md [#2567](https://github.com/OpenMDAO/OpenMDAO/pull/2567)
+- Updated issue templates to use github forms and make submitting issues a bit easier. [#2576](https://github.com/OpenMDAO/OpenMDAO/pull/2576)
+- Update GitHub workflow [#2582](https://github.com/OpenMDAO/OpenMDAO/pull/2582)
+- Fixed pep issues from pycodestyle 2.9.0 [#2586](https://github.com/OpenMDAO/OpenMDAO/pull/2586)
+- Fixed docs for NonlinearBlockJac [#2587](https://github.com/OpenMDAO/OpenMDAO/pull/2587)
+- Cleaned up some documentation. [#2588](https://github.com/OpenMDAO/OpenMDAO/pull/2588)
+
+***********************************
+# Release Notes for OpenMDAO 3.19.0
+
+June 29, 2022
+
+OpenMDAO 3.19.0 removes some long-standing deprecations, continues the addition of faster interpolants, fixes a few bugs, and includes various code cleanup tasks.
+
+## New Deprecations
+
+- None
+
+## Backwards Incompatible API Changes
+
+- Various two-word OptionsDictionary entries, which cannot be provided as arguments because they are not valid python names, have been removed. A number of other existing deprecations have been removed. See [#2551](https://github.com/OpenMDAO/OpenMDAO/pull/2551)
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- Added 1D and 2D Lagrange2 and Lagrange3 methods [#2527](https://github.com/OpenMDAO/OpenMDAO/pull/2527)
+- Added ability to let users specify constants in ExecComp expressions [#2547](https://github.com/OpenMDAO/OpenMDAO/pull/2547)
+- Added various reporting system updates [#2548](https://github.com/OpenMDAO/OpenMDAO/pull/2548)
+- Various deprecation changes [#2551](https://github.com/OpenMDAO/OpenMDAO/pull/2551)
+
+## Bug Fixes
+
+- Cleanup of test_scaling_report_mpi.py because importing TestScalingReport causes testflo to run both the non-mpi and the MPI versions of the TestCase when processing this file. [#2525](https://github.com/OpenMDAO/OpenMDAO/pull/2525)
+- Fixed a bug in which reverse-mode derivatives were not computed correctly for models that contained both unit conversion and solver scaling. [#2526](https://github.com/OpenMDAO/OpenMDAO/pull/2526)
+- Handle unavailable attributes in Case.list_outputs (allows discrete variables). [#2529](https://github.com/OpenMDAO/OpenMDAO/pull/2529)
+- Update GA & DE drivers to handle INF_BOUND on constraints [#2533](https://github.com/OpenMDAO/OpenMDAO/pull/2533)
+- Added exception when user attempts to add a solver to ExplicitComponent [#2538](https://github.com/OpenMDAO/OpenMDAO/pull/2538)
+- Made minor fixes to generic model diagram code [#2549](https://github.com/OpenMDAO/OpenMDAO/pull/2549)
+- Made dynamic sizing use info from group input defaults [#2550](https://github.com/OpenMDAO/OpenMDAO/pull/2550)
+- Fixed a bug when pyoptsparse was used with coloring and scaling report [#2553](https://github.com/OpenMDAO/OpenMDAO/pull/2553)
+
+## Miscellaneous
+
+- Replace distutils.LooseVersion with packaging Version [#2532](https://github.com/OpenMDAO/OpenMDAO/pull/2532)
+- Refactor of _apply_linear/_solve_linear and block linear solvers [#2534](https://github.com/OpenMDAO/OpenMDAO/pull/2534)
+- Added pip-audit to github workflow [#2536](https://github.com/OpenMDAO/OpenMDAO/pull/2536)
+- Updated dependency versions in the GitHub workflow [#2546](https://github.com/OpenMDAO/OpenMDAO/pull/2546)
+- Updated Numpy and pyOptSparse versions in GitHub workflow [#2554](https://github.com/OpenMDAO/OpenMDAO/pull/2554)
+- Remove use of deprecated 'asscalar' in unit test [#2556](https://github.com/OpenMDAO/OpenMDAO/pull/2556)
+
+***********************************
+# Release Notes for OpenMDAO 3.18.0
+
+May 05, 2022
+
+OpenMDAO 3.18.0 adds some enhanced MPI capability to OpenMDAO, and includes several bug fixes and internal cleanup.
+
+The implementation of [POEM 065](https://github.com/OpenMDAO/POEMs/blob/master/POEM_065.md) allows users to specify
+`proc_group` for subsystems in ParallelGroups. This enables the grouping of less computationally expensive subsystems onto
+fewer processors to achieve better balancing.
+
+We also recently discovered that `math.prod` in the standard Python library as of 3.8 is over an order of magnitude
+faster than `numpy.prod` for reasonably small arrays. Since this function is frequently used to determine sizes given
+the shape of a variable in OpenMDAO-related tools, we've updated the `shape_to_len` function to take advantage of it
+and encourage users to use this implementation over `numpy.prod`.
+
+The generalization of the N2 diagram also continues in this release, with a goal of allowing its use in other contexts.
+
+## New Deprecations
+
+- None
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- Implemented [POEM 065](https://github.com/OpenMDAO/POEMs/blob/master/POEM_065.md), allowing user to specify `proc_group` and `proc_weight` for subsystems. [#2487](https://github.com/OpenMDAO/OpenMDAO/pull/2487)
+- Allow pyoptsparse `opt_prob` to be printed before optimization with `print_opt_prob` option. [#2492](https://github.com/OpenMDAO/OpenMDAO/pull/2492)
+- Updated `shape_to_len` and made it call `math.prod` if Python >= 3.8. [#2512](https://github.com/OpenMDAO/OpenMDAO/pull/2512)
+
+## Bug Fixes
+
+- Fixed a bug in ExecComp where the value was not saved as a Numpy array, causing issues with the N2 diagram. [#2482](https://github.com/OpenMDAO/OpenMDAO/pull/2482)
+- Fixed formatting of options table in notebooks. [#2485](https://github.com/OpenMDAO/OpenMDAO/pull/2485)
+- Fixed indexer.py such that sizes created using numpy.prod are always integers. [#2485](https://github.com/OpenMDAO/OpenMDAO/pull/2486)
+- Fixed a few bugs related to discrete variables. [#2495](https://github.com/OpenMDAO/OpenMDAO/pull/2495)
+- Aligned the population initialization of the SimpleGA and DifferentialEvolution drivers. [#2499](https://github.com/OpenMDAO/OpenMDAO/pull/2499)
+- Fixed an issue where an exception was being raised when dynamic sizing was used with distributed arrays having a local size of zero. [#2503](https://github.com/OpenMDAO/OpenMDAO/pull/2503)
+- Fixed an issue where reverse slicing for `src_indices` (`om.slicer[::-1]`) was not working. [#2505](https://github.com/OpenMDAO/OpenMDAO/pull/2505)
+- Added a fix to handle more than just `ImportError` in pyOptSparseDriver. [#2508](https://github.com/OpenMDAO/OpenMDAO/pull/2508)
+- Added a missing comma to test dependencies in setup.py. [#2513](https://github.com/OpenMDAO/OpenMDAO/pull/2513)
+- Fixed infinite recursion when running `openmdao scaling` when coloring is active. [#2515](https://github.com/OpenMDAO/OpenMDAO/pull/2515)
+- Added a fix for a bug where complex step around an implicit component containing a Newton solver would discard the imaginary part. [#2517](https://github.com/OpenMDAO/OpenMDAO/pull/2517)
+- Fixed a bug in which calling run_model from within run_driver would cause the case_prefix to be lost. [#2520](https://github.com/OpenMDAO/OpenMDAO/pull/2520)
+
+## Miscellaneous
+
+- Added generalized versions of Diagram, Layout classes for the N2 and updated to D3 v7.3. [#2484](https://github.com/OpenMDAO/OpenMDAO/pull/2484)
+- Moved MPI scaling report test to its own file to address CI issues. [#2489](https://github.com/OpenMDAO/OpenMDAO/pull/2489)
+- Enable triggering of Dymos tests after a successful push to OpenMDAO. [#2490](https://github.com/OpenMDAO/OpenMDAO/pull/2490)
+- Added generalized Style, Arrow, Window, Search, Toolbar, SymbolType and UserInterface classes for N2. [#2493](https://github.com/OpenMDAO/OpenMDAO/pull/2493)
+- Added 2022 Development Roadmap [#2496](https://github.com/OpenMDAO/OpenMDAO/pull/2496)
+- Added generalized Matrix and Legend classes for N2. [#2500](https://github.com/OpenMDAO/OpenMDAO/pull/2500)
+- Changed a few test tolerances to avoid sporadic failures on Python 3.7 test environment. [#2501](https://github.com/OpenMDAO/OpenMDAO/pull/2501)
+- Cleaned up dependencies. [#2502](https://github.com/OpenMDAO/OpenMDAO/pull/2502)
+- Added scripts to create and test a generic N2 model and to build an N2 screenshot for the help screen. [#2510](https://github.com/OpenMDAO/OpenMDAO/pull/2510)
+- Fixed text formatting in notebook describing parallel groups. [#2519](https://github.com/OpenMDAO/OpenMDAO/pull/2519)
+
+***********************************
+# Release Notes for OpenMDAO 3.17.0
+
+March 21, 2022
+
+OpenMDAO 3.17.0 adds a few significant capabilities, as well as several bugfixes and performance improvements.
+
+The first major capability is the addition of a reports system.  OpenMDAO has provided various feedback through
+standard output, either automatically or at the users request.  The new report capability will allow OpenMDAO to provide
+richer feedback via html and other outputs.  In addition, reports that are useful and cheap to generate, such as the N2
+diagram and the scaling report, will be generated automatically and placed in a reports directory.  The location of
+this reports directory is user-configurable, and options exists for disabling reports when they are unwanted.  Finally,
+the reports system is intended to be extensible, so developers of tools which use OpenMDAO will be able to generate
+their own reports.
+
+OpenMDAO will now also allow aliases for constraints.  This feature will enable users to apply multiple constraints
+to the same variable - such as imposing a equality constraint on one array element and lower/upper bounds on other
+elements.  In the past, users would typically create new "pass-thru" components that would accept different portions
+of these array outputs.  Using the OpenMDAO model hierarchy to "namespace" constraints is also no longer necessary,
+since aliases can be used to give a more human-readable description of the constraint.
+
+We're continuing to add visualization tools. This release features OptionsWidget and CaseViewer.  OptionsWidget provides
+a simple GUI to change options of a model in a Jupyter notebook.  CaseViewer provides a GUI for rapidly plotting
+variables across case iterations from a case record file.  CaseViewer currently only works in a Jupyter notebook,
+but we plan on allowing it to be used as a standalone tool in the future.
+
+## New Deprecations
+
+- Added deprecation if options names are not valid python names. [#2378](https://github.com/OpenMDAO/OpenMDAO/pull/2378)
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- Added several updates to the hooks system. [#2404](https://github.com/OpenMDAO/OpenMDAO/pull/2404)
+- N2 toolbar buttons added to access collapse/expand and variable filter modes [#2407](https://github.com/OpenMDAO/OpenMDAO/pull/2407)
+- Represent filtered variables in the N2 as collapsed instead of hidden [#2422](https://github.com/OpenMDAO/OpenMDAO/pull/2422)
+- Allow complex numbers in InterpND, more fixed-size interpolants for 1D and 2D slinear, and some slinear performance improvements. [#2436](https://github.com/OpenMDAO/OpenMDAO/pull/2436)
+- Implementation of the reports system, per POEM 060. [#2448](https://github.com/OpenMDAO/OpenMDAO/pull/2448)
+- Added a widget to modify options in a Jupyter notebook environment before setup. [#2456](https://github.com/OpenMDAO/OpenMDAO/pull/2456)
+- Added a CaseViewer tool for quick visualization of case data in a Jupyter notebook. [#2470](https://github.com/OpenMDAO/OpenMDAO/pull/2470)
+- Implementation of POEM 063, constraint aliases and allowing multiple constraints on different indices of array variables. [#2473](https://github.com/OpenMDAO/OpenMDAO/pull/2473)
+
+## Bug Fixes
+
+- When generating the scaling report, run the model if it hasn't been run. [#2413](https://github.com/OpenMDAO/OpenMDAO/pull/2413)
+- Allow leading underscore in valid options names. [#2418](https://github.com/OpenMDAO/OpenMDAO/pull/2418)
+- Removed exception when get_io_metadata called on dyn shaped variable before shape is known [#2424](https://github.com/OpenMDAO/OpenMDAO/pull/2424)
+- Fixed Iterable deprecation and a couple tests for Python 3.10 [#2426](https://github.com/OpenMDAO/OpenMDAO/pull/2426)
+- DOE driver no longer generates redundant recordings when not running in parallel [#2430](https://github.com/OpenMDAO/OpenMDAO/pull/2430)
+- Fixed a bug when a flat slice is specified as the src_indices for a non-flat source, and added usage of slicer to connection documentation. [#2443](https://github.com/OpenMDAO/OpenMDAO/pull/2443)
+- Fixed a bug and some changes to recording under MPI [#2445](https://github.com/OpenMDAO/OpenMDAO/pull/2445)
+- Fixed a bug in CaseReader's parsing of iteration coordinates. [#2454](https://github.com/OpenMDAO/OpenMDAO/pull/2454)
+- Fixed some issues with src indices under promotion and some MPI issues. [#2455](https://github.com/OpenMDAO/OpenMDAO/pull/2455)
+- Fixed an MPI hang when running the scaling report. [#2457](https://github.com/OpenMDAO/OpenMDAO/pull/2457)
+- Fixed a broken usage message for cmd line tools. [#2458](https://github.com/OpenMDAO/OpenMDAO/pull/2458)
+- Finished fixing logic to parse system from iteration coordinate. [#2459](https://github.com/OpenMDAO/OpenMDAO/pull/2459)
+- Added a check for discrete outputs that are not design vars in Driver._get_voi_val. [#2464](https://github.com/OpenMDAO/OpenMDAO/pull/2464)
+- Added a test for solver recording when Broyden is the solver and also eliminate double recording of Broyden solver iterations. [#2465](https://github.com/OpenMDAO/OpenMDAO/pull/2465)
+- Added handling of discrete variables to the scaling report. [#2466](https://github.com/OpenMDAO/OpenMDAO/pull/2466)
+- Fixed some issues with indexing values for plots in the CaseViewer [#2477](https://github.com/OpenMDAO/OpenMDAO/pull/2477)
+
+## Miscellaneous
+
+- Removed 'remove-output' tag on metamodel notebooks with options tables [#2403](https://github.com/OpenMDAO/OpenMDAO/pull/2403)
+- Updated docstrings for numpydoc 1.2 compatibility [#2421](https://github.com/OpenMDAO/OpenMDAO/pull/2421)
+- Refactored the HTML preprocessor implementation for the N2. [#2452](https://github.com/OpenMDAO/OpenMDAO/pull/2452)
+- Added installation of `libscotch` to the oldest workflow. [#2467](https://github.com/OpenMDAO/OpenMDAO/pull/2467)
+- Continued N2 refactor by adding generic classes for ModelData, TreeNode, and others. [#2468](https://github.com/OpenMDAO/OpenMDAO/pull/2468)
+
+***********************************
+# Release Notes for OpenMDAO 3.16.0
+
+January 06, 2022
+
+OpenMDAO 3.16.0 fixes the definition of the "Kelvin as energy" unit, improves documentation and exception handling, adds verification that options names are valid python names, and adds improvements to the N2 visualization.
+
+We've also adjusted our nomenclature with respect to parallel processing.
+Instead of inputs and outputs either being "distributed" or "serial", we now refer to them as "distributed" or "non-distributed."
+
+Finally, the minimum supported version of Python is now 3.7, since 3.6 has reached the end of its life.  While OpenMDAO may still work with prior versions of Python, we recommend users upgrade to supported versions.
+
+
+## New Deprecations
+
+- Added deprecation if options names are not valid python names. [#2378](https://github.com/OpenMDAO/OpenMDAO/pull/2378)
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- If no explicit name given to a Problem, assign one automatically. [#2368](https://github.com/OpenMDAO/OpenMDAO/pull/2368)
+- Added fwd/rev coloring support for function comps (using jax). [#2370](https://github.com/OpenMDAO/OpenMDAO/pull/2370)
+- Added deprecation if options names are not valid python names. [#2378](https://github.com/OpenMDAO/OpenMDAO/pull/2378)
+- Added traceback information in a few places where OpenMDAO handles then re-raises exceptions. [#2384](https://github.com/OpenMDAO/OpenMDAO/pull/2384)
+
+## Bug Fixes
+
+- Replaced np.bool with bool to silence numpy deprecation. [#2375](https://github.com/OpenMDAO/OpenMDAO/pull/2375)
+- Fixed 'Ken' (kelvin-as-energy-unit) definition based on 2018 standard. [#2386](https://github.com/OpenMDAO/OpenMDAO/pull/2386)
+
+## Miscellaneous
+
+- Added a search box to the N2 variable selection dialog. [#2361](https://github.com/OpenMDAO/OpenMDAO/pull/2361)
+- Removed Deprecation Warning For Serial to Distributed IO Connections. [#2363](https://github.com/OpenMDAO/OpenMDAO/pull/2363)
+- Added a complex step summary notebook. [#2376](https://github.com/OpenMDAO/OpenMDAO/pull/2376)
+- Removed old 'experimental docs' directory. [#2382](https://github.com/OpenMDAO/OpenMDAO/pull/2382)
+- Updated ISSUE_TEMPLATE to remove redundant summary section.  [#2388](https://github.com/OpenMDAO/OpenMDAO/pull/2388)
+- Overhaul documentation for matrix-free derivatives on components with distributed variables. [#2390](https://github.com/OpenMDAO/OpenMDAO/pull/2390)
+- Made a few changes to improve coverage. [#2394](https://github.com/OpenMDAO/OpenMDAO/pull/2394)
+- Changed minimum Python version to 3.7 since 3.6 has reached end-of-life. [#2395](https://github.com/OpenMDAO/OpenMDAO/pull/2395)
+- Made a small fix to make distributed example more complex-safe. [#2398](https://github.com/OpenMDAO/OpenMDAO/pull/2398)
+
+***********************************
+# Release Notes for OpenMDAO 3.15.0
 
 November 24, 2021
 
@@ -225,7 +644,7 @@ It fixes the known issue from 3.10.0 in which the derivatives of serial outputs 
 ## Backwards Incompatible API Changes:
 
 - None
- 
+
 ## Backwards Incompatible NON-API Changes:
 
 - None
@@ -1158,57 +1577,57 @@ None
 
 February 27, 2020
 
-Note: This is the last release of OpenMDAO 2.X. Updating to this release will be a 
+Note: This is the last release of OpenMDAO 2.X. Updating to this release will be a
 critical step in preparing for the OpenMDAO 3.X releases
 
 
-## Backwards Incompatible API Changes: 
+## Backwards Incompatible API Changes:
 
 - <POEM 004> AkimaSplineComp and BsplineComp have been deprecated, replaced with SplineComp
 
 - <POEM 008>
-  - The user is now required to set a value for the solver option `solve_subsystems` 
-    on Newton and Broyden solvers. Previously the default was `False`, but you will now get 
-    a deprecation warning if this value is not explicitly set. 
+  - The user is now required to set a value for the solver option `solve_subsystems`
+    on Newton and Broyden solvers. Previously the default was `False`, but you will now get
+    a deprecation warning if this value is not explicitly set.
 
-- Specification of `includes` and `excludes` for solver case recording options 
-  has been changed to use promoted names relative to the location of that solver in the model. 
+- Specification of `includes` and `excludes` for solver case recording options
+  has been changed to use promoted names relative to the location of that solver in the model.
 
-## Backwards Incompatible NON-API Changes: 
+## Backwards Incompatible NON-API Changes:
 
-Note: These changes are not technically API related, but 
-still may cause your results to differ when upgrading. 
+Note: These changes are not technically API related, but
+still may cause your results to differ when upgrading.
 
-- <POEM 012> The old implementation of KrigingSurrogate was hard coded to the 
-  `gesdd` method for inverses. The method is now an option, but we've changed 
-  the default to `gesvd` because its more numerically stable. 
-  This might introduce slight numerical changes to the Kriging fits. 
+- <POEM 012> The old implementation of KrigingSurrogate was hard coded to the
+  `gesdd` method for inverses. The method is now an option, but we've changed
+  the default to `gesvd` because its more numerically stable.
+  This might introduce slight numerical changes to the Kriging fits.
 
-- Refactor of how reverse mode derivative solves work for parallel components 
-  that may require the removal of reduce calls in some components that were 
-  needed previously 
+- Refactor of how reverse mode derivative solves work for parallel components
+  that may require the removal of reduce calls in some components that were
+  needed previously
 
 - Change to the way SimpleGA does crossover to be more correct (was basically just mutuation before)
 
 
 ## New Features:
 
-- <POEM 002> users can now manually terminate an optimization using operating system signals 
+- <POEM 002> users can now manually terminate an optimization using operating system signals
 
-- <POEM 003> 
-  - users can now add I/O, connections, and promotions in configure 
+- <POEM 003>
+  - users can now add I/O, connections, and promotions in configure
   - new API method added to groups to allow promotions after a subsystem has already been added
 
-- <POEM 004> SplineComp was added to the standard component library, 
+- <POEM 004> SplineComp was added to the standard component library,
   and you can also import the interpolation algorithms to use in your own components
 
-- <POEM 005> OpenMDAO plugin system has been defined, so users can now publish their own plugins on github. 
+- <POEM 005> OpenMDAO plugin system has been defined, so users can now publish their own plugins on github.
   several utilities added to openmdao command line tools related to plugins
 
-- <POEM 007> ExternalCodeComp and ExternalCodeImplicitComp can now accept strings 
-  (previously a lists of strings was required) for `command`, `command_apply`, and `command_solve`. 
+- <POEM 007> ExternalCodeComp and ExternalCodeImplicitComp can now accept strings
+  (previously a lists of strings was required) for `command`, `command_apply`, and `command_solve`.
 
-- <POEM 010> User can now mark some options as `recordable=False` as an alternative to 
+- <POEM 010> User can now mark some options as `recordable=False` as an alternative to
   using `system.recording_options['options_exclude']`
 
 - <POEM 012> KrigingSurrogate now has a new option `lapack_driver` to determine how an inverse is computed
@@ -1216,22 +1635,22 @@ still may cause your results to differ when upgrading.
 
 - Slight improvements to the metamodel viewer output
 
-- Improvement to the bidirectional Jacobian coloring so it will fall back to 
+- Improvement to the bidirectional Jacobian coloring so it will fall back to
   pure forward or reverse if thats faster
 
 - Users can now set the shape for outputs of `BalanceComp` and `EqConstraintsComp`
 
-- Improvements to `debug_print` for driver related to reporting which derivatives 
+- Improvements to `debug_print` for driver related to reporting which derivatives
   are being computed when coloring is active
 
 - The N2 viewer now works for models that are run in parallel (i.e. if you're using mpi to call python)
 
-- `list_inputs` and `list_outputs` both have arguments for including local_size and 
+- `list_inputs` and `list_outputs` both have arguments for including local_size and
   global_size of distributed outputs in their reports
 
 
-## Bug Fixes: 
-- Fixed a hang in SimpleGA driver related to mpi calls 
+## Bug Fixes:
+- Fixed a hang in SimpleGA driver related to mpi calls
 - Fixed a bug in SimpleGA related to setting a vector of constraints
 - Various bug-fixes to allow running with Python 3.8
 - Fixed a bug in ScipyOptimizer/Cobyla related to objective and dv scaling
@@ -1265,48 +1684,48 @@ October 1, 2019
 ## New Features:
 
 - better detection of when you're running under MPI, and new environment variable to forcibly disable MPI
-- users can now issue connections from within the `configure` method on group 
+- users can now issue connections from within the `configure` method on group
   (this is useful if you wanted to be able to interrogate your children before issuing connections)
 - significant overhead reduction due to switching from 'np.add.at' to 'np.bincount' for some matrix-vector
   products and data transfers.
 
-- `openmdao` command line tool: 
+- `openmdao` command line tool:
     - new `openmdao scaffold` command line tool to quickly bootstrap component and group files
     - `openmdao summary` command gives more data including number of constraints
-    - `openmdao tree` command now uses different colors for implicit and explicit components and 
+    - `openmdao tree` command now uses different colors for implicit and explicit components and
       includes sizes of inputs and outputs
     - the `openmdao --help` tool gives better formatted help now
 
-- CaseRecording: 
+- CaseRecording:
     - Case objects now have a `name` attribute to make identifying them simpler
     - Case objects now support __getitem__ (i.e. <case>[<some_var>]) and the
       get_val/set_val methods to directly mimic the problem interface
-    - list_inputs and list_outputs methods on Case objects now support optional includes and excludes patterns     
+    - list_inputs and list_outputs methods on Case objects now support optional includes and excludes patterns
 
-- Documentation:    
+- Documentation:
     - added documentation for the list_inputs and list_outputs method on the Case object
     - added example use of implicit component for add_discrete_input docs
     - some minor cleanup to the cantilever beam optimization example to remove some unused code
 
-- Derivatives: 
+- Derivatives:
     - slightly different method of computing the total derivative sparsity pattern has been implemented
       that should be a bit more robust (but YMMV)
     - the partials object passed into `linearize` and `compute_partials` methods on implicit
       and explicit component respectively can now be iterated on like a true dictionary
 
-- Solvers: 
-    - a true Goldstein condition was added to the ArmijoGoldstein line search 
+- Solvers:
+    - a true Goldstein condition was added to the ArmijoGoldstein line search
       (you can now choose if you want Armijo or Goldstein) *** Peter Onodi ***
-    - DirectSolver now works under MPI 
+    - DirectSolver now works under MPI
       (but be warned that it might be very slow to use it this way, because it does a lot of MPI communication!!!)
     - BroydenSolver now works in parallel
-    - improved error message when you have a nonconverged solver 
+    - improved error message when you have a nonconverged solver
     - improved error message when solver failure is due to Nan or Inf
 
-- Components: 
+- Components:
     - list_inputs and list_outputs methods on System objects now support optional includes and excludes patterns
     - variables can now have tags added as additional meta-data when they are declared,
-      which can then be used to filter the output from list_inputs and list_ouputs 
+      which can then be used to filter the output from list_inputs and list_ouputs
     - significant speed improvements and increased surrogate options for StructuredMetaModel
     - improved error message when required options are not provided to a component during instantiation
     - user gets a clear error msg if they try to use `np.` or `numpy.` namespaces inside ExecComp strings
@@ -1317,17 +1736,17 @@ October 1, 2019
 
 - Problem
     - user can set specific slices of variables using the set_val method on problem
-    - added problem.compute_jacvec_prod function for matrix-free total derivative products. 
+    - added problem.compute_jacvec_prod function for matrix-free total derivative products.
       Useful for wrapping for loops around an OpenMDAO problem and propagating derivatives through it.
 
 - Visualization
     - minor reformatting of the N2 menu to make better use of vertical screen space
     - new visualziation tool for examining the surrogates in StructuredMetaModelComp and UnstructuredMetaModelComp
-    - improved `openmdao view_connections` functionality for better filtering and toggling between 
+    - improved `openmdao view_connections` functionality for better filtering and toggling between
       promoted and absolute names
     - component names can now optionally be shown on the diagonal for XDSM diagrams *** Peter Onodi ***
 
-## Backwards Incompatible API Changes: 
+## Backwards Incompatible API Changes:
 - `openmdao view_model` has been deprecated, use `openmdao n2` instead
 - `vectorize` argument to ExecComp has been deprecated, use `has_diag_partials` instead
 - changed NewtonSolver option from `err_on_maxiter` to `err_on_non_converge` (old option deprecated)
@@ -1337,7 +1756,7 @@ October 1, 2019
 ## Bug Fixes:
 - `prom_name=True` now works with list_outputs on CaseReader (it was broken before)
 - fixed a corner case where N2 diagram wasn't listing certain variables as connected, even though they were
-- fixed a bug in check_totals when the FD-norm is zero 
+- fixed a bug in check_totals when the FD-norm is zero
 - fixed corner case bug where assembled jacobians for implicit components were not working correctly
 - fixed a problem with Aitken acceleration in parallel for NonlinearBlockGaussSeidel solver
 - fixed DOE driver bug where vars were recorded in driver_scaled form.
@@ -1353,19 +1772,19 @@ June 27, 2019
 
 ## Bug Fixes:
 - Fixed a bug in PETScVector norm calculation, which was totally wrong for serial models combined
-  with distributed ones 
+  with distributed ones
 - Fixed a bug with the solver debug_print option when output file already existed
-- Fixed the incorrect Shockley diode equation in the Circuit example 
-- Fixed a few small bugs in group level FD  
+- Fixed the incorrect Shockley diode equation in the Circuit example
+- Fixed a few small bugs in group level FD
 
 ## New Features:
 - Stopped reporting a warning for a corner case regarding promoted inputs that are connected inside
-  their owning group, because everyone hated it! 
-- Optional normalization of input variables to multifi_cokriging 
-- New matplotlib based sparsity matrix viewer for coloring of partial and total derivatives 
+  their owning group, because everyone hated it!
+- Optional normalization of input variables to multifi_cokriging
+- New matplotlib based sparsity matrix viewer for coloring of partial and total derivatives
 - Preferred import style now changed to `import openmdao.api as om`
-- Discrete variables now show up when calling the list_input/list_output functions 
-- Discrete variables now show up in view_model 
+- Discrete variables now show up when calling the list_input/list_output functions
+- Discrete variables now show up in view_model
 - ScipyOptimizeDriver now raises an exception when the objective is missing
 - A legend can be optionally added to the XDSM diagram. Not shown by default.
   *** contributed by Peter Onodi ***
@@ -1389,19 +1808,19 @@ May 28, 2019
 - Significant improvement to documentation search functionality
   (by default, only searches the feature docs and user guide now)
 
-- Derivatives: 
+- Derivatives:
     - Improved support for full-model complex-step when models have guess_nonlinear methods defined
-    - **Experimental** FD and CS based coloring methods for partial derivative approximation 
+    - **Experimental** FD and CS based coloring methods for partial derivative approximation
       Valuable for efficiently using FD/CS on vectorized (or very sparse) components
 
-- Solvers: 
+- Solvers:
     - `Solver failed to converge` message now includes solver path name to make it more clear what failed
     - Improved pathname information in the singular matrix error from DirectSolver
     - Directsolver has an improved error message when it detects identical rows or columns in Jacobian
     - NonlinearGaussSeidel solver now accounts for residual scaling in its convergence criterion
     - New naming scheme for solver debug print files (the old scheme was making names so long it caused OSErrors)
 
-- Components: 
+- Components:
     - ExecComp now allows unit=<something> and shape=<something> arguments that apply to all variables in the expression
     - New AkimaSpline component with derivatives with respect to training data inputs
 
@@ -1414,22 +1833,22 @@ May 28, 2019
   *** contributed by Peter Onodi ***
   *** uses XDSMjs v0.6.0 by Rémi Lafage (https://github.com/OneraHub/XDSMjs) ***
 
-## Backwards Incompatible API Changes: 
+## Backwards Incompatible API Changes:
 - New APIs for total derivative coloring that are more consistent with partial derivative coloring
   (previous APIs are deprecated and coloring files generated with the previous API will not work)
-- The API for providing a guess function to the BalanceComp has changed. 
+- The API for providing a guess function to the BalanceComp has changed.
   guess_function is now passed into BalanceComp as an init argument
-- Changed the N2 diagram json data formatting to make the file size smaller 
+- Changed the N2 diagram json data formatting to make the file size smaller
   You can't use older case record databases to generate an N2 diagram with latest version
-- All component methods related to execution now include `discrete_inputs` and `discrete_outputs` arguments 
+- All component methods related to execution now include `discrete_inputs` and `discrete_outputs` arguments
   when a component is defined with discrete i/o. (if no discrete i/o is defined, the API remains unchanged)
-  (includes `solve_nonlinear`, `apply_nonlinear`, `linearize`, `apply_linear`, `compute`, `compute_jac_vec_product`, `guess_nonlinear`) 
-- The internal Driver API has changed, a driver should execute the model with `run_solve_nonlinear` to ensure that proper scaling operations occur 
+  (includes `solve_nonlinear`, `apply_nonlinear`, `linearize`, `apply_linear`, `compute`, `compute_jac_vec_product`, `guess_nonlinear`)
+- The internal Driver API has changed, a driver should execute the model with `run_solve_nonlinear` to ensure that proper scaling operations occur
 
 ## Bug Fixes:
 - CaseRecorder was reporting incorrect values of scaled variables (analysis was correct, only case record output was wrong)
 - the problem level `record_iteration` method was not properly respecting the `includes` specification
-- ExecComp problem when vectorize=True, but only shape was defined. 
+- ExecComp problem when vectorize=True, but only shape was defined.
 - Incorrect memory allocation in parallel components when local size of output went to 0
 - Multidimensional `src_indices` were not working correctly with assembled Jacobians
 - Fixed problem with genetic algorithm not working with vector design variables *** contributed by jennirinker ***

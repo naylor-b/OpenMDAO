@@ -185,7 +185,7 @@ class SerialTests(unittest.TestCase):
         p.run_model()
         np.testing.assert_allclose(p['sum.z'], inval1 * 3. + inval2 * 5.)
 
-    def test_discrete_fan_out(self):
+    def test_discrete_fan_out1(self):
         p = om.Problem()
         model = p.model
         par = model.add_subsystem('par', om.ParallelGroup(), promotes=['x'])
@@ -196,8 +196,8 @@ class SerialTests(unittest.TestCase):
         self.assertEqual(p.get_val('par.C1.y', get_remote=True), 'par.C1/')
         self.assertEqual(p.get_val('par.C2.y', get_remote=True), 'par.C2/')
 
-    def test_discrete_fan_out(self):
-        p = om.Problem()
+    def test_discrete_fan_out2(self):
+        p = om.Problem(name='discrete_fan_out2')
         model = p.model
         par = model.add_subsystem('par', om.ParallelGroup(), promotes=['x'])
         par.add_subsystem('C1', PathCompEx('foo'), promotes=['x'])
@@ -206,7 +206,12 @@ class SerialTests(unittest.TestCase):
         try:
             p.setup()
         except Exception as err:
-            self.assertEqual(str(err), "<model> <class Group>: The following inputs, ['par.C1.x', 'par.C2.x'], promoted to 'x', are connected but their metadata entries ['val'] differ. Call <group>.set_input_defaults('x', val=?), where <group> is the Group named 'par' to remove the ambiguity.")
+            self.assertEqual(str(err),
+              "\nCollected errors for problem 'discrete_fan_out2':"
+              "\n   <model> <class Group>: The following inputs, ['par.C1.x', 'par.C2.x'], promoted "
+              "to 'x', are connected but their metadata entries ['val'] differ. Call "
+              "<group>.set_input_defaults('x', val=?), where <group> is the Group named 'par' to "
+              "remove the ambiguity.")
         else:
             self.fail("Exception expected.")
 

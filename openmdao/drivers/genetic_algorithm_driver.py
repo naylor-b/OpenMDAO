@@ -24,7 +24,11 @@ import os
 import copy
 
 import numpy as np
-from pyDOE2 import lhs
+
+try:
+    from pyDOE2 import lhs
+except ModuleNotFoundError:
+    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -44,6 +48,8 @@ class SimpleGADriver(Driver):
 
     Attributes
     ----------
+    _problem_comm : MPI.Comm or None
+        The MPI communicator for the Problem.
     _concurrent_pop_size : int
         Number of points to run concurrently when model is a parallel one.
     _concurrent_color : int
@@ -55,15 +61,24 @@ class SimpleGADriver(Driver):
         Main genetic algorithm lies here.
     _randomstate : np.random.RandomState, int
          Random state (or seed-number) which controls the seed and random draws.
+    _nfit : int
+         Number of successful function evaluations.
     """
 
     def __init__(self, **kwargs):
         """
         Initialize the SimpleGADriver driver.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         super().__init__(**kwargs)
 
         # What we support
+        self.supports['optimization'] = True
         self.supports['integer_design_vars'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
@@ -89,6 +104,8 @@ class SimpleGADriver(Driver):
         # Support for Parallel models.
         self._concurrent_pop_size = 0
         self._concurrent_color = 0
+
+        self._nfit = 0  # Number of successful function evaluations
 
     def _declare_options(self):
         """
@@ -151,6 +168,29 @@ class SimpleGADriver(Driver):
         """
         super()._setup_driver(problem)
 
+        # check design vars and constraints for invalid bounds
+        for name, meta in self._designvars.items():
+            lower, upper = meta['lower'], meta['upper']
+            for param in (lower, upper):
+                if param is None or np.all(np.abs(param) >= INF_BOUND):
+                    msg = (f"Invalid bounds for design variable '{name}'. When using "
+                           f"{self.__class__.__name__}, values for both 'lower' and 'upper' "
+                           f"must be specified between +/-INF_BOUND ({INF_BOUND}), "
+                           f"but they are: lower={lower}, upper={upper}.")
+                    raise ValueError(msg)
+
+        for name, meta in self._cons.items():
+            equals, lower, upper = meta['equals'], meta['lower'], meta['upper']
+            if ((equals is None or np.all(np.abs(equals) >= INF_BOUND)) and
+               (lower is None or np.all(np.abs(lower) >= INF_BOUND)) and
+               (upper is None or np.all(np.abs(upper) >= INF_BOUND))):
+                msg = (f"Invalid bounds for constraint '{name}'. "
+                       f"When using {self.__class__.__name__}, the value for 'equals', "
+                       f"'lower' or 'upper' must be specified between +/-INF_BOUND "
+                       f"({INF_BOUND}), but they are: "
+                       f"equals={equals}, lower={lower}, upper={upper}.")
+                raise ValueError(msg)
+
         model_mpi = None
         comm = problem.comm
         if self._concurrent_pop_size > 0:
@@ -176,6 +216,8 @@ class SimpleGADriver(Driver):
         MPI.Comm or <FakeComm> or None
             The communicator for the Problem model.
         """
+        self._problem_comm = comm
+
         procs_per_model = self.options['procs_per_model']
         if MPI and self.options['run_parallel']:
 
@@ -200,6 +242,31 @@ class SimpleGADriver(Driver):
         self._concurrent_color = 0
         return comm
 
+    def _setup_recording(self):
+        """
+        Set up case recording.
+        """
+        if MPI:
+            run_parallel = self.options['run_parallel']
+            procs_per_model = self.options['procs_per_model']
+
+            for recorder in self._rec_mgr:
+                if run_parallel:
+                    # write cases only on procs up to the number of parallel models
+                    # (i.e. on the root procs for the cases)
+                    if procs_per_model == 1:
+                        recorder.record_on_process = True
+                    else:
+                        size = self._problem_comm.size // procs_per_model
+                        if self._problem_comm.rank < size:
+                            recorder.record_on_process = True
+
+                elif self._problem_comm.rank == 0:
+                    # if not running cases in parallel, then just record on proc 0
+                    recorder.record_on_process = True
+
+        super()._setup_recording()
+
     def _get_name(self):
         """
         Get name of current Driver.
@@ -210,6 +277,28 @@ class SimpleGADriver(Driver):
             Name of current Driver.
         """
         return "SimpleGA"
+
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        return self._nfit
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        return 0
 
     def run(self):
         """
@@ -247,7 +336,7 @@ class SimpleGADriver(Driver):
         for name, meta in desvars.items():
             if name in self._designvars_discrete:
                 val = desvar_vals[name]
-                if np.isscalar(val):
+                if np.ndim(val) == 0:
                     size = 1
                 else:
                     size = len(val)
@@ -259,7 +348,7 @@ class SimpleGADriver(Driver):
         lower_bound = np.empty((count, ))
         upper_bound = np.empty((count, ))
         outer_bound = np.full((count, ), np.inf)
-        bits = np.empty((count, ), dtype=np.int)
+        bits = np.empty((count, ), dtype=np.int_)
         x0 = np.empty(count)
 
         # Figure out bounds vectors and initial design vars
@@ -304,9 +393,9 @@ class SimpleGADriver(Driver):
         if pop_size == 0:
             pop_size = 4 * np.sum(bits)
 
-        desvar_new, obj, nfit = ga.execute_ga(x0, lower_bound, upper_bound, outer_bound,
-                                              bits, pop_size, max_gen,
-                                              self._randomstate, Pm, Pc)
+        desvar_new, obj, self._nfit = ga.execute_ga(x0, lower_bound, upper_bound, outer_bound,
+                                                    bits, pop_size, max_gen,
+                                                    self._randomstate, Pm, Pc)
 
         if compute_pareto:
             # Just save the non-dominated points.
@@ -542,6 +631,12 @@ class GeneticAlgorithm(object):
         """
         Initialize genetic algorithm object.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         self.objfun = objfun
         self.comm = comm
 
@@ -902,7 +997,7 @@ class GeneticAlgorithm(object):
         -------
         ndarray
             New shuffled population.
-        ndarray(dtype=np.int)
+        ndarray(dtype=int)
             Index array that maps the shuffle from old to new.
         """
         temp = np.random.rand(self.npop)
@@ -921,7 +1016,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns
@@ -960,7 +1055,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns
@@ -971,7 +1066,7 @@ class GeneticAlgorithm(object):
         interval = (vub - vlb) / (2**bits - 1)
         x = np.maximum(x, vlb)
         x = np.minimum(x, vub)
-        x = np.round((x - vlb) / interval).astype(np.int)
+        x = np.round((x - vlb) / interval).astype(np.int_)
         byte_str = [("0" * b + bin(i)[2:])[-b:] for i, b in zip(x, bits)]
         result = np.array([int(c) for s in byte_str for c in s])
         if self.gray_code:

@@ -1,7 +1,9 @@
 """A module containing various configuration checks for an OpenMDAO Problem."""
 
 from collections import defaultdict
-from distutils.version import LooseVersion
+from packaging.version import Version
+import pathlib
+from io import StringIO
 
 import numpy as np
 import pickle
@@ -15,16 +17,17 @@ from openmdao.utils.logger_utils import get_logger
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.mpi import MPI
 from openmdao.utils.hooks import _register_hook
-from openmdao.utils.general_utils import printoptions, ignore_errors
+from openmdao.utils.general_utils import printoptions
 from openmdao.utils.units import _has_val_mismatch
-from openmdao.utils.file_utils import _load_and_exec
+from openmdao.utils.file_utils import _load_and_exec, text2html
 from openmdao.utils.om_warnings import issue_warning, SetupWarning
+from openmdao.utils.reports_system import register_report
 
 
 _UNSET = object()
 
 # numpy default print options changed in 1.14
-if LooseVersion(np.__version__) >= LooseVersion("1.14"):
+if Version(np.__version__) >= Version("1.14"):
     _npy_print_opts = {'legacy': '1.13'}
 else:
     _npy_print_opts = {}
@@ -394,7 +397,7 @@ def _check_system_configs(problem, logger):
 
 def _check_solvers(problem, logger):
     """
-    Search over all solvers and raise an error for unsupported configurations.
+    Search over all solvers and warn about unsupported configurations.
 
     Report any implicit component that does not implement solve_nonlinear and
     solve_linear or have an iterative nonlinear and linear solver upstream of it.
@@ -680,6 +683,53 @@ def _check_config_setup_parser(parser):
                         (sorted(_default_checks), sorted(set(_all_checks) - set(_default_checks))))
 
 
+def _get_checks(checks):
+    if checks is True:
+        checks = sorted(_default_checks)
+    elif not checks:
+        checks = ()
+    elif 'all' in checks:
+        checks = sorted(_all_non_redundant_checks)
+    return checks
+
+
+class _Log2File(object):
+    def __init__(self, f):
+        self.f = f
+
+    def info(self, msg):
+        self.f.write(msg)
+        self.f.write('\n')
+
+    error = info
+    warning = info
+    debug = info
+
+
+def _run_check_report(prob):
+    s = StringIO()
+    for c in _get_checks(prob._check):
+        if c not in _all_checks:
+            print(f"WARNING: '{c}' is not a recognized check.  Available checks are: "
+                  f"{sorted(_all_checks)}")
+            continue
+
+        print('-' * 30, f'Checking {c}', '-' * 30, file=s)
+        _all_checks[c](prob, _Log2File(s))
+
+    output = s.getvalue()
+    if output:
+        path = pathlib.Path(prob.get_reports_dir()).joinpath('checks.html')
+        with open(path, 'w') as f:
+            f.write(text2html(output))
+
+
+# entry point for check report
+def _check_report_register():
+    register_report('checks', _run_check_report, 'Config checks', 'Problem',
+                    'final_setup', 'post')
+
+
 def _check_config_cmd(options, user_args):
     """
     Return the post_setup hook function for 'openmdao check'.
@@ -711,12 +761,10 @@ def _check_config_cmd(options, user_args):
 
             prob.check_config(logger, options.checks)
 
-        exit()
-
     # register the hook
-    _register_hook('final_setup', class_name='Problem', inst_id=options.problem, post=_check_config)
+    _register_hook('final_setup', class_name='Problem', inst_id=options.problem, post=_check_config,
+                   exit=True)
 
-    ignore_errors(True)
     _load_and_exec(options.file[0], user_args)
 
 
@@ -748,5 +796,10 @@ def check_allocate_complex_ln(group, under_cs):
     for sub, _ in group._subsystems_allprocs.values():
         if isinstance(sub, Group) and check_allocate_complex_ln(sub, under_cs):
             return True
+
+        elif isinstance(sub, ImplicitComponent):
+            if sub.nonlinear_solver is not None and sub.nonlinear_solver.supports['gradients']:
+                # Special case, gradient-supporting solver in an ImplicitComponent.
+                return True
 
     return False

@@ -5,7 +5,7 @@ from io import StringIO
 import sys
 import unittest
 import time
-from distutils.version import LooseVersion
+from packaging.version import Version
 
 import numpy as np
 
@@ -499,7 +499,7 @@ class PartialDependGroup(om.Group):
 
 # This one hangs on Travis for numpy 1.12 and we can't reproduce the error anywhere where we can
 # debug it, so we're skipping it for numpy 1.12.
-@unittest.skipUnless(MPI and PETScVector and LooseVersion(np.__version__) >= LooseVersion("1.13"),
+@unittest.skipUnless(MPI and PETScVector and Version(np.__version__) >= Version("1.13"),
                      "MPI, PETSc, and numpy >= 1.13 are required.")
 class ParDerivColorFeatureTestCase(unittest.TestCase):
     N_PROCS = 2
@@ -527,7 +527,7 @@ class ParDerivColorFeatureTestCase(unittest.TestCase):
 
         of = ['ParallelGroup1.Con1.y', 'ParallelGroup1.Con2.y']
         wrt = ['Comp1.x']
-        
+
         p = om.Problem(model=PartialDependGroup())
         p.setup(mode='fwd')
         p.run_model()
@@ -550,17 +550,17 @@ class ParDerivColorFeatureTestCase(unittest.TestCase):
 
         p.run_model()
 
-        elapsed_rev = time.time()
+        elapsed_rev = time.perf_counter()
         Jrev = p.compute_totals(of, wrt, return_format='dict')
-        elapsed_rev = time.time() - elapsed_rev
+        elapsed_rev = time.perf_counter() - elapsed_rev
 
         # run in fwd mode and compare times for deriv calculation
         p.setup(mode='fwd')
         p.run_model()
 
-        elapsed_fwd = time.time()
+        elapsed_fwd = time.perf_counter()
         Jfwd = p.compute_totals(of, wrt, return_format='dict')
-        elapsed_fwd = time.time() - elapsed_fwd
+        elapsed_fwd = time.perf_counter() - elapsed_fwd
 
         assert_near_equal(Jfwd['ParallelGroup1.Con1.y']['Comp1.x'][0], np.ones(size)*2., 1e-6)
         assert_near_equal(Jfwd['ParallelGroup1.Con2.y']['Comp1.x'][0], np.ones(size)*-3., 1e-6)
@@ -765,10 +765,13 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
         model.add_constraint('dc2.y', indices=[3], lower=-1.0, upper=1.0, parallel_deriv_color=pdc)
         model.add_objective('dc3.y', index=2, parallel_deriv_color=pdc)
 
-        prob = om.Problem(model=model)
+        prob = om.Problem(model=model, name='parallel_deriv_coloring_overlap_err')
         with self.assertRaises(Exception) as ctx:
             prob.setup(mode='rev')
-        self.assertEqual(str(ctx.exception), "<model> <class Group>: response 'pg.dc2.y' has overlapping dependencies on the same rank with other responses in parallel_deriv_color 'a'.")
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'parallel_deriv_coloring_overlap_err':"
+           "\n   <model> <class Group>: response 'pg.dc2.y' has overlapping dependencies on the "
+           "same rank with other responses in parallel_deriv_color 'a'.")
 
 if __name__ == "__main__":
     from openmdao.utils.mpi import mpirun_tests

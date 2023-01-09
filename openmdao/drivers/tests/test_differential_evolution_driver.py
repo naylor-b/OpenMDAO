@@ -1,4 +1,4 @@
-""" Unit tests for the DifferentialEvolutionDriver Driver."""
+""" Unit tests for DifferentialEvolutionDriver."""
 
 import unittest
 import os
@@ -6,28 +6,82 @@ import os
 import numpy as np
 
 import openmdao.api as om
+
+from openmdao.core.constants import INF_BOUND
+
+from openmdao.drivers.differential_evolution_driver import DifferentialEvolution
+
 from openmdao.test_suite.components.branin import Branin
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar_feature import SellarMDA
-from openmdao.test_suite.components.three_bar_truss import ThreeBarTruss
 
+from openmdao.utils.general_utils import run_driver
+from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.mpi import MPI
+try:
+    from parameterized import parameterized
+except ImportError:
+    from openmdao.utils.assert_utils import SkipParameterized as parameterized
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
 except ImportError:
     PETScVector = None
 
+try:
+    import pyDOE2
+except ImportError:
+    pyDOE2 = None
+
 extra_prints = False  # enable printing results
 
 
+def _test_func_name(func, num, param):
+    args = []
+    for p in param.args:
+        if p and p == INF_BOUND:
+            args.append('INF_BOUND')
+        elif p and p == -INF_BOUND:
+            args.append('-INF_BOUND')
+        else:
+            args.append(str(p))
+    return func.__name__ + '_' + '_'.join(args)
+
+
+class TestErrors(unittest.TestCase):
+
+    @unittest.skipIf(pyDOE2, "only runs if 'pyDOE2' is not installed")
+    def test_no_pyDOE2(self):
+        with self.assertRaises(RuntimeError) as err:
+            DifferentialEvolution(lambda: 0)
+
+        self.assertEqual(str(err.exception),
+                         "DifferentialEvolution requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+        with self.assertRaises(RuntimeError) as err:
+            om.DifferentialEvolutionDriver()
+
+        self.assertEqual(str(err.exception),
+                         "DifferentialEvolutionDriver requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
         import os  # import needed in setup for tests in documentation
         os.environ['DifferentialEvolutionDriver_seed'] = '11'  # make RNG repeatable
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_basic_with_assert(self):
         prob = om.Problem()
@@ -233,16 +287,16 @@ class TestDifferentialEvolution(unittest.TestCase):
         np.testing.assert_array_almost_equal(prob['indeps.x'], -5)
         np.testing.assert_array_almost_equal(prob['indeps.y'], [3, 1])
 
-    def test_DifferentialEvolutionDriver_missing_objective(self):
+    def test_missing_objective(self):
         prob = om.Problem()
+        model = prob.model
 
-        prob.model.add_subsystem('x', om.IndepVarComp('x', 2.0), promotes=['*'])
-        prob.model.add_subsystem('f_x', Paraboloid(), promotes=['*'])
+        model.add_subsystem('x', om.IndepVarComp('x', 2.0), promotes=['*'])
+        model.add_subsystem('f_x', Paraboloid(), promotes=['*'])
+
+        model.add_design_var('x', lower=-50, upper=50)
 
         prob.driver = om.DifferentialEvolutionDriver()
-
-        prob.model.add_design_var('x', lower=0)
-        prob.model.add_constraint('x', lower=0)
 
         prob.setup()
 
@@ -254,6 +308,46 @@ class TestDifferentialEvolution(unittest.TestCase):
         msg = "Driver requires objective to be declared"
 
         self.assertEqual(exception.args[0], msg)
+
+    @parameterized.expand([
+        (None, None),
+        (INF_BOUND, INF_BOUND),
+        (None, INF_BOUND),
+        (None, -INF_BOUND),
+        (INF_BOUND, None),
+        (-INF_BOUND, None),
+    ],
+    name_func=_test_func_name)
+    def test_inf_desvar(self, lower, upper):
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('x', om.IndepVarComp('x', 2.0), promotes=['*'])
+        model.add_subsystem('f_x', Paraboloid(), promotes=['*'])
+
+        model.add_objective('f_xy')
+        model.add_design_var('x', lower=lower, upper=upper)
+
+        prob.driver = om.DifferentialEvolutionDriver()
+
+        prob.setup()
+
+        with self.assertRaises(ValueError) as err:
+            prob.final_setup()
+
+        # A value of None for lower and upper is changed to +/- INF_BOUND in add_design_var()
+        if lower == None:
+            lower = -INF_BOUND
+        if upper == None:
+            upper = INF_BOUND
+
+        msg = ("Invalid bounds for design variable 'x.x'. When using "
+               "DifferentialEvolutionDriver, values for both 'lower' and 'upper' "
+               f"must be specified between +/-INF_BOUND ({INF_BOUND}), "
+               f"but they are: lower={lower}, upper={upper}.")
+
+        self.maxDiff = None
+        self.assertEqual(err.exception.args[0], msg)
 
     def test_vectorized_constraints(self):
         prob = om.Problem()
@@ -280,10 +374,14 @@ class TestDifferentialEvolution(unittest.TestCase):
             self.assertLessEqual(1.0 - 1e-6, prob["x"][i])
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestDriverOptionsDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
         os.environ['DifferentialEvolutionDriver_seed'] = '11'
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_driver_options(self):
         """Tests if F and Pc options can be set."""
@@ -309,10 +407,14 @@ class TestDriverOptionsDifferentialEvolution(unittest.TestCase):
         self.assertEqual(prob.driver.options['Pc'], 0.0123)
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestMultiObjectiveDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
         os.environ['DifferentialEvolutionDriver_seed'] = '11'
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_multi_obj(self):
         class Box(om.ExplicitComponent):
@@ -418,10 +520,20 @@ class TestMultiObjectiveDifferentialEvolution(unittest.TestCase):
         self.assertGreater(h2, h1)  # top area does not depend on height
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestConstrainedDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
-        os.environ['DifferentialEvolutionDriver_seed'] = '11'
+        # This env var was changed from '11' to '0' to avoid having to change test results.
+        # The old implementation of the seed calculation erroneously set the seed to 0
+        # regardless of the value of the random_state passed in (in the non-MPI case only).
+        os.environ['DifferentialEvolutionDriver_seed'] = '0'
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_constrained_with_penalty(self):
         class Cylinder(om.ExplicitComponent):
@@ -591,13 +703,117 @@ class TestConstrainedDifferentialEvolution(unittest.TestCase):
         self.assertAlmostEqual(prob['radius'], 0.5, 1)  # it is going to the unconstrained optimum
         self.assertAlmostEqual(prob['height'], 0.5, 1)  # it is going to the unconstrained optimum
 
+    def test_multiple_constraints(self):
+
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.y', index=50)
+        p.model.add_constraint('exec.z', indices=[-1], lower=0)
+        p.model.add_constraint('exec.z', indices=[0], upper=300, alias="ALIAS_TEST")
+
+        p.driver = om.DifferentialEvolutionDriver()
+
+        p.setup()
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_near_equal(p.get_val('exec.z')[0], 100.0, tolerance=1e-6)
+        assert_near_equal(p.get_val('exec.z')[-1], 100.0, tolerance=1e-6)
+
+    def test_same_cons_and_obj(self):
+
+        p = om.Problem()
+
+        exec = om.ExecComp(['y = x**2',
+                            'z = a + x**2'],
+                            a={'shape': (1,)},
+                            y={'shape': (101,)},
+                            x={'shape': (101,)},
+                            z={'shape': (101,)})
+
+        p.model.add_subsystem('exec', exec)
+
+        p.model.add_design_var('exec.a', lower=-1000, upper=1000)
+        p.model.add_objective('exec.z', index=50)
+        p.model.add_constraint('exec.z', indices=[0], upper=300, alias="ALIAS_TEST")
+
+        p.driver = om.DifferentialEvolutionDriver()
+
+        p.setup()
+
+        p.set_val('exec.x', np.linspace(-10, 10, 101))
+
+        p.run_driver()
+
+        assert_near_equal(p.get_val('exec.z')[0], -900)
+        assert_near_equal(p.get_val('exec.z')[50], -1000)
+
+    @parameterized.expand([
+        (None, -INF_BOUND, INF_BOUND),
+        (INF_BOUND, None, None),
+        (-INF_BOUND, None, None),
+    ],
+    name_func=_test_func_name)
+    def test_inf_constraints(self, equals, lower, upper):
+        # define paraboloid problem with constraint
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('parab', Paraboloid(), promotes_inputs=['x', 'y'])
+        model.add_subsystem('const', om.ExecComp('g = x + y'), promotes_inputs=['x', 'y'])
+        model.set_input_defaults('x', 3.0)
+        model.set_input_defaults('y', -4.0)
+
+        # setup the optimization
+        prob.driver = om.DifferentialEvolutionDriver()
+        model.add_objective('parab.f_xy')
+        model.add_design_var('x', lower=-50, upper=50)
+        model.add_design_var('y', lower=-50, upper=50)
+        model.add_constraint('const.g', equals=equals, lower=lower, upper=upper)
+
+        prob.setup()
+
+        with self.assertRaises(ValueError) as err:
+            prob.final_setup()
+
+        # A value of None for lower and upper is changed to +/- INF_BOUND in add_constraint()
+        if lower == None:
+            lower = -INF_BOUND
+        if upper == None:
+            upper = INF_BOUND
+
+        msg = ("Invalid bounds for constraint 'const.g'. "
+               "When using DifferentialEvolutionDriver, the value for "
+               "'equals', 'lower' or 'upper' must be specified between "
+               f"+/-INF_BOUND ({INF_BOUND}), but they are: "
+               f"equals={equals}, lower={lower}, upper={upper}.")
+
+        self.maxDiff = None
+        self.assertEqual(err.exception.args[0], msg)
+
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class MPITestDifferentialEvolution(unittest.TestCase):
     N_PROCS = 2
 
     def setUp(self):
         os.environ['DifferentialEvolutionDriver_seed'] = '11'
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_mpi_bug_solver(self):
         # This test verifies that mpi doesn't hang due to collective calls in the solver.
@@ -617,6 +833,48 @@ class MPITestDifferentialEvolution(unittest.TestCase):
         prob.setup()
         prob.set_solver_print(level=0)
 
+        prob.run_driver()
+
+    def test_random_state_bug(self):
+        # this test passes if it raises no exceptions
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', Branin(), promotes_inputs=[('x0', 'xI'), ('x1', 'xC')])
+
+        model.add_design_var('xI', lower=-5.0, upper=10.0)
+        model.add_design_var('xC', lower=0.0, upper=15.0)
+        model.add_objective('comp.f')
+
+        prob.driver = om.DifferentialEvolutionDriver()
+        prob.driver.options['max_gen'] = 5
+        prob.driver.options['run_parallel'] = True
+
+        prob.setup()
+        prob.run_driver()
+
+
+@unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
+class MPITestDifferentialEvolutionNoSetSeed(unittest.TestCase):
+    N_PROCS = 2
+
+    def test_random_state_bug(self):
+        # this test passes if it raises no exceptions
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', Branin(), promotes_inputs=[('x0', 'xI'), ('x1', 'xC')])
+
+        model.add_design_var('xI', lower=-5.0, upper=10.0)
+        model.add_design_var('xC', lower=0.0, upper=15.0)
+        model.add_objective('comp.f')
+
+        prob.driver = om.DifferentialEvolutionDriver()
+        prob.driver.options['max_gen'] = 5
+        prob.driver.options['run_parallel'] = True
+
+        prob.setup()
         prob.run_driver()
 
 
@@ -706,11 +964,16 @@ class Summer(om.ExplicitComponent):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
+@use_tempdirs
 class MPITestDifferentialEvolution4Procs(unittest.TestCase):
     N_PROCS = 4
 
     def setUp(self):
         os.environ['DifferentialEvolutionDriver_seed'] = '11'
+
+    def tearDown(self):
+        del os.environ['DifferentialEvolutionDriver_seed']  # clean up environment
 
     def test_indivisible_error(self):
         prob = om.Problem()
@@ -780,15 +1043,43 @@ class MPITestDifferentialEvolution4Procs(unittest.TestCase):
         model.add_objective('obj')
 
         driver = prob.driver = om.DifferentialEvolutionDriver()
-        prob.driver.options['pop_size'] = 4
-        prob.driver.options['max_gen'] = 3
-        prob.driver.options['run_parallel'] = True
-        prob.driver.options['procs_per_model'] = 2
+        driver.options['pop_size'] = 4
+        driver.options['max_gen'] = 3
+        driver.options['run_parallel'] = True
+        driver.options['procs_per_model'] = 2
+
+        # also check that parallel recording works
+        driver.add_recorder(om.SqliteRecorder("cases.sql"))
 
         prob.setup()
         prob.set_solver_print(level=0)
 
-        prob.run_driver()
+        failed, output = run_driver(prob)
+
+        self.assertFalse(failed)
+
+        # we will have run 2 models in parallel on our 4 procs
+        num_models = prob.comm.size // driver.options['procs_per_model']
+        self.assertEqual(num_models, 2)
+
+        # a separate case file should have been written by rank 0 of each parallel model
+        # (the top two global ranks)
+        rank = prob.comm.rank
+        filename = "cases.sql_%d" % rank
+
+        if rank < num_models:
+            expect_msg = "Cases from rank %d are being written to %s." % (rank, filename)
+            self.assertTrue(expect_msg in output)
+
+            cr = om.CaseReader(filename)
+            cases = cr.list_cases('driver')
+
+            # check that cases were recorded on this proc
+            num_cases = len(cases)
+            self.assertTrue(num_cases > 0)
+        else:
+            self.assertFalse("Cases from rank %d are being written" % rank in output)
+            self.assertFalse(os.path.exists(filename))
 
     def test_distributed_obj(self):
         size = 3

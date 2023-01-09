@@ -21,8 +21,6 @@ else:
     from openmdao.vectors.default_transfer import DefaultTransfer, _merge
     from openmdao.core.constants import INT_DTYPE
 
-    _empty_idx_array = np.array([], dtype=INT_DTYPE)
-
     class PETScTransfer(DefaultTransfer):
         """
         PETSc Transfer implementation for running in parallel.
@@ -131,11 +129,12 @@ else:
                     if src_indices is None:
                         if meta_out['distributed']:
                             # input in this case is non-distributed (else src_indices would be
-                            # defined by now).  dist output to serial input conns w/o src_indices
-                            # are not allowed.
+                            # defined by now).  dist output to non-distributed input conns w/o
+                            # src_indices are not allowed.
                             raise RuntimeError(f"{group.msginfo}: Can't connect distributed output "
-                                               f"'{abs_out}' to serial input '{abs_in}' without "
-                                               "declaring src_indices.")
+                                               f"'{abs_out}' to non-distributed input '{abs_in}' "
+                                               "without declaring src_indices.",
+                                               ident=(abs_out, abs_in))
                         else:
                             rank = myproc if abs_out in abs2meta_out else owner
                             offset = offsets_out[rank, idx_out]

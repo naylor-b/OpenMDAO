@@ -3,11 +3,14 @@
 import re
 
 from openmdao.utils.om_warnings import warn_deprecation
+from openmdao.utils.notebook_utils import notebook
+from openmdao.visualization.tables.table_builder import generate_table
+
 from openmdao.core.constants import _UNDEFINED
 
 
 # regex to check for valid names.
-namecheck_rgx = re.compile('[a-zA-Z][_a-zA-Z0-9]*')
+namecheck_rgx = re.compile('[a-zA-Z_][_a-zA-Z0-9]*')
 
 
 #
@@ -59,6 +62,8 @@ class OptionsDictionary(object):
         If True, no options can be set after declaration.
     _all_recordable : bool
         Flag to determine if all options in UserOptions are recordable.
+    _widget : OptionsWidget
+        If running in a Jupyter notebook, a widget for viewing/setting options.
     """
 
     def __init__(self, parent_name=None, read_only=False):
@@ -97,78 +102,112 @@ class OptionsDictionary(object):
         """
         return self._dict.__repr__()
 
+    def _repr_pretty_(self, p, cycle):
+        if not cycle and notebook:
+            try:
+                from openmdao.visualization.options_widget import OptionsWidget
+                return OptionsWidget(self)
+            except Exception:
+                pass
+        return repr(self)
+
     def __rst__(self):
         """
         Generate reStructuredText view of the options table.
 
         Returns
         -------
-        list of str
+        str
             A rendition of the options as an rST table.
         """
-        lines = self.to_table(fmt='rst').split('\n')
-        return lines
+        return self.to_table(fmt='rst', display=False)
 
-    def to_table(self, fmt='github', missingval='N/A'):
+    def to_table(self, fmt='github', missingval='N/A', max_width=None, display=True):
         """
         Get a table representation of this OptionsDictionary as a table in the requested format.
 
         Parameters
         ----------
         fmt : str
-            The formatting of the requested table.  Options are the same as those available
-            to the tabulate package.  See tabulate.tabulate_formats for a complete list.
+            The formatting of the requested table.  Options are
+            ['github', 'rst', 'text', 'html', 'tabulator'] and several 'grid' and 'outline'
+            formats that mimic those found in the python 'tabulate' library.
             Default value of 'github' produces a table in GitHub-flavored markdown.
+            'html' and 'tabulator' produce output viewable in a browser.
         missingval : str
             The value to be displayed in place of None.
+        max_width : int or None
+            If not None, try to limit the total width of the table to this value.
+        display : bool
+            If True, display the table, typically by writing it to stdout or opening a
+            browser.
 
         Returns
         -------
         str
             A string representation of the table in the requested format.
         """
-        try:
-            from tabulate import tabulate
-        except ImportError as e:
-            msg = "'to_table' requires the tabulate package but it is not currently installed." \
-                  " Use `pip install tablulate` or install openmdao with" \
-                  " `pip install openmdao[notebooks]`."
-            raise ImportError(msg)
+        hdrs = ['Option', 'Default', 'Acceptable Values', 'Acceptable Types', 'Description']
+        rows = []
 
-        tlist = [['Option', 'Default', 'Acceptable Values', 'Acceptable Types', 'Description',
-                  'Deprecation']]
+        deprecations = False
+        for meta in self._dict.values():
+            if meta['deprecation'] is not None:
+                deprecations = True
+                hdrs.append('Deprecation')
+                break
+
         for key in sorted(self._dict.keys()):
-            options = self._dict[key]
-            default = options['val'] if options['val'] is not _UNDEFINED else '**Required**'
-            # if the default is an object instance, replace with the (unqualified) object type
+            option = self._dict[key]
+            default = option['val'] if option['val'] is not _UNDEFINED else '**Required**'
             default_str = str(default)
+
+            # if the default is an object instance, replace with the (unqualified) object type
             idx = default_str.find(' object at ')
             if idx >= 0 and default_str[0] == '<':
                 parts = default_str[:idx].split('.')
                 default = parts[-1]
 
-            acceptable_values = options['values']
+            acceptable_values = option['values']
             if acceptable_values is not None:
                 if not isinstance(acceptable_values, (set, tuple, list)):
                     acceptable_values = (acceptable_values,)
                 acceptable_values = [value for value in acceptable_values]
 
-            acceptable_types = options['types']
+            acceptable_types = option['types']
             if acceptable_types is not None:
                 if not isinstance(acceptable_types, (set, tuple, list)):
                     acceptable_types = (acceptable_types,)
                 acceptable_types = [type_.__name__ for type_ in acceptable_types]
 
-            desc = options['desc']
+            desc = option['desc']
 
-            deprecation = options['deprecation']
+            deprecation = option['deprecation']
             if deprecation is not None:
-                tlist.append([key, default, acceptable_values, acceptable_types, desc,
-                              deprecation[0]])
-            else:
-                tlist.append([key, default, acceptable_values, acceptable_types, desc])
+                deprecation = deprecation[0]
 
-        return tabulate(tlist, headers='firstrow', tablefmt=fmt, missingval=missingval)
+            if deprecations:
+                rows.append([key, default, acceptable_values, acceptable_types, desc,
+                             deprecation])
+            else:
+                rows.append([key, default, acceptable_values, acceptable_types, desc])
+
+        kwargs = {
+            'tablefmt': fmt,
+            'headers': hdrs,
+            'missing_val': missingval,
+            'max_width': max_width,
+        }
+        if fmt == 'tabulator':
+            kwargs['filter'] = False
+            kwargs['sort'] = False
+
+        tab = generate_table(rows, **kwargs)
+
+        if display:
+            tab.display()
+
+        return str(tab)
 
     def __str__(self, width=100):
         """
@@ -177,35 +216,14 @@ class OptionsDictionary(object):
         Parameters
         ----------
         width : int
-            The maximum width of the text.
+            The maximum allowed width of the text.
 
         Returns
         -------
         str
             A text representation of the options table.
         """
-        rst = self.to_table(fmt='rst').split('\n')
-        cols = [len(header) for header in rst[0].split()]
-        desc_col = sum(cols[:-1]) + 2 * (len(cols) - 1)
-        desc_len = width - desc_col
-
-        # if it won't fit in allowed width, just return the rST
-        if desc_len < 10:
-            return '\n'.join(rst)
-
-        text = []
-        for row in rst:
-            if len(row) > width:
-                text.append(row[:width])
-                if not row.startswith('==='):
-                    row = row[width:].rstrip()
-                    while(len(row) > 0):
-                        text.append(' ' * desc_col + row[:desc_len])
-                        row = row[desc_len:]
-            else:
-                text.append(row)
-
-        return '\n'.join(text)
+        return self.to_table(fmt='rst', max_width=width, display=False)
 
     def _raise(self, msg, exc_type=RuntimeError):
         """
@@ -248,12 +266,14 @@ class OptionsDictionary(object):
         if not (value is None and meta['allow_none']):
             # If only values is declared
             if values is not None:
-                if value not in values:
-                    if isinstance(value, str):
-                        value = "'{}'".format(value)
-                    self._raise("Value ({}) of option '{}' is not one of {}.".format(value, name,
-                                                                                     values),
-                                ValueError)
+                check_vals = [value] if types is not list else value
+                for val in check_vals:
+                    if val not in values:
+                        if isinstance(value, str):
+                            value = f"'{value}'"
+                        self._raise(f"Value ({value}) of option '{name}' is not one of {values}.",
+                                    ValueError)
+
             # If only types is declared
             elif types is not None:
                 if not isinstance(value, types):
@@ -342,7 +362,7 @@ class OptionsDictionary(object):
             self._raise(f"In declaration of option '{name}', the 'types' arg must be None, a type "
                         f"or a tuple - not {types}.", exc_type=TypeError)
 
-        if types is not None and values is not None:
+        if types is not None and types is not list and values is not None:
             self._raise(f"'types' and 'values' were both specified for option '{name}'.")
 
         if types is bool:

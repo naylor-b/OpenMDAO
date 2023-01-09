@@ -190,7 +190,8 @@ class Case(object):
             if jacobian is not None:
                 self.derivatives = PromAbsDict(jacobian, prom2abs['output'], abs2prom['output'],
                                                in_prom2abs=prom2abs['input'],
-                                               auto_ivc_map=auto_ivc_map)
+                                               auto_ivc_map=auto_ivc_map,
+                                               var_info=var_info)
 
         # save var name & meta dict references for use by self._get_variables_of_type()
         self._prom2abs = prom2abs
@@ -456,8 +457,11 @@ class Case(object):
         list
             List of input names and other optional information about those inputs.
         """
-        meta = self._abs2meta
+        abs2meta = self._abs2meta
         inputs = []
+
+        # string to display when an attribute is not available (e.g. for a discrete)
+        NA = 'Unavailable'
 
         if values is not None:
             issue_warning("'value' is deprecated and will be removed in 4.0. "
@@ -478,8 +482,10 @@ class Case(object):
             np_precision = print_options['precision']
 
             for var_name in self.inputs.absolute_names():
+                meta = abs2meta[var_name]
+
                 # Filter based on tags
-                if tags and not (make_set(tags) & make_set(meta[var_name]['tags'])):
+                if tags and not (make_set(tags) & make_set(meta['tags'])):
                     continue
 
                 var_name_prom = self._abs2prom['input'][var_name]
@@ -503,11 +509,14 @@ class Case(object):
                 if prom_name:
                     var_meta['prom_name'] = var_name_prom
                 if units:
-                    var_meta['units'] = meta[var_name]['units']
+                    var_meta['units'] = meta.get('units', NA)
                 if shape:
-                    var_meta['shape'] = val.shape
+                    try:
+                        var_meta['shape'] = val.shape
+                    except AttributeError:
+                        var_meta['shape'] = NA
                 if desc:
-                    var_meta['desc'] = meta[var_name]['desc']
+                    var_meta['desc'] = meta['desc']
 
                 inputs.append((var_name, var_meta))
 
@@ -607,9 +616,12 @@ class Case(object):
         list
             List of output names and other optional information about those outputs.
         """
-        meta = self._abs2meta
+        abs2meta = self._abs2meta
         expl_outputs = []
         impl_outputs = []
+
+        # string to display when an attribute is not available (e.g. for a discrete)
+        NA = 'Unavailable'
 
         if values is not None:
             issue_warning("'value' is deprecated and will be removed in 4.0. "
@@ -632,8 +644,10 @@ class Case(object):
             if not list_autoivcs and var_name.startswith('_auto_ivc.'):
                 continue
 
+            meta = abs2meta[var_name]
+
             # Filter based on tags
-            if tags and not (make_set(tags) & make_set(meta[var_name]['tags'])):
+            if tags and not (make_set(tags) & make_set(meta['tags'])):
                 continue
 
             var_name_prom = self._abs2prom['output'][var_name]
@@ -666,19 +680,22 @@ class Case(object):
             if residuals:
                 var_meta['resids'] = resids
             if units:
-                var_meta['units'] = meta[var_name]['units']
+                var_meta['units'] = meta.get('units', NA)
             if shape:
-                var_meta['shape'] = val.shape
+                try:
+                    var_meta['shape'] = val.shape
+                except AttributeError:
+                    var_meta['shape'] = NA
             if bounds:
-                var_meta['lower'] = meta[var_name]['lower']
-                var_meta['upper'] = meta[var_name]['upper']
+                var_meta['lower'] = meta.get('lower', NA)
+                var_meta['upper'] = meta.get('upper', NA)
             if scaling:
-                var_meta['ref'] = meta[var_name]['ref']
-                var_meta['ref0'] = meta[var_name]['ref0']
-                var_meta['res_ref'] = meta[var_name]['res_ref']
+                var_meta['ref'] = meta.get('ref', NA)
+                var_meta['ref0'] = meta.get('ref0', NA)
+                var_meta['res_ref'] = meta.get('res_ref', NA)
             if desc:
-                var_meta['desc'] = meta[var_name]['desc']
-            if meta[var_name]['explicit']:
+                var_meta['desc'] = meta['desc']
+            if meta['explicit']:
                 expl_outputs.append((var_name, var_meta))
             else:
                 impl_outputs.append((var_name, var_meta))
@@ -785,20 +802,34 @@ class Case(object):
 
         ret_vars = {}
         update_vals = scaled or use_indices
-        for name in self.outputs.absolute_names():
+
+        names = [name for name in self.outputs.absolute_names()]
+        if var_type == 'constraint':
+            # Add the aliased constraints.
+            alias_cons = [k for k, v in self._var_info.items()
+                          if isinstance(v, dict) and v.get('alias')]
+            names.extend(alias_cons)
+
+        for name in names:
             if name in abs2meta:
                 type_match = var_type in abs2meta[name]['type']
+                val_name = name
             elif name in prom2abs:
                 abs_name = prom2abs[name][0]
                 src_name = conns[abs_name]
                 type_match = var_type in abs2meta[src_name]['type']
+                val_name = name
+            else:
+                # Support for constraint aliases.
+                type_match = var_type == 'constraint'
+                val_name = self._var_info[name]['source']
 
             if type_match:
                 if name in auto_ivc_map:
                     return_name = auto_ivc_map[name]
                 else:
                     return_name = name
-                ret_vars[return_name] = val = self.outputs[name].copy()
+                ret_vars[return_name] = val = self.outputs[val_name].copy()
                 if update_vals and name in self._var_info:
                     meta = self._var_info[name]
                     if use_indices and meta['indices'] is not None:
@@ -811,7 +842,8 @@ class Case(object):
                     ret_vars[return_name] = val
 
         return PromAbsDict(ret_vars, self._prom2abs['output'], self._abs2prom['output'],
-                           in_prom2abs=prom2abs, auto_ivc_map=auto_ivc_map)
+                           in_prom2abs=prom2abs, auto_ivc_map=auto_ivc_map,
+                           var_info=self._var_info)
 
 
 class PromAbsDict(dict):
@@ -834,6 +866,8 @@ class PromAbsDict(dict):
         Dictionary that maps all auto_ivc sources to either an absolute input name for single
         connections or a promoted input name for multiple connections. This is for output
         display.
+    var_info : dict
+        Dictionary of variable metadata. Needed when there are constraint aliases.
 
     Attributes
     ----------
@@ -848,12 +882,14 @@ class PromAbsDict(dict):
     _auto_ivc_map : dict
         Dictionary that maps all auto_ivc sources to either an absolute input name for single
         connections or a promoted input name for multiple connections. This is for output display.
+    _var_info : dict
+        Dictionary of variable metadata. Needed when there are constraint aliases.
     _DERIV_KEY_SEP : str
         Separator character for derivative keys.
     """
 
     def __init__(self, values, prom2abs, abs2prom, data_format=current_version,
-                 in_prom2abs=None, auto_ivc_map=None):
+                 in_prom2abs=None, auto_ivc_map=None, var_info=None):
         """
         Initialize.
         """
@@ -862,6 +898,7 @@ class PromAbsDict(dict):
         self._prom2abs = prom2abs
         self._abs2prom = abs2prom
         auto_ivc_map = auto_ivc_map if auto_ivc_map is not None else {}
+        self._var_info = var_info
         self._auto_ivc_map = auto_ivc_map
 
         if data_format <= 8:
@@ -898,6 +935,11 @@ class PromAbsDict(dict):
                     # Auto-ivc outputs, use abs source (which is prom source.)
                     self._values[key] = values[key]
                     super().__setitem__(key, values[key])
+                else:
+                    # Constraint alias support.
+                    self._values[key] = values[key]
+                    super().__setitem__(key, values[key])
+
             self._keys = self._values.keys()
         else:
             # numpy structured array, which will always use absolute names
@@ -964,8 +1006,20 @@ class PromAbsDict(dict):
         else:
             of, wrt = key.split(DERIV_KEY_SEP)
 
-        # if promoted, will map to all connected absolute names
-        abs_of = [of] if of in abs2prom else prom2abs[of]
+        if of in abs2prom:
+            # if promoted, will map to all connected absolute names
+            abs_of = [of]
+            prom_of = abs2prom[of]
+        elif of in prom2abs:
+            abs_of = prom2abs[of]
+            prom_of = of
+        else:
+            # Support for constraint aliases.
+            abs_of = [self._var_info[of]['source']]
+
+            # The "of" part of the key name should be the alias.
+            prom_of = of
+
         if wrt in prom2abs:
             abs_wrt = [prom2abs[wrt]][0]
         else:
@@ -973,7 +1027,6 @@ class PromAbsDict(dict):
 
         abs_keys = ['%s%s%s' % (o, DERIV_KEY_SEP, w) for o, w in itertools.product(abs_of, abs_wrt)]
 
-        prom_of = of if of in prom2abs else abs2prom[of]
         if wrt in abs2prom:
             prom_wrt = abs2prom[wrt]
         else:

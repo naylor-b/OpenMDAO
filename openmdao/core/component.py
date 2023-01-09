@@ -1,31 +1,33 @@
 """Define the Component class."""
 
+import sys
 from collections import defaultdict
 from collections.abc import Iterable
 from itertools import product
 
-import numpy as np
 from numbers import Integral
-from numpy import ndarray, isscalar, atleast_1d, atleast_2d, promote_types
+import numpy as np
+from numpy import ndarray, isscalar, ndim, atleast_1d, atleast_2d, promote_types
 from scipy.sparse import issparse, coo_matrix
 
 from openmdao.core.system import System, _supported_methods, _DEFAULT_COLORING_META, \
-    global_meta_names, _MetadataDict
+    global_meta_names, _MetadataDict, collect_errors
 from openmdao.core.constants import INT_DTYPE
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.units import simplify_unit
-from openmdao.utils.name_maps import rel_key2abs_key, abs_key2rel_key, rel_name2abs_name
+from openmdao.utils.name_maps import abs_key_iter, abs_key2rel_key, rel_name2abs_name
 from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import format_as_float_or_array, ensure_compatible, \
     find_matches, make_set, convert_src_inds
 from openmdao.utils.indexer import Indexer, indexer
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.om_warnings import issue_warning, MPIWarning, DistributedComponentWarning, \
-    DerivativesWarning, warn_deprecation
+    DerivativesWarning, SetupWarning, warn_deprecation
 
-_forbidden_chars = ['.', '*', '?', '!', '[', ']']
+_forbidden_chars = {'.', '*', '?', '!', '[', ']'}
 _whitespace = {' ', '\t', '\r', '\n'}
+_allowed_types = (list, tuple, ndarray, Iterable)
 
 
 def _valid_var_name(name):
@@ -48,10 +50,9 @@ def _valid_var_name(name):
     global _forbidden_chars, _whitespace
     if not name:
         return False
-    for char in _forbidden_chars:
-        if char in name:
-            return False
-    return name[0] not in _whitespace and name[-1] not in _whitespace
+    if _forbidden_chars.intersection(name):
+        return False
+    return name is name.strip()
 
 
 class Component(System):
@@ -110,15 +111,12 @@ class Component(System):
         super()._declare_options()
 
         self.options.declare('distributed', types=bool, default=False,
-                             desc='True if ALL variables in this component are distributed '
-                                  'across multiple processes.',
-                             deprecation="The 'distributed' option has been deprecated. Individual "
-                                         "inputs and outputs should be set as distributed instead,"
-                                         " using calls to add_input() or add_output().")
+                             desc='If True, set all variables in this component as distributed '
+                                  'across multiple processes')
         self.options.declare('run_root_only', types=bool, default=False,
-                             desc='If True, call compute/compute_partials/linearize/apply_linear/'
-                                  'apply_nonlinear/compute_jacvec_product only on '
-                                  'rank 0 and broadcast the results to the other ranks.')
+                             desc='If True, call compute, compute_partials, linearize, '
+                                  'apply_linear, apply_nonlinear, and compute_jacvec_product '
+                                  'only on rank 0 and broadcast the results to the other ranks.')
 
     def setup(self):
         """
@@ -181,7 +179,7 @@ class Component(System):
             if 'shape_by_conn' in meta and (meta['shape_by_conn'] or
                                             meta['copy_shape'] is not None):
                 meta['shape'] = None
-                if not np.isscalar(meta['val']):
+                if not isscalar(meta['val']):
                     if meta['val'].size > 0:
                         meta['val'] = meta['val'].flatten()[0]
                     else:
@@ -241,6 +239,7 @@ class Component(System):
 
         allprocs_prom2abs_list = self._var_allprocs_prom2abs_list
         abs2prom = self._var_allprocs_abs2prom = self._var_abs2prom
+        abs_in2prom_info = self._problem_meta['abs_in2prom_info']
 
         # Compute the prefix for turning rel/prom names into abs names
         prefix = self.pathname + '.' if self.pathname else ''
@@ -250,7 +249,7 @@ class Component(System):
             allprocs_abs2meta = self._var_allprocs_abs2meta[io]
 
             is_input = io == 'input'
-            for i, prom_name in enumerate(self._var_rel_names[io]):
+            for prom_name in self._var_rel_names[io]:
                 abs_name = prefix + prom_name
                 abs2meta[abs_name] = metadata = self._var_rel2meta[prom_name]
 
@@ -265,6 +264,10 @@ class Component(System):
                 if is_input and 'src_indices' in metadata:
                     allprocs_abs2meta[abs_name]['has_src_indices'] = \
                         metadata['src_indices'] is not None
+                    if metadata['add_input_src_indices'] and abs_name not in abs_in2prom_info:
+                        # need a level for each system including '', so we don't
+                        # subtract 1 from abs_in.split('.') which includes the var name
+                        abs_in2prom_info[abs_name] = [None for s in abs_name.split('.')]
 
             for prom_name, val in self._var_discrete[io].items():
                 abs_name = prefix + prom_name
@@ -283,6 +286,7 @@ class Component(System):
         else:
             self._discrete_inputs = self._discrete_outputs = ()
 
+    @collect_errors
     def _setup_var_sizes(self):
         """
         Compute the arrays of variable sizes for all variables/procs on this system.
@@ -295,7 +299,8 @@ class Component(System):
                                                    dtype=INT_DTYPE)
 
             for i, (name, metadata) in enumerate(self._var_allprocs_abs2meta[io].items()):
-                sizes[iproc, i] = metadata['size']
+                sz = metadata['size']
+                sizes[iproc, i] = 0 if sz is None else sz
                 abs2idx[name] = i
 
             if self.comm.size > 1:
@@ -375,9 +380,9 @@ class Component(System):
         info : dict
             Coloring metadata dict.
         """
-        ofs, allwrt = self._get_partials_varlists()
+        _, allwrt = self._get_partials_varlists()
         wrt_patterns = info['wrt_patterns']
-        if '*' in wrt_patterns or wrt_patterns is None:
+        if wrt_patterns is None or '*' in wrt_patterns:
             info['wrt_matches_rel'] = None
             info['wrt_matches'] = None
             return
@@ -409,16 +414,17 @@ class Component(System):
             A nested dict of the form dct[of][wrt] = (rows, cols, shape)
         """
         # sparsity uses relative names, so we need to convert to absolute
-        pathname = self.pathname
+        prefix = self.pathname + '.' if self.pathname else None
         for of, sub in sparsity.items():
-            of_abs = '.'.join((pathname, of)) if pathname else of
+            if prefix:
+                of = prefix + of
             for wrt, tup in sub.items():
-                wrt_abs = '.'.join((pathname, wrt)) if pathname else wrt
-                abs_key = (of_abs, wrt_abs)
+                if prefix:
+                    wrt = prefix + wrt
+                abs_key = (of, wrt)
                 if abs_key in self._subjacs_info:
-                    meta = self._subjacs_info[abs_key]
                     # add sparsity info to existing partial info
-                    meta['sparsity'] = tup
+                    self._subjacs_info[abs_key]['sparsity'] = tup
 
     def add_input(self, name, val=1.0, shape=None, src_indices=None, flat_src_indices=None,
                   units=None, desc='', tags=None, shape_by_conn=False, copy_shape=None,
@@ -472,7 +478,7 @@ class Component(System):
         if not _valid_var_name(name):
             raise NameError("%s: '%s' is not a valid input name." % (self.msginfo, name))
 
-        if not isscalar(val) and not isinstance(val, (list, tuple, ndarray, Iterable)):
+        if not isscalar(val) and not isinstance(val, _allowed_types):
             raise TypeError('%s: The val argument should be a float, list, tuple, ndarray or '
                             'Iterable' % self.msginfo)
         if shape is not None and not isinstance(shape, (Integral, tuple, list)):
@@ -493,7 +499,7 @@ class Component(System):
             raise TypeError('The tags argument should be a str or list')
 
         if (shape_by_conn or copy_shape):
-            if shape is not None or not isscalar(val):
+            if shape is not None or ndim(val) > 0:
                 raise ValueError("%s: If shape is to be set dynamically using 'shape_by_conn' or "
                                  "'copy_shape', 'shape' and 'val' should be a scalar, "
                                  "but shape of '%s' and val of '%s' was given for variable '%s'."
@@ -502,8 +508,7 @@ class Component(System):
                 raise ValueError("%s: Setting of 'src_indices' along with 'shape_by_conn' or "
                                  "'copy_shape' for variable '%s' is currently unsupported." %
                                  (self.msginfo, name))
-
-        if not (shape_by_conn or copy_shape):
+        else:
             # value, shape: based on args, making sure they are compatible
             val, shape = ensure_compatible(name, val, shape, src_indices)
 
@@ -617,7 +622,7 @@ class Component(System):
         return metadata
 
     def add_output(self, name, val=1.0, shape=None, units=None, res_units=None, desc='',
-                   lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=1.0, tags=None,
+                   lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=None, tags=None,
                    shape_by_conn=False, copy_shape=None, distributed=None):
         """
         Add an output variable to the component.
@@ -675,8 +680,10 @@ class Component(System):
         dict
             Metadata for added variable.
         """
+        global _allowed_types
+
         # First, type check all arguments
-        if (shape_by_conn or copy_shape) and (shape is not None or not isscalar(val)):
+        if (shape_by_conn or copy_shape) and (shape is not None or ndim(val) > 0):
             raise ValueError("%s: If shape is to be set dynamically using 'shape_by_conn' or "
                              "'copy_shape', 'shape' and 'val' should be scalar, "
                              "but shape of '%s' and val of '%s' was given for variable '%s'."
@@ -686,20 +693,6 @@ class Component(System):
             raise TypeError('%s: The name argument should be a string.' % self.msginfo)
         if not _valid_var_name(name):
             raise NameError("%s: '%s' is not a valid output name." % (self.msginfo, name))
-
-        if not (copy_shape or shape_by_conn):
-            if not isscalar(val) and not isinstance(val, (list, tuple, ndarray, Iterable)):
-                msg = '%s: The val argument should be a float, list, tuple, ndarray or Iterable'
-                raise TypeError(msg % self.msginfo)
-            if not isscalar(ref) and not isinstance(val, (list, tuple, ndarray, Iterable)):
-                msg = '%s: The ref argument should be a float, list, tuple, ndarray or Iterable'
-                raise TypeError(msg % self.msginfo)
-            if not isscalar(ref0) and not isinstance(val, (list, tuple, ndarray, Iterable)):
-                msg = '%s: The ref0 argument should be a float, list, tuple, ndarray or Iterable'
-                raise TypeError(msg % self.msginfo)
-            if not isscalar(res_ref) and not isinstance(val, (list, tuple, ndarray, Iterable)):
-                msg = '%s: The res_ref argument should be a float, list, tuple, ndarray or Iterable'
-                raise TypeError(msg % self.msginfo)
 
         if shape is not None and not isinstance(shape, (int, tuple, list, np.integer)):
             raise TypeError("%s: The shape argument should be an int, tuple, or list but "
@@ -719,6 +712,10 @@ class Component(System):
             raise TypeError('The tags argument should be a str, set, or list')
 
         if not (copy_shape or shape_by_conn):
+            if not isscalar(val) and not isinstance(val, _allowed_types):
+                msg = '%s: The val argument should be a float, list, tuple, ndarray or Iterable'
+                raise TypeError(msg % self.msginfo)
+
             # value, shape: based on args, making sure they are compatible
             val, shape = ensure_compatible(name, val, shape)
 
@@ -731,13 +728,16 @@ class Component(System):
 
             # All refs: check the shape if necessary
             for item, item_name in zip([ref, ref0, res_ref], ['ref', 'ref0', 'res_ref']):
-                if not isscalar(item):
+                if item is not None and not isscalar(item):
+                    if not isinstance(item, _allowed_types):
+                        raise TypeError(f'{self.msginfo}: The {item_name} argument should be a '
+                                        'float, list, tuple, ndarray or Iterable')
+
                     it = atleast_1d(item)
                     if it.shape != shape:
-                        raise ValueError("{}: When adding output '{}', expected shape {} but got "
-                                         "shape {} for argument '{}'.".format(self.msginfo, name,
-                                                                              shape, it.shape,
-                                                                              item_name))
+                        raise ValueError(f"{self.msginfo}: When adding output '{name}', expected "
+                                         f"shape {shape} but got shape {it.shape} for argument "
+                                         f"'{item_name}'.")
 
         if isscalar(ref):
             self._has_output_scaling |= ref != 1.0
@@ -778,7 +778,7 @@ class Component(System):
             'tags': make_set(tags),
             'ref': format_as_float_or_array('ref', ref, flatten=True),
             'ref0': format_as_float_or_array('ref0', ref0, flatten=True),
-            'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True),
+            'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True, val_if_none=None),
             'lower': lower,
             'upper': upper,
             'shape_by_conn': shape_by_conn,
@@ -876,7 +876,7 @@ class Component(System):
 
     def _update_dist_src_indices(self, abs_in2out, all_abs2meta, all_abs2idx, all_sizes):
         """
-        Set default src_indices on distributed components for any inputs where they aren't set.
+        Set default src_indices for any distributed inputs where they aren't set.
 
         Parameters
         ----------
@@ -898,35 +898,66 @@ class Component(System):
         abs2meta_in = self._var_abs2meta['input']
         all_abs2meta_in = all_abs2meta['input']
         all_abs2meta_out = all_abs2meta['output']
+        abs_in2prom_info = self._problem_meta['abs_in2prom_info']
 
         sizes_in = self._var_sizes['input']
         sizes_out = all_sizes['output']
         added_src_inds = []
         # loop over continuous inputs
         for i, (iname, meta_in) in enumerate(abs2meta_in.items()):
-            src = abs_in2out[iname]
-            if meta_in['src_indices'] is None and (
-                    meta_in['distributed'] or all_abs2meta_out[src]['distributed']):
-                nzs = np.nonzero(sizes_out[:, all_abs2idx[src]])[0]
-                if (all_abs2meta_out[src]['global_size'] ==
-                        all_abs2meta_in[iname]['global_size'] or nzs.size == self.comm.size):
-                    # This offset assumes a 'full' distributed output
-                    offset = np.sum(sizes_in[:iproc, i])
-                    end = offset + sizes_in[iproc, i]
-                else:  # distributed output (may have some zero size entries)
-                    if nzs.size == 1:
-                        offset = 0
-                        end = sizes_out[nzs[0], all_abs2idx[src]]
-                    else:
-                        # total sizes differ and output is distributed, so can't determine mapping
-                        raise RuntimeError(f"{self.msginfo}: Can't determine src_indices "
-                                           f"automatically for input '{iname}'. They must be "
-                                           "supplied manually.")
+            if meta_in['src_indices'] is None and iname not in abs_in2prom_info:
+                src = abs_in2out[iname]
+                dist_in = meta_in['distributed']
+                dist_out = all_abs2meta_out[src]['distributed']
+                if dist_in or dist_out:
+                    gsize_out = all_abs2meta_out[src]['global_size']
+                    gsize_in = all_abs2meta_in[iname]['global_size']
+                    vout_sizes = sizes_out[:, all_abs2idx[src]]
 
-                inds = np.arange(offset, end, dtype=INT_DTYPE)
-                meta_in['src_indices'] = indexer(inds, flat_src=True)
-                meta_in['flat_src_indices'] = True
-                added_src_inds.append(iname)
+                    offset = None
+                    if gsize_out == gsize_in or (not dist_out and np.sum(vout_sizes)
+                                                 == gsize_in):
+                        # This assumes one of:
+                        # 1) a distributed output with total size matching the total size of a
+                        #    distributed input
+                        # 2) a non-distributed output with local size matching the total size of a
+                        #    distributed input
+                        # 3) a non-distributed output with total size matching the total size of a
+                        #    distributed input
+                        if dist_in:
+                            offset = np.sum(sizes_in[:iproc, i])
+                            end = offset + sizes_in[iproc, i]
+                        else:
+                            if src.startswith('_auto_ivc.'):
+                                nzs = np.nonzero(vout_sizes)[0]
+                                if nzs.size == 1:
+                                    # special case where we have a 'distributed' auto_ivc output
+                                    # that has a nonzero value in only one proc, so we can treat
+                                    # it like a non-distributed output. This happens in cases
+                                    # where an auto_ivc output connects to a variable that is
+                                    # remote on at least one proc.
+                                    offset = 0
+                                    end = vout_sizes[nzs[0]]
+
+                    # total sizes differ and output is distributed, so can't determine mapping
+                    if offset is None:
+                        self._collect_error(f"{self.msginfo}: Can't determine src_indices "
+                                            f"automatically for input '{iname}'. They must be "
+                                            "supplied manually.", ident=(self.pathname, iname))
+                        continue
+
+                    if dist_in and not dist_out:
+                        src_shape = self._get_full_dist_shape(src, all_abs2meta_out[src]['shape'])
+                    else:
+                        src_shape = all_abs2meta_out[src]['global_shape']
+
+                    if offset == end:
+                        idx = np.zeros(0, dtype=INT_DTYPE)
+                    else:
+                        idx = slice(offset, end)
+                    meta_in['src_indices'] = indexer(idx, flat_src=True, src_shape=src_shape)
+                    meta_in['flat_src_indices'] = True
+                    added_src_inds.append(iname)
 
         return added_src_inds
 
@@ -963,8 +994,7 @@ class Component(System):
                                                                                  wrt_pattern))
 
             info = self._subjacs_info
-            for rel_key in product(of_matches, wrt_matches):
-                abs_key = rel_key2abs_key(self, rel_key)
+            for abs_key in abs_key_iter(self, of_matches, wrt_matches):
                 meta = info[abs_key]
                 meta['method'] = method
                 meta.update(kwargs)
@@ -1259,7 +1289,7 @@ class Component(System):
         if not self._declared_partial_checks:
             return {}
         opts = {}
-        of, wrt = self._get_partials_varlists()
+        _, wrt = self._get_partials_varlists()
         invalid_wrt = []
         matrix_free = self.matrix_free
 
@@ -1368,7 +1398,7 @@ class Component(System):
                 rows = None
                 cols = None
 
-        pattern_matches = self._find_partial_matches(of, wrt)
+        pattern_matches = self._find_partial_matches(of, '*' if wrt is None else wrt)
         abs2meta_in = self._var_abs2meta['input']
         abs2meta_out = self._var_abs2meta['output']
 
@@ -1386,8 +1416,7 @@ class Component(System):
                 raise ValueError('{}: No matches were found for wrt="{}"'.format(self.msginfo,
                                                                                  wrt_pattern))
 
-            for rel_key in product(of_matches, wrt_matches):
-                abs_key = rel_key2abs_key(self, rel_key)
+            for abs_key in abs_key_iter(self, of_matches, wrt_matches):
                 if not dependent:
                     if abs_key in self._subjacs_info:
                         del self._subjacs_info[abs_key]
@@ -1411,25 +1440,26 @@ class Component(System):
                     dist_in = abs2meta_out[wrt]['distributed']
 
                 if dist_in and not dist_out and not self.matrix_free:
+                    rel_key = abs_key2rel_key(self, abs_key)
                     raise RuntimeError(f"{self.msginfo}: component has defined partial {rel_key} "
-                                       "which is a serial output wrt a distributed input. This is "
-                                       "only supported using the matrix free API.")
+                                       "which is a non-distributed output wrt a distributed input."
+                                       " This is only supported using the matrix free API.")
 
                 if shape[0] == 0 or shape[1] == 0:
                     msg = "{}: '{}' is an array of size 0"
                     if shape[0] == 0:
                         if dist_out:
-                            # distributed comp are allowed to have zero size inputs on some procs
+                            # distributed vars are allowed to have zero size inputs on some procs
                             rows_max = -1
                         else:
-                            # non-distributed components are not allowed to have zero size inputs
+                            # non-distributed vars are not allowed to have zero size inputs
                             raise ValueError(msg.format(self.msginfo, of))
                     if shape[1] == 0:
                         if not dist_in:
-                            # non-distributed components are not allowed to have zero size outputs
+                            # non-distributed vars are not allowed to have zero size outputs
                             raise ValueError(msg.format(self.msginfo, wrt))
                         else:
-                            # distributed comp are allowed to have zero size outputs on some procs
+                            # distributed vars are allowed to have zero size outputs on some procs
                             cols_max = -1
 
                 if val is None:
@@ -1446,17 +1476,17 @@ class Component(System):
                     meta['val'] = val
 
                 if rows_max >= shape[0] or cols_max >= shape[1]:
-                    of, wrt = rel_key
-                    msg = '{}: d({})/d({}): Expected {}x{} but declared at least {}x{}'
-                    raise ValueError(msg.format(self.msginfo, of, wrt, shape[0], shape[1],
-                                                rows_max + 1, cols_max + 1))
+                    of, wrt = abs_key2rel_key(self, abs_key)
+                    raise ValueError(f"{self.msginfo}: d({of})/d({wrt}): Expected {shape[0]}x"
+                                     f"{shape[1]} but declared at least {rows_max + 1}x"
+                                     f"{cols_max + 1}")
 
                 self._check_partials_meta(abs_key, meta['val'],
                                           shape if rows is None else (rows.shape[0], 1))
 
                 self._subjacs_info[abs_key] = meta
 
-    def _find_partial_matches(self, of_pattern, wrt_pattern):
+    def _find_partial_matches(self, of_pattern, wrt_pattern, use_resname=False):
         """
         Find all partial derivative matches from of and wrt.
 
@@ -1469,6 +1499,8 @@ class Component(System):
             The relative name of the variables that derivatives are taken with respect to.
             This can contain the name of any input or output variable.
             May also contain a glob pattern.
+        use_resname : bool
+            If True, use residual names for 'of' patterns.
 
         Returns
         -------
@@ -1479,7 +1511,7 @@ class Component(System):
         """
         of_list = [of_pattern] if isinstance(of_pattern, str) else of_pattern
         wrt_list = [wrt_pattern] if isinstance(wrt_pattern, str) else wrt_pattern
-        ofs, wrts = self._get_partials_varlists()
+        ofs, wrts = self._get_partials_varlists(use_resname=use_resname)
 
         of_pattern_matches = [(pattern, find_matches(pattern, ofs)) for pattern in of_list]
         wrt_pattern_matches = [(pattern, find_matches(pattern, wrts)) for pattern in wrt_list]
@@ -1559,44 +1591,65 @@ class Component(System):
                     self._update_subjac_sparsity(coloring.get_subjac_sparsity())
                 self._jacobian._restore_approx_sparsity()
 
-    def _resolve_src_inds(self, my_tdict, top):
-        abs2meta_in = self._var_abs2meta['input']
+    def _resolve_src_inds(self):
+        abs2prom = self._var_abs2prom['input']
+        abs_in2prom_info = self._problem_meta['abs_in2prom_info']
         all_abs2meta_in = self._var_allprocs_abs2meta['input']
-        abs2prom = self._var_allprocs_abs2prom['input']
+        abs2meta_in = self._var_abs2meta['input']
+        conns = self._problem_meta['model_ref']()._conn_global_abs_in2out
+        all_abs2meta_out = self._problem_meta['model_ref']()._var_allprocs_abs2meta['output']
 
-        for tgt, (pinfo, parent_src_shape, oldprom, oldpath) in my_tdict.items():
-            src_inds, flat_src_inds, src_shape = pinfo
+        for tgt, meta in abs2meta_in.items():
+            if tgt in abs_in2prom_info:
+                pinfo = abs_in2prom_info[tgt][-1]  # component always last in the plist
+                if pinfo is not None:
+                    inds, flat, shape = pinfo
+                    if inds is None:
+                        if meta['add_input_src_indices']:
+                            if shape is None:
+                                shape = all_abs2meta_out[conns[tgt]]['global_shape']
+                            meta['src_shape'] = shape
+                            inds = meta['src_indices']
+                    else:
+                        all_abs2meta_in[tgt]['has_src_indices'] = True
+                        meta['src_shape'] = shape = all_abs2meta_out[conns[tgt]]['global_shape']
+                        if meta['add_input_src_indices']:
+                            inds = convert_src_inds(inds, shape, meta['src_indices'], shape)
+                        elif inds._flat_src:
+                            meta['flat_src_indices'] = True
+                        elif meta['flat_src_indices'] is None:
+                            meta['flat_src_indices'] = flat
 
-            # update the input metadata with the final
-            # src_indices, flat_src_indices and src_shape
-            if src_inds is None:
-                prom = abs2prom[tgt]
-                if prom in self._var_prom2inds:
-                    del self._var_prom2inds[prom]
-            else:
-                all_abs2meta_in[tgt]['has_src_indices'] = True
-                meta = abs2meta_in[tgt]
-                shape = pinfo.root_shape if pinfo.root_shape is not None else parent_src_shape
-                if src_shape is None and shape is not None:
-                    try:
-                        src_inds.set_src_shape(shape)
-                    except Exception as err:
-                        raise RuntimeError(f"{self.msginfo}: When promoting '{tgt}' with "
-                                           f"src_indices {src_inds} and source shape "
-                                           f"{shape}: {err}")
-                meta['src_shape'] = src_shape
-                if meta.get('add_input_src_indices'):
-                    src_inds = convert_src_inds(src_inds, src_shape,
-                                                meta['src_indices'], src_shape)
-                elif src_inds._flat_src:
-                    meta['flat_src_indices'] = True
-                elif meta['flat_src_indices'] is None:
-                    meta['flat_src_indices'] = flat_src_inds
+                    if inds is not None:
+                        try:
+                            if not isinstance(inds, Indexer):
+                                meta['src_indices'] = inds = indexer(inds, flat_src=flat,
+                                                                     src_shape=shape)
+                            else:
+                                meta['src_indices'] = inds = inds.copy()
+                                inds.set_src_shape(shape)
+                                self._var_prom2inds[abs2prom[tgt]] = [shape, inds, flat]
+                        except Exception:
+                            type_exc, exc, tb = sys.exc_info()
+                            self._collect_error(f"When accessing '{conns[tgt]}' with src_shape "
+                                                f"{shape} from '{pinfo.prom_path()}' using "
+                                                f"src_indices {inds}: {exc}", exc_type=type_exc,
+                                                tback=tb, ident=(conns[tgt], tgt))
 
-                if not isinstance(src_inds, Indexer):
-                    meta['src_indices'] = indexer(src_inds, flat_src=flat_src_inds)
-                else:
-                    meta['src_indices'] = src_inds.copy()
+            elif meta['add_input_src_indices']:
+                self._var_prom2inds[abs2prom[tgt]] = [meta['shape'], meta['src_indices'],
+                                                      meta['src_indices']._flat_src]
+
+    def _has_fast_rel_lookup(self):
+        """
+        Return True if this System should have fast relative variable name lookup in vectors.
+
+        Returns
+        -------
+        bool
+            True if this System should have fast relative variable name lookup in vectors.
+        """
+        return True
 
 
 class _DictValues(object):

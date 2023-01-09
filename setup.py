@@ -1,48 +1,59 @@
-import re
-import sys
-
 from setuptools import setup
+
+from pathlib import Path
+from io import open
+
+import re
 
 __version__ = re.findall(
     r"""__version__ = ["']+([0-9\.\-dev]*)["']+""",
     open('openmdao/__init__.py').read(),
 )[0]
 
+with open(Path(__file__).parent / "README.md", encoding="utf-8") as f:
+    long_description = f.read()
+
+
 optional_dependencies = {
     'docs': [
         'matplotlib',
-        'jupyter',
-        'nbconvert',
-        'testflo',
-        'ipyparallel<7',
         'numpydoc>=1.1',
-        'tabulate',
-        'jupyter-book',
-        'jupyter-sphinx==0.3.1',
-        'sphinx-sitemap'
+        'jupyter-core>=4.11.2',
+        'jupyter-book>=0.8.0,<0.13',
+        'jupyter-client>=7.4.0',
+        'jupyter',
+        'jupyter-sphinx',
+        'sphinx-sitemap',
+        'ipyparallel',
+        'nbconvert>=6.3'
+    ],
+    'doe': [
+        'pyDOE2'
     ],
     'notebooks': [
         'notebook',
-        'tabulate',
-        'ipython'
+        'ipython',
+        'ipywidgets>=7.6.5',
+        'ipympl',
+        'myst_nb'
     ],
     'visualization': [
         'bokeh>=1.3.4',
+        'matplotlib',
         'colorama'
     ],
     'test': [
         'parameterized',
         'numpydoc>=1.1',
         'pycodestyle>=2.4.0',
-        'pydocstyle==2.0.0',
-        'testflo>=1.3.6'
+        'pydocstyle>=2.0.0',
+        'testflo>=1.3.6',
         'websockets>8',
-        'aiounittest'
+        'aiounittest',
+        'playwright>=1.20',
+        'num2words'
     ]
 }
-
-if sys.version_info >= (3, 7):
-    optional_dependencies['test'].append('playwright<1.15')
 
 # Add an optional dependency that concatenates all others
 optional_dependencies['all'] = sorted([
@@ -55,11 +66,8 @@ setup(
     name='openmdao',
     version=__version__,
     description="OpenMDAO framework infrastructure",
-    long_description="""OpenMDAO is an open-source high-performance computing platform
-    for systems analysis and multidisciplinary optimization, written in Python. It
-    enables you to decompose your models, making them easier to build and maintain,
-    while still solving them in a tightly coupled manner with efficient parallel numerical methods.
-    """,
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Science/Research',
@@ -70,9 +78,7 @@ setup(
         'Operating System :: Microsoft :: Windows',
         'Topic :: Scientific/Engineering',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: Implementation :: CPython',
     ],
     keywords='optimization multidisciplinary multi-disciplinary analysis',
@@ -114,10 +120,15 @@ setup(
         'openmdao.utils',
         'openmdao.vectors',
         'openmdao.visualization',
+        'openmdao.visualization.case_viewer',
         'openmdao.visualization.connection_viewer',
+        'openmdao.visualization.inputs_report',
+        'openmdao.visualization.timing_viewer',
         'openmdao.visualization.scaling_viewer',
         'openmdao.visualization.n2_viewer',
         'openmdao.visualization.meta_model_viewer',
+        'openmdao.visualization.opt_report',
+        'openmdao.visualization.tables',
     ],
     package_data={
         'openmdao.devtools': ['*.wpr', ],
@@ -129,16 +140,27 @@ setup(
             'assets/*png*',
             'libs/*.js',
             'src/*.js',
+            'gen/*.js',
             'style/*',
             'tests/*.js',
             'tests/*.json',
+            'tests/*.html',
             'tests/gui_test_models/*.py',
             '*.html'
         ],
         'openmdao.visualization.connection_viewer': [
             '*.html',
         ],
+        'openmdao.visualization.tables': [
+            '*.template',
+        ],
+        'openmdao.visualization.timing_viewer': [
+            '*.html',
+        ],
         'openmdao.visualization.scaling_viewer': [
+            '*.html',
+        ],
+        'openmdao.visualization.opt_report': [
             '*.html',
         ],
         'openmdao.visualization.meta_model_viewer': [
@@ -164,14 +186,13 @@ setup(
         ],
         'openmdao': ['*/tests/*.py', '*/*/tests/*.py', '*/*/*/tests/*.py']
     },
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     install_requires=[
         'networkx>=2.0',
         'numpy',
-        'pyDOE2',
-        'pyparsing',
         'scipy',
-        'requests'
+        'requests',
+        'packaging'
     ],
     entry_points={
         'console_scripts': [
@@ -240,6 +261,16 @@ setup(
             'nonlinearrunonce=openmdao.solvers.nonlinear.nonlinear_runonce:NonlinearRunOnce',
             'armijogoldsteinls=openmdao.solvers.linesearch.backtracking:ArmijoGoldsteinLS',
             'boundsenforcels=openmdao.solvers.linesearch.backtracking:BoundsEnforceLS',
+        ],
+        'openmdao_report': [
+            'n2=openmdao.visualization.n2_viewer.n2_viewer:_n2_report_register',
+            'scaling=openmdao.visualization.scaling_viewer.scaling_report:_scaling_report_register',
+            'optimizer=openmdao.visualization.opt_report.opt_report:_optimizer_report_register',
+            'connections=openmdao.visualization.connection_viewer.viewconns:_connections_report_register',
+            'inputs=openmdao.visualization.inputs_report.inputs_report:_inputs_report_register',
+            'total_coloring=openmdao.utils.coloring:_total_coloring_report_register',
+            'summary=openmdao.devtools.debug:_summary_report_register',
+            'checks=openmdao.error_checking.check_config:_check_report_register',
         ],
         'openmdao_surrogate_model': [
             'krigingsurrogate=openmdao.surrogate_models.kriging:KrigingSurrogate',

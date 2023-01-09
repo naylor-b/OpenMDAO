@@ -9,6 +9,7 @@ from scipy.sparse import csc_matrix
 
 from openmdao.solvers.solver import LinearSolver
 from openmdao.matrices.dense_matrix import DenseMatrix
+from openmdao.utils.array_utils import identity_column_iter
 
 
 def index_to_varname(system, loc):
@@ -88,7 +89,7 @@ def format_singular_error(system, matrix):
 
     if np.any(np.isnan(matrix)):
         # There is a nan in the matrix.
-        return(format_nan_error(system, matrix))
+        return format_nan_error(system, matrix)
 
     zero_rows = np.where(~matrix.any(axis=1))[0]
     zero_cols = np.where(~matrix.any(axis=0))[0]
@@ -98,7 +99,13 @@ def format_singular_error(system, matrix):
             # In this case, some row is a linear combination of the other rows.
 
             # SVD gives us some information that may help locate the source of the problem.
-            u, _, _ = np.linalg.svd(matrix)
+            try:
+                u, _, _ = np.linalg.svd(matrix)
+
+            except Exception as err:
+                msg = f"Jacobian in '{system.pathname}' is not full rank, but OpenMDAO was " + \
+                    "not able to determine which rows or columns."
+                return msg
 
             # Nonzero elements in the left singular vector show the rows that contribute strongly to
             # the singular subspace. Note that sometimes extra rows/cols are included in the set,
@@ -144,7 +151,7 @@ def format_nan_error(system, matrix):
     str
         New error string.
     """
-    # Because of how we built the matrix, a NaN in a comp cause the whole row to be NaN, so we
+    # Because of how we built the matrix, a NaN in a comp causes the whole row to be NaN, so we
     # need to associate each index with a variable.
     varsizes = np.sum(system._owned_sizes, axis=0)
 
@@ -229,8 +236,8 @@ class DirectSolver(LinearSolver):
             Jacobian matrix.
         """
         system = self._system()
-        bvec = system._vectors['residual']['linear']
-        xvec = system._vectors['output']['linear']
+        bvec = system._dresiduals
+        xvec = system._doutputs
 
         # First make a backup of the vectors
         b_data = bvec.asarray(copy=True)
@@ -239,13 +246,11 @@ class DirectSolver(LinearSolver):
         nmtx = x_data.size
         seed = np.zeros(x_data.size)
         mtx = np.empty((nmtx, nmtx), dtype=b_data.dtype)
-        scope_out, scope_in = system._get_scope()
+        scope_out, scope_in = system._get_matvec_scope()
 
         # Assemble the Jacobian by running the identity matrix through apply_linear
-        for i in range(nmtx):
+        for i, seed in enumerate(identity_column_iter(seed)):
             # set value of x vector to provided value
-            seed[i - 1] = 0.
-            seed[i] = 1.
             xvec.set_val(seed)
 
             # apply linear
@@ -280,10 +285,7 @@ class DirectSolver(LinearSolver):
                 try:
                     self._lu = scipy.sparse.linalg.splu(matrix)
                 except RuntimeError as err:
-                    if 'exactly singular' in str(err):
-                        raise RuntimeError(format_singular_error(system, matrix))
-                    else:
-                        raise err
+                    raise RuntimeError(format_singular_error(system, matrix))
 
             elif isinstance(matrix, np.ndarray):  # dense
                 # During LU decomposition, detect singularities and warn user.
@@ -372,10 +374,7 @@ class DirectSolver(LinearSolver):
                 try:
                     inv_jac = scipy.sparse.linalg.inv(matrix)
                 except RuntimeError as err:
-                    if 'exactly singular' in str(err):
-                        raise RuntimeError(format_singular_error(system, matrix))
-                    else:
-                        raise err
+                    raise RuntimeError(format_singular_error(system, matrix))
 
                 # to prevent broadcasting errors later, make sure inv_jac is 2D
                 # scipy.sparse.linalg.inv returns a shape (1,) array if matrix is shape (1,1)
@@ -421,11 +420,9 @@ class DirectSolver(LinearSolver):
             Names of systems relevant to the current solve.
         """
         system = self._system()
-        iproc = system.comm.rank
-        nproc = system.comm.size
 
-        d_residuals = system._vectors['residual']['linear']
-        d_outputs = system._vectors['output']['linear']
+        d_residuals = system._dresiduals
+        d_outputs = system._doutputs
 
         # assign x and b vectors based on mode
         if mode == 'fwd':

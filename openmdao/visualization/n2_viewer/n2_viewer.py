@@ -1,16 +1,13 @@
 """Code for generating N2 diagram."""
-import base64
 import inspect
-import json
 import os
-import zlib
-import networkx as nx
+import pathlib
+from operator import itemgetter
 
+import networkx as nx
 import numpy as np
 
-from openmdao.components.exec_comp import ExecComp
-from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
-from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
+import openmdao.utils.hooks as hooks
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.indepvarcomp import IndepVarComp
 from openmdao.core.parallel_group import ParallelGroup
@@ -18,6 +15,10 @@ from openmdao.core.group import Group
 from openmdao.core.problem import Problem
 from openmdao.core.component import Component
 from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.core.constants import _UNDEFINED
+from openmdao.components.exec_comp import ExecComp
+from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
+from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
 from openmdao.drivers.doe_driver import DOEDriver
 from openmdao.recorders.case_reader import CaseReader
 from openmdao.solvers.nonlinear.newton import NewtonSolver
@@ -25,14 +26,15 @@ from openmdao.utils.class_util import overrides_method
 from openmdao.utils.general_utils import default_noraise
 from openmdao.utils.mpi import MPI
 from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
-from openmdao.visualization.html_utils import read_files, write_script, DiagramWriter
-from openmdao.utils.om_warnings import issue_warning, warn_deprecation
-from openmdao.core.constants import _UNDEFINED
+from openmdao.utils.om_warnings import issue_warning
+from openmdao.utils.reports_system import register_report_hook
+from openmdao.utils.file_utils import _load_and_exec, _to_filename
+from openmdao.visualization.htmlpp import HtmlPreprocessor
 from openmdao import __version__ as openmdao_version
 
-_IND = 4  # HTML indentation (spaces)
-
 _MAX_ARRAY_SIZE_FOR_REPR_VAL = 1000  # If var has more elements than this do not pass to N2
+
+_default_n2_filename = 'n2.html'
 
 
 def _convert_nans_in_nested_list(val_as_list):
@@ -77,6 +79,8 @@ def _convert_ndarray_to_support_nans_in_json(val):
     object : list, possibly nested
         The equivalent list with any nan values replaced with the string "nan".
     """
+    val = np.asarray(val)
+
     # do a quick check for any nans or infs and if not we can avoid the slow check
     nans = np.where(np.isnan(val))
     infs = np.where(np.isinf(val))
@@ -88,11 +92,30 @@ def _convert_ndarray_to_support_nans_in_json(val):
     return val_as_list
 
 
+def _get_array_info(system, vec, name, prom, var_dict, from_src=True):
+    ndarray_to_convert = vec._abs_get_val(name, flat=False) if vec else \
+        system.get_val(prom, from_src=from_src)
+
+    var_dict['val'] = _convert_ndarray_to_support_nans_in_json(ndarray_to_convert)
+
+    # Find the minimum indices and value
+    min_indices = np.unravel_index(np.nanargmin(ndarray_to_convert, axis=None),
+                                   ndarray_to_convert.shape)
+    var_dict['val_min_indices'] = min_indices
+    var_dict['val_min'] = ndarray_to_convert[min_indices]
+
+    # Find the maximum indices and value
+    max_indices = np.unravel_index(np.nanargmax(ndarray_to_convert, axis=None),
+                                   ndarray_to_convert.shape)
+    var_dict['val_max_indices'] = max_indices
+    var_dict['val_max'] = ndarray_to_convert[max_indices]
+
+
 def _get_var_dict(system, typ, name, is_parallel, is_implicit):
     if name in system._var_abs2meta[typ]:
         meta = system._var_abs2meta[typ][name]
         prom = system._var_abs2prom[typ][name]
-        val = meta['val']
+        val = np.asarray(meta['val'])
         is_dist = MPI is not None and meta['distributed']
 
         var_dict = {
@@ -124,29 +147,25 @@ def _get_var_dict(system, typ, name, is_parallel, is_implicit):
         else:
             var_dict['units'] = meta['units']
 
-        if val.size < _MAX_ARRAY_SIZE_FOR_REPR_VAL:
-            if not MPI:
-                # get the current value
-                if vec:
-                    var_dict['val'] = _convert_ndarray_to_support_nans_in_json(
-                        vec._abs_get_val(name, flat=False))
+        try:
+            if val.size < _MAX_ARRAY_SIZE_FOR_REPR_VAL:
+                if not MPI:
+                    # Get the current value
+                    _get_array_info(system, vec, name, prom, var_dict, from_src=True)
+
+                elif is_parallel or is_dist:
+                    # we can't access non-local values, so just get the initial value
+                    var_dict['val'] = val
+                    var_dict['initial_value'] = True
                 else:
-                    var_dict['val'] = _convert_ndarray_to_support_nans_in_json(
-                        system.get_val(prom))
-            elif is_parallel or is_dist:
-                # we can't access non-local values, so just get the initial value
-                var_dict['val'] = val
-                var_dict['initial_value'] = True
+                    # get the current value but don't try to get it from the source,
+                    # which could be remote under MPI
+                    _get_array_info(system, vec, name, prom, var_dict, from_src=False)
+
             else:
-                # get the current value but don't try to get it from the source,
-                # which could be remote under MPI
-                if vec:
-                    var_dict['val'] = _convert_ndarray_to_support_nans_in_json(
-                        vec._abs_get_val(name, flat=False))
-                else:
-                    var_dict['val'] = _convert_ndarray_to_support_nans_in_json(
-                        system.get_val(prom, from_src=False))
-        else:
+                var_dict['val'] = None
+        except Exception as err:
+            issue_warning(str(err))
             var_dict['val'] = None
     else:  # discrete
         meta = system._var_discrete[typ][name]
@@ -293,13 +312,17 @@ def _get_tree_dict(system, is_parallel=False):
     options = {}
     slv = {'linear_solver', 'nonlinear_solver'}
     for k, opt in system.options._dict.items():
-        # need to handle solvers separate because they are classes or instances
         if k in slv:
+            # need to handle solver option separately because it can be a class, instance or None
             try:
-                options[k] = opt['val'].SOLVER
+                val = opt['val']
             except KeyError:
-                options[k] = opt['value'].SOLVER
+                val = opt['value']
 
+            try:
+                options[k] = val.SOLVER
+            except AttributeError:
+                options[k] = val
         else:
             options[k] = _serialize_single_option(opt)
 
@@ -363,8 +386,10 @@ def _get_viewer_data(data_source, case_id=None):
         root_group = data_source.model
 
         if not isinstance(root_group, Group):
-            issue_warning("The model is not a Group, viewer data is unavailable.")
-            return {}
+            # this function only makes sense when the model is a Group
+            msg = f"The model is of type {root_group.__class__.__name__}, " \
+                  "viewer data is only available if the model is a Group."
+            raise TypeError(msg)
 
         driver = data_source.driver
         driver_name = driver.__class__.__name__
@@ -387,8 +412,8 @@ def _get_viewer_data(data_source, case_id=None):
             driver_opt_settings = None
         else:
             # this function only makes sense when it is at the root
-            issue_warning(f"Viewer data is not available for sub-Group '{data_source.pathname}'.")
-            return {}
+            msg = f"Viewer data is not available for sub-Group '{data_source.pathname}'."
+            raise TypeError(msg)
 
     elif isinstance(data_source, str):
         if ',' in data_source:
@@ -448,13 +473,12 @@ def _get_viewer_data(data_source, case_id=None):
 
     connections_list = []
 
-    sys_idx = {}  # map of pathnames to index of pathname in list (systems in cycles only)
-
     G = root_group.compute_sys_graph(comps_only=True)
 
     scc = nx.strongly_connected_components(G)
 
     strongdict = {}
+    sys_idx_names = []
 
     for i, strong_comp in enumerate(scc):
         for c in strong_comp:
@@ -463,9 +487,13 @@ def _get_viewer_data(data_source, case_id=None):
         if len(strong_comp) > 1:
             # these IDs are only used when back edges are present
             for name in strong_comp:
-                sys_idx[name] = len(sys_idx)
+                sys_idx_names.append(name)
+
+    sys_idx = {}  # map of pathnames to index of pathname in list (systems in cycles only)
 
     comp_orders = {name: i for i, name in enumerate(root_group._ordered_comp_name_iter())}
+    for name in sorted(sys_idx_names):
+        sys_idx[name] = len(sys_idx)
 
     # 1 is added to the indices of all edges in the matrix so that we can use 0 entries to
     # indicate that there is no connection.
@@ -499,6 +527,8 @@ def _get_viewer_data(data_source, case_id=None):
             if nz.size > 1:
                 nz -= 1  # convert back to correct edge index
                 edges_list = [edge_ids[i] for i in nz]
+                edges_list = sorted(edges_list, key=itemgetter(0, 1))
+
                 for vsrc, vtgtlist in G.get_edge_data(src, tgt)['conns'].items():
                     for vtgt in vtgtlist:
                         connections_list.append({'src': vsrc, 'tgt': vtgt,
@@ -508,6 +538,8 @@ def _get_viewer_data(data_source, case_id=None):
         for vsrc, vtgtlist in G.get_edge_data(src, tgt)['conns'].items():
             for vtgt in vtgtlist:
                 connections_list.append({'src': vsrc, 'tgt': vtgt})
+
+    connections_list = sorted(connections_list, key=itemgetter('src', 'tgt'))
 
     data_dict['sys_pathnames_list'] = list(sys_idx)
     data_dict['connections_list'] = connections_list
@@ -527,8 +559,8 @@ def _get_viewer_data(data_source, case_id=None):
     return data_dict
 
 
-def n2(data_source, outfile='n2.html', case_id=None, show_browser=True, embeddable=False,
-       title=None, use_declare_partial_info=False):
+def n2(data_source, outfile=_default_n2_filename, case_id=None, show_browser=True, embeddable=False,
+       title=None, display_in_notebook=True):
     """
     Generate an HTML file containing a tree viewer.
 
@@ -550,12 +582,18 @@ def n2(data_source, outfile='n2.html', case_id=None, show_browser=True, embeddab
         and <head> tags. If False, gives a single, standalone HTML file for viewing.
     title : str, optional
         The title for the diagram. Used in the HTML title.
-    use_declare_partial_info : ignored
-        This option is no longer used because it is now always true.
-        Still present for backwards compatibility.
+    display_in_notebook : bool, optional
+        If True, display the N2 diagram in the notebook, if this is called from a notebook.
+        Defaults to True.
     """
     # grab the model viewer data
-    model_data = _get_viewer_data(data_source, case_id=case_id)
+    try:
+        model_data = _get_viewer_data(data_source, case_id=case_id)
+        err_msg = ''
+    except TypeError as err:
+        model_data = {}
+        err_msg = str(err)
+        issue_warning(err_msg)
 
     # if MPI is active only display one copy of the viewer
     if MPI and MPI.COMM_WORLD.rank != 0:
@@ -564,117 +602,139 @@ def n2(data_source, outfile='n2.html', case_id=None, show_browser=True, embeddab
     options = {}
     model_data['options'] = options
 
-    if use_declare_partial_info:
-        warn_deprecation("'use_declare_partial_info' is now the"
-                         " default and the option is ignored.")
-
-    raw_data = json.dumps(model_data, default=default_noraise).encode('utf8')
-    b64_data = str(base64.b64encode(zlib.compress(raw_data)).decode("ascii"))
-    model_data = 'var compressedModel = "%s";' % b64_data
-
     import openmdao
     openmdao_dir = os.path.dirname(inspect.getfile(openmdao))
     vis_dir = os.path.join(openmdao_dir, "visualization/n2_viewer")
-    libs_dir = os.path.join(vis_dir, "libs")
-    src_dir = os.path.join(vis_dir, "src")
-    style_dir = os.path.join(vis_dir, "style")
-    assets_dir = os.path.join(vis_dir, "assets")
-
-    # grab the libraries, src and style
-    lib_dct = {
-        'd3': 'd3.v5.min',
-        'awesomplete': 'awesomplete',
-        'vk_beautify': 'vkBeautify',
-        'pako_inflate': 'pako_inflate.min',
-        'json5': 'json5_2.2.0.min'
-    }
-    libs = read_files(lib_dct.values(), libs_dir, 'js')
-    src_names = \
-        'utils', \
-        'SymbolType', \
-        'N2TreeNode', \
-        'ModelData', \
-        'N2Style', \
-        'N2Window', \
-        'N2Layout', \
-        'N2MatrixCell', \
-        'N2Legend', \
-        'N2Matrix', \
-        'N2Arrow', \
-        'N2Search', \
-        'N2Toolbar', \
-        'N2Diagram', \
-        'NodeInfo', \
-        'N2UserInterface', \
-        'defaults', \
-        'ptN2'
-
-    srcs = read_files(src_names, src_dir, 'js')
-
-    style_names = \
-        'window', \
-        'partition_tree', \
-        'n2toolbar-icons', \
-        'toolbar', \
-        'legend', \
-        'awesomplete'
-
-    styles = read_files((style_names), style_dir, 'css')
-
-    with open(os.path.join(style_dir, "n2toolbar-icons-font.woff"), "rb") as f:
-        encoded_font = str(base64.b64encode(f.read()).decode("ascii"))
-
-    with open(os.path.join(style_dir, "logo_png.b64"), "r") as f:
-        logo_png = str(f.read())
-
-    with open(os.path.join(assets_dir, "spinner.png"), "rb") as f:
-        waiting_icon = str(base64.b64encode(f.read()).decode("ascii"))
-
-    with open(os.path.join(assets_dir, "n2toolbar_screenshot_png.b64"), "r") as f:
-        n2toolbar_png = str(f.read())
 
     if title:
-        title = "OpenMDAO Model Hierarchy and N2 diagram: %s" % title
+        title = f"OpenMDAO Model Hierarchy and N2 diagram: {title}"
     else:
         title = "OpenMDAO Model Hierarchy and N2 diagram"
 
-    src_names = ('N2ErrorHandling',)
-    head_srcs = read_files(src_names, src_dir, 'js')
+    html_vars = {
+        'title': title,
+        'embeddable': "embedded-diagram" if embeddable else "non-embedded-diagram",
+        'openmdao_version': openmdao_version,
+        'model_data': model_data
+    }
 
-    h = DiagramWriter(filename=os.path.join(vis_dir, "index.html"),
-                      title=title,
-                      styles=styles, embeddable=embeddable, head_srcs=head_srcs)
-
-    if (embeddable):
-        h.insert("non-embedded-n2", "embedded-n2")
-
-    # put all style and JS into index
-    h.insert('{{n2toolbar-icons}}', encoded_font)
-    h.insert('{{logo_png}}', logo_png)
-    h.insert('{{waiting_icon}}', waiting_icon)
-    h.insert('{{n2toolbar_png}}', n2toolbar_png)
-    h.insert('{{om_version}}', openmdao_version)
-
-    for k, v in lib_dct.items():
-        h.insert('{{{}_lib}}'.format(k), write_script(libs[v], indent=_IND))
-
-    for name, code in srcs.items():
-        h.insert('{{{}_lib}}'.format(name.lower()),
-                 write_script(code, indent=_IND))
-
-    h.insert('{{model_data}}', write_script(model_data, indent=_IND))
-
-    # Write output file
-    h.write(outfile)
+    if err_msg:
+        with open(outfile, 'w') as f:
+            f.write(err_msg)
+    else:
+        HtmlPreprocessor(os.path.join(vis_dir, "index.html"),
+                         outfile, allow_overwrite=True, var_dict=html_vars,
+                         json_dumps_default=default_noraise, verbose=False).run()
 
     if notebook:
-        # display in Jupyter Notebook
-        outfile = os.path.relpath(outfile)
-        if not colab:
-            display(IFrame(src=outfile, width="100%", height=700))
-        else:
-            display(HTML(outfile))
+        if display_in_notebook:
+            # display in Jupyter Notebook
+            outfile = os.path.relpath(outfile)
+            if not colab:
+                display(IFrame(src=outfile, width="100%", height=700))
+            else:
+                display(HTML(outfile))
     elif show_browser:
         # open it up in the browser
         from openmdao.utils.webview import webview
         webview(outfile)
+
+
+# N2 report definition
+def _run_n2_report(prob, report_filename=_default_n2_filename):
+
+    n2_filepath = str(pathlib.Path(prob.get_reports_dir()).joinpath(report_filename))
+    try:
+        n2(prob, show_browser=False, outfile=n2_filepath, display_in_notebook=False)
+    except RuntimeError as err:
+        # We ignore this error
+        if str(err) != "Can't compute total derivatives unless " \
+                       "both 'of' or 'wrt' variables have been specified.":
+            raise err
+
+
+def _run_n2_report_w_errors(prob, report_filename=_default_n2_filename):
+    errs = prob._metadata['saved_errors']
+    if errs:
+        n2_filepath = str(pathlib.Path(prob.get_reports_dir()).joinpath(report_filename))
+        # only run the n2 here if we've had setup errors. Normally we'd wait until
+        # after final_setup in order to have correct values for all of the I/O variables.
+        try:
+            n2(prob, show_browser=False, outfile=n2_filepath, display_in_notebook=False)
+        except RuntimeError as err:
+            # We ignore this error
+            if str(err) != "Can't compute total derivatives unless " \
+                           "both 'of' or 'wrt' variables have been specified.":
+                prob.model._collect_error(str(err))
+        # errors will result in exit at the end of the _check_collected_errors method
+
+
+def _n2_report_register():
+    register_report_hook('n2', 'final_setup', 'Problem', post=_run_n2_report,
+                         description='N2 diagram', report_filename=_default_n2_filename)
+    register_report_hook('n2', '_check_collected_errors', 'Problem', pre=_run_n2_report_w_errors,
+                         description='N2 diagram')
+
+
+def _n2_setup_parser(parser):
+    """
+    Set up the openmdao subparser for the 'openmdao n2' command.
+
+    Parameters
+    ----------
+    parser : argparse subparser
+        The parser we're adding options to.
+    """
+    parser.add_argument('file', nargs=1,
+                        help='Python script or recording containing the model. '
+                        'If metadata from a parallel run was recorded in a separate file, '
+                        'specify both database filenames delimited with a comma.')
+    parser.add_argument('-o', default=_default_n2_filename, action='store', dest='outfile',
+                        help='html output file.')
+    parser.add_argument('--no_browser', action='store_true', dest='no_browser',
+                        help="don't display in a browser.")
+    parser.add_argument('--embed', action='store_true', dest='embeddable',
+                        help="create embeddable version.")
+    parser.add_argument('--title', default=None,
+                        action='store', dest='title', help='diagram title.')
+
+
+def _n2_cmd(options, user_args):
+    """
+    Process command line args and call n2 on the specified file.
+
+    Parameters
+    ----------
+    options : argparse Namespace
+        Command line options.
+    user_args : list of str
+        Command line options after '--' (if any).  Passed to user script.
+    """
+    filename = _to_filename(options.file[0])
+
+    if filename.endswith('.py'):
+        def _view_model_w_errors(prob):
+            errs = prob._metadata['saved_errors']
+            if errs:
+                # only run the n2 here if we've had setup errors. Normally we'd wait until
+                # after final_setup in order to have correct values for all of the I/O variables.
+                n2(prob, outfile=options.outfile, show_browser=not options.no_browser,
+                   title=options.title, embeddable=options.embeddable)
+                # errors will result in exit at the end of the _check_collected_errors method
+
+        def _view_model_no_errors(prob):
+            n2(prob, outfile=options.outfile, show_browser=not options.no_browser,
+               title=options.title, embeddable=options.embeddable)
+
+        hooks._register_hook('_check_collected_errors', 'Problem', pre=_view_model_w_errors)
+        hooks._register_hook('final_setup', 'Problem', post=_view_model_no_errors, exit=True)
+
+        from openmdao.utils.reports_system import _register_cmdline_report
+        # tell report system not to duplicate effort
+        _register_cmdline_report('n2')
+
+        _load_and_exec(options.file[0], user_args)
+    else:
+        # assume the file is a recording, run standalone
+        n2(filename, outfile=options.outfile, title=options.title,
+           show_browser=not options.no_browser, embeddable=options.embeddable)
