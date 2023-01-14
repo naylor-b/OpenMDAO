@@ -8,6 +8,7 @@ from collections import defaultdict
 from time import perf_counter
 from contextlib import contextmanager
 from functools import wraps, partial
+import numpy as np
 
 import openmdao.utils.hooks as hooks
 from openmdao.utils.om_warnings import issue_warning
@@ -18,27 +19,12 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.solvers.solver import Solver
 from openmdao.core.problem import _problem_names
+from openmdao.visualization.tables.table_builder import generate_table
 
 # can use this to globally turn timing on/off so we can time specific sections of code
 _timing_active = False
 _total_time = 0.
 _timing_managers = {}
-
-
-# class _RestrictedUnpickler(pickle.Unpickler):
-
-#     def find_class(self, module, name):
-#         # Only allow classes from this module.
-#         if module == 'openmdao.visualization.timing_viewer.timer' or name == 'defaultdict':
-#             return globals().get(name)
-#         # Forbid everything else.
-#         raise pickle.UnpicklingError(f"global '{module}.{name}' is forbidden in timing file.")
-
-
-# def _restricted_load(f):
-#     # Like pickle.load() but restricted to a specific set of classes.
-#     return pickle.load(f)
-#     # return _RestrictedUnpickler(f).load()
 
 
 def _timing_iter(all_timing_managers):
@@ -88,6 +74,10 @@ class _AttrMatcher(object):
     __slots__ = ['classes', 'matches', 'name']
 
     def __init__(self, classes, method_name):
+        assert isinstance(classes, tuple), \
+            f"_AttrMatcher 'classes' arg must be a tuple, not a {type(classes).__name__}."
+        assert isinstance(method_name, str), \
+            f"_AttrMatcher 'method_name' arg must be a str, not a {type(method_name).__name__}."
         self.classes = classes
         self.matches = {c.__name__ for c in classes}
         self.name = method_name
@@ -208,7 +198,10 @@ class FuncTimer(object):
         """
         global _timing_active
         if _timing_active:
-            self.stack.append(self)
+            if self.stack and self.stack[-1][0] is self:
+                self.stack[-1][1] += 1
+            else:
+                self.stack.append([self, 1])
             self.start = perf_counter()
 
     def post(self):
@@ -219,9 +212,14 @@ class FuncTimer(object):
         if _timing_active:
             dt = perf_counter() - self.start
             self.info.called(dt)
-            self.stack.pop()
-            if self.stack:
-                self.stack[-1].children[self.name].called(dt)
+            s = None
+            stack = self.stack
+            while stack and s is not self:
+                s, count = stack.pop()
+            if count > 1:
+                stack.push([self, count-1])
+            if stack:
+                stack[-1][0].children[self.name].called(dt)
 
     def avg(self):
         """
@@ -253,8 +251,10 @@ def _timer_wrap(f, timer):
     """
     def do_timing(*args, **kwargs):
         timer.pre()
-        ret = f(*args, **kwargs)
-        timer.post()
+        try:
+            ret = f(*args, **kwargs)
+        finally:
+            timer.post()
         return ret
 
     dec = wraps(f)(do_timing)
@@ -408,6 +408,8 @@ def _setup_sys_timers(options, problem, system, methods):
 
 
 def _setup_timers(options, problem, system):
+    global _global_timer_start
+
     # hook called after _setup_procs to decorate all specified System methods
     global _timing_managers
 
@@ -459,10 +461,8 @@ def _save_timing_data(options):
     except OSError:
         pass
 
-    connection = sqlite3.connect(timing_file)
-
     tup2id = {}
-    with connection as c:
+    with sqlite3.connect(timing_file) as c:
         c.execute("CREATE TABLE func_index(id INTEGER PRIMARY KEY, rank INT, "
                   "prob_name TEXT, class_name TEXT, sys_name TEXT, method TEXT, "
                   "level INT, parallel INT, nprocs INT, ncalls INT, ftime REAL, "
@@ -500,13 +500,14 @@ def _save_timing_data(options):
                             "ncalls, ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?)",
                             (parentfunc, parent_id + 1, chname, chid, ncalls, total, tmin, tmax))
 
-        # updating
-        # cursor.execute('''UPDATE EMPLOYEE SET INCOME = 5000 WHERE Age<25;''')
+    return timing_file
 
 
 def wherestr(**kwargs):
     lst = []
     for name, val in kwargs.items():
+        if val is None:
+            continue
         if isinstance(val, str):
             lst.append(f"{name}='{val}'")
         else:
@@ -515,12 +516,6 @@ def wherestr(**kwargs):
         return "WHERE " + " AND ".join(lst)
 
     return ''
-
-
-def indent(pathname, tab='  '):
-    parts = pathname.split('.')
-    depth = 0 if parts[0] == '' else len(parts)
-    return tab * depth
 
 
 def id2func_info(dbcon, func_id):
@@ -556,6 +551,36 @@ def parent_iter(dbcon, func_id):
         yield row
 
 
+def _main_table_row_iter(db_fname):
+    with sqlite3.connect(db_fname) as dbcon:
+        cur = dbcon.cursor()
+        for fid, rank, pname, cname, objname, fname, level, par, nprocs, calls, time, tmin, tmax \
+                in cur.execute(f"SELECT * from func_index"):
+            tavg = (tmax - tmin) / calls
+            yield {
+                'id': fid,
+                'method': fname,
+                'rank': rank,
+                'nprocs': nprocs,
+                'probname': pname,
+                'class': cname,
+                'sysname': objname,
+                'level': level,
+                'parallel': par,
+                'ncalls': calls,
+                'avg': tavg,
+                'tmin': tmin,
+                'tmax': tmax,
+                'total': time,
+            }
+
+
+def db2table(rows, headers=None, outfile=None, format='simple_grid'):
+    table = generate_table(sorted(rows, key=lambda x: x[3], reverse=True), tablefmt=format,
+                           headers=headers)
+    table.display(outfile=outfile)
+
+
 def func_tree(dbcon, sys_name, method=None, prob_name=None, rank=None):
     for row in func_info_iter(dbcon, sys_name, method, prob_name=prob_name, rank=rank):
         fid, rank, pname, class_name, sname, fname, level, parallel, nprocs, ncalls, ftime, \
@@ -579,47 +604,32 @@ def func_tree(dbcon, sys_name, method=None, prob_name=None, rank=None):
                 stack.append(children_iter(dbcon, child_id))
 
 
-def ancestor_func_tree(dbcon, sys_name, method, prob_name=None, rank=None):
-    revstack = []
-    for row in func_info_iter(dbcon, sys_name, method, prob_name=prob_name, rank=rank):
-        # fid, r, pname, class_name, _, _, level, parallel, nprocs, ncalls, ftime, \
-        #     tmin, tmax = row
+def obj_tree(dbcon):
+    cur = dbcon.cursor()
+    probdct = defaultdict(lambda: defaultdict(list))
+    for row in cur.execute("SELECT rank, prob_name, sys_name, method, ncalls, ftime, tmin, "
+                           "tmax from func_index ORDER BY ftime DESC"):
+        rank, pname, sname, fname, ncalls, ftime, tmin, tmax = row
 
-        stack = [parent_iter(dbcon, row[0])]
-        seen = set()
-        while stack:
-            try:
-                tup = next(stack[-1])
-            except StopIteration:
-                stack.pop()
-                continue
+        if sname.endswith('.nonlinear_solver'):
+            sname = sname.rpartition('.')[0]
+            fname = 'nonlinear_solver.' + fname
+        elif sname.endswith('.linear_solver'):
+            sname = sname.rpartition('.')[0]
+            fname = 'linear_solver.' + fname
 
-            parent_id = tup[2]
-            child_id = tup[4]
+        probdct[pname][sname].append((fname, ncalls, ftime, tmin, tmax))
 
-            revstack.append((parent_id, child_id))
 
-            if parent_id not in seen:
-                stack.append(parent_iter(dbcon, parent_id))
+    for probname, dct in probdct.items():
+        sdict = {}
+        for sname, rows in dct.items():
+            sdict[sname] = np.sum(r[2] for r in rows)
 
-    pdict = defaultdict(list)
-    while revstack:
-        parent_id, child_id = revstack.pop()
-        pdict[parent_id].append(child_id)
-
-    print(f"Call tree up from {sys_name}.{method}")
-    if pdict:
-        for i, (parent_id, chlist) in enumerate(pdict.items()):
-            if i == 0:
-                # this is the top level parent, so show its full func info
-                frow = id2func_info(dbcon, parent_id)
-                _, _, _, _, sname, fname, _, _, _, pncalls, pftime, ptmin, ptmax = frow
-                print(f"{sname}.{fname} {pncalls}  {pftime}, {ptmin}  {ptmax}")
-
-            seen = set()
-            for child_id in chlist:
-                if child_id in seen:
-                    continue
-                seen.add(child_id)
-                for _, child_name, cncalls, cftime in children_iter(dbcon, parent_id, child_id):
-                    print(f"{'  ' * (i+1)}{child_name} {cncalls} {cftime}")
+        print("In problem", probname)
+        for sname, ftime in sorted(sdict.items(), key=lambda x: x[1], reverse=True):
+            rows = dct[sname]
+            print(f"\nSystem: '{sname}', time: {ftime}")
+            # print("type", type(rows), 'row0', type(rows[0]))
+            generate_table(sorted(rows, key=lambda x: x[2], reverse=True), tablefmt='simple_grid',
+                                  headers=['Function', 'Calls', 'Total Time', 'Min Time', 'Max Time']).display()
