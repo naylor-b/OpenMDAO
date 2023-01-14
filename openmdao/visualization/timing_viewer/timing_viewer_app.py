@@ -13,7 +13,7 @@ import tornado.web
 import openmdao.utils.hooks as hooks
 from openmdao.core.problem import _problem_names, set_default_prob_name, num_problems
 from openmdao.visualization.timing_viewer.timer import timing_context, _set_timer_setup_hook, \
-    _save_timing_data, _main_table_row_iter
+    _save_timing_data, _main_table_row_iter, _global_info
 import openmdao.visualization.timing_viewer.timer as timer_mod
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
 from openmdao.utils.om_warnings import issue_warning
@@ -71,6 +71,8 @@ class Application(tornado.web.Application):
     def __init__(self, db_fname):
         self.func_to_id = {}
         self.db_fname = db_fname
+
+        self.total_time, self.nprocs = _global_info(db_fname)
 
         handlers = [
             (r"/", Index),
@@ -133,7 +135,7 @@ class Index(tornado.web.RequestHandler):
     function startup() {{
         let table_data = {table_data};
         let is_par = {is_par};
-        let timingheight = (table_data.length > 15) ? 850 : null;
+        let timingheight = (table_data.length > 15) ? 650 : null;
 
         let timingtable = new Tabulator("#index-timing-table", {{
             // set height of table (in CSS or here), this enables the Virtual DOM and
@@ -147,11 +149,13 @@ class Index(tornado.web.RequestHandler):
                 {{title: "System", field:"sysname", hozAlign:"left", headerFilter:true,
                     visible:true,
                     tooltip:function(cell){{
-                        return  cell.getRow().getData()["classname"];
+                        return  cell.getRow().getData()["class"];
                     }},
                 }},
                 {{title: "Method", field:"method", hozAlign:"left", headerFilter:true,
                   visible:true,}},
+                {{title: "Class", field:"class", hozAlign:"center", headerFilter:true,
+                  visible:false,}},
                 {{title: "Rank", field:"rank", hozAlign:"center", headerFilter:true,
                   visible:is_par,}},
                 {{title: "Num Procs", field:"nprocs", hozAlign:"center", headerFilter:true,
@@ -188,7 +192,7 @@ class Index(tornado.web.RequestHandler):
     </script>
     <body onload="startup()">
     <h1>{app.db_fname}</h1>
-    <h2>Total time: {format_time(timer_mod._total_time)}</h2>
+    <h2>Total time: {format_time(app.total_time)}</h2>
     <div id="index-timing-table"></div>
     </body>
     </html>

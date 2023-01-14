@@ -472,6 +472,8 @@ def _save_timing_data(options):
                   "parent_id INT, child_name TEXT, child_id INT, ncalls INT, ftime REAL, "
                   "tmin REAL, tmax REAL)")
 
+        c.execute("CREATE TABLE global(id INTEGER PRIMARY KEY, total_time REAL, nprocs INT)")
+
         cur = c.cursor()
         childlist = []
         for fid, tup in enumerate(_timing_iter(all_managers)):
@@ -500,6 +502,8 @@ def _save_timing_data(options):
                             "ncalls, ftime, tmin, tmax) VALUES(?,?,?,?,?,?,?,?)",
                             (parentfunc, parent_id + 1, chname, chid, ncalls, total, tmin, tmax))
 
+        cur.execute("INSERT INTO global(total_time, nprocs) VALUES (?, ?)", (_total_time, nprocs))
+
     return timing_file
 
 
@@ -516,6 +520,16 @@ def wherestr(**kwargs):
         return "WHERE " + " AND ".join(lst)
 
     return ''
+
+
+def _global_info(db_fname):
+    with sqlite3.connect(db_fname) as dbcon:
+        cur = dbcon.cursor()
+        try:
+            for row in cur.execute(f"SELECT total_time, nprocs from global"):
+                return row
+        except sqlite3.OperationalError as err:
+            print(err, file=sys.stderr)
 
 
 def id2func_info(dbcon, func_id):
