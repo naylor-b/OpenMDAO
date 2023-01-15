@@ -131,11 +131,45 @@ class Index(tornado.web.RequestHandler):
     </head>
     <link href="/static/tabulator.min.css" rel="stylesheet">
     <script type="text/javascript" src="/static/tabulator.min.js"></script>
+    //<script type="text/javascript" src="/static/sprintf.min.js"></script>
     <script type="text/javascript">
     function startup() {{
         let table_data = {table_data};
         let is_par = {is_par};
         let timingheight = (table_data.length > 15) ? 650 : null;
+
+        function val_cell_formatter(cell, formatterParams, onRendered) {{
+            let val = cell.getValue();
+            if (val === "") {{
+                return "";
+            }}
+            return String(val.toFixed(9));
+            //return vsprintf('%g8.3', [val]);
+        }}
+
+
+        function val_sorter(a, b, aRow, bRow, column, dir, sorterParams) {{
+            if (a === "") {{
+                a = -1e99;
+            }}
+            if (b === "") {{
+                b = -1e99;
+            }}
+            return a - b;
+        }}
+
+
+        function numcol(title, field) {{
+            return {{
+                title: title,
+                field: field,
+                hozAlign: "right",
+                visible: true,
+                headerFilter: false,
+                formatter: val_cell_formatter,
+                sorter: val_sorter,
+            }}
+        }}
 
         let timingtable = new Tabulator("#index-timing-table", {{
             // set height of table (in CSS or here), this enables the Virtual DOM and
@@ -174,18 +208,18 @@ class Index(tornado.web.RequestHandler):
                 }},
                 {{title: "Calls", field:"ncalls", hozAlign:"center", headerFilter:false,
                   visible:true,}},
-                {{title: "Total Time", field:"total", hozAlign:"right", headerFilter:false,
-                  visible:true,}},
-                {{title: "Avg Time", field:"avg", hozAlign:"right", headerFilter:false,
-                  visible:true,}},
-                {{title: "Min Time", field:"tmin", hozAlign:"right", headerFilter:false,
-                  visible:true,}},
-                {{title: "Max Time", field:"tmax", hozAlign:"right", headerFilter:false,
-                  visible:true,}},
-                // numcol("Total Time", "total"),
-                // numcol("Avg Time", "avg"),
-                // numcol("Min Time", "tmin"),
-                // numcol("Max Time", "tmax"),
+                //{{title: "Total Time", field:"total", hozAlign:"right", headerFilter:false,
+                //  visible:true,}},
+                //{{title: "Avg Time", field:"avg", hozAlign:"right", headerFilter:false,
+                //  visible:true,}},
+                //{{title: "Min Time", field:"tmin", hozAlign:"right", headerFilter:false,
+                //  visible:true,}},
+                //{{title: "Max Time", field:"tmax", hozAlign:"right", headerFilter:false,
+                //  visible:true,}},
+                numcol("Total Time", "total"),
+                numcol("Avg Time", "avg"),
+                numcol("Min Time", "tmin"),
+                numcol("Max Time", "tmax"),
             ]
         }});
     }}
