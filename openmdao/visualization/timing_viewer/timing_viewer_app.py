@@ -78,7 +78,7 @@ class Application(tornado.web.Application):
 
         handlers = [
             (r"/", Index),
-            (r"/func/([0-9]+)", Function),
+            (r"/function/([0-9]+)", Function),
         ]
 
         settings = dict(
@@ -106,7 +106,12 @@ class Application(tornado.web.Application):
             return a - b;
         }
 
-        function numcol(title, field) {
+        function numcol(title, field, sort) {
+            let hsort = false;
+            if (sort) {
+                sort = val_sorter;
+                hsort = true;
+            }
             return {
                 title: title,
                 field: field,
@@ -114,32 +119,44 @@ class Application(tornado.web.Application):
                 visible: true,
                 headerFilter: false,
                 formatter: val_cell_formatter,
-                sorter: val_sorter,
+                headerSort: hsort,
+                sorter: sort,
             }
         }
 
-        function make_table(tdata, colnames, is_par, theight, tid, tlayout="fitDataFill") {
+        function make_table(tdata, colnames, is_par, theight, tid, idname, tlayout="fitDataFill") {
+          let filt = true;
+          let sort = true;
+          let hsort = true;
+
+          if (tdata.length < 2) {
+            filt = false;
+            sort = false;
+            hsort = false;
+          }
+
           let tdict = {
-            probname: {title: "Problem", field:"probname", hozAlign:"left", headerFilter:true,
-                       visible:false,},
-            sysname: {title: "System", field:"sysname", hozAlign:"left", headerFilter:true,
-                      visible:true,
+            probname: {title: "Problem", field:"probname", hozAlign:"left", headerFilter:filt,
+                       visible:false, headerSort:hsort},
+            sysname: {title: "System", field:"sysname", hozAlign:"left", headerFilter:filt,
+                      visible:true, headerSort:hsort,
                       tooltip:function(cell){
-                        return  cell.getRow().getData()["class"];
+                        return cell.getRow().getData()["class"];
                       },
             },
-            method: {title: "Method", field:"method", hozAlign:"left", headerFilter:true,
-                     visible:true,},
-            class: {title: "Class", field:"class", hozAlign:"center", headerFilter:true,
-                    visible:false,},
-            rank: {title: "Rank", field:"rank", hozAlign:"center", headerFilter:true,
-                   visible:is_par,},
-            nprocs: {title: "Num Procs", field:"nprocs", hozAlign:"center", headerFilter:true,
-                     visible:is_par,},
-            level: {title: "Tree Level", field:"level", hozAlign:"center", headerFilter:true,
-                    visible:true,},
+            method: {title: "Method", field:"method", hozAlign:"left", headerFilter:filt,
+                     visible:true, headerSort:hsort,
+            },
+            class: {title: "Class", field:"class", hozAlign:"center", headerFilter:filt,
+                    visible:false, headerSort:hsort,},
+            rank: {title: "Rank", field:"rank", hozAlign:"center", headerFilter:filt,
+                   visible:is_par, headerSort:hsort,},
+            nprocs: {title: "Num Procs", field:"nprocs", hozAlign:"center", headerFilter:filt,
+                     visible:is_par, headerSort:hsort,},
+            level: {title: "Tree Level", field:"level", hozAlign:"center", headerFilter:filt,
+                    visible:true, headerSort:hsort,},
             parallel:  {title: "Parallel Child", field:"parallel", hozAlign:"center",
-                        visible: is_par,
+                        visible: is_par, headerSort:hsort,
                         headerFilter: "tickCross",
                         // need 3 states (checked/unchecked/mixed)
                         headerFilterParams:{"tristate": true},
@@ -150,12 +167,22 @@ class Application(tornado.web.Application):
                         },
             },
             ncalls: {title: "Calls", field:"ncalls", hozAlign:"center", headerFilter:false,
-                     visible:true,},
-            total: numcol("Total Time", "total"),
-            avg: numcol("Avg Time", "avg"),
-            tmin: numcol("Min Time", "tmin"),
-            tmax: numcol("Max Time", "tmax"),
+                     visible:true, headerSort:hsort,},
+            total: numcol("Total Time", "total", sort),
+            avg: numcol("Avg Time", "avg", sort),
+            tmin: numcol("Min Time", "tmin", sort),
+            tmax: numcol("Max Time", "tmax", sort),
           }
+
+        if (idname !== null) {
+            tdict["method"]["formatter"] = "link";
+            tdict["method"]["formatterParams"] = {
+                labelField: "method",
+                url: function(cell) {
+                    return "/function/" + String(cell.getRow().getData()[idname]);
+                },
+            }
+        }
 
         let tcols = colnames.map(function (colname) {
             return tdict[colname];
@@ -237,7 +264,7 @@ class Index(tornado.web.RequestHandler):
         let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
                         "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
         let timingtable = make_table(table_data, colnames, is_par, timingheight,
-                                     "#index-timing-table");
+                                     "#index-timing-table", "id");
 
     }}
     </script>
@@ -254,18 +281,20 @@ class Function(tornado.web.RequestHandler):
     def get(self, func_id):
         app = self.application
         is_par = 'true' if app.is_par else 'false'
+        func_id = int(func_id)
 
-        parent_row = self.index_rows[func_id - 1].copy()
+        parent_row = app.index_rows[func_id - 1].copy()
         parent_row['id'] = 0
         parent_rows = [parent_row]
 
-        with sqlite3.connect(self.db_fname) as dbcon:
+        with sqlite3.connect(app.db_fname) as dbcon:
 
             child_rows = []
             for i, tup in enumerate(children_iter(dbcon, func_id)):
                 child_id, _, ncalls, ftime = tup
-                child_row = self.index_rows[child_id - 1].copy()
+                child_row = app.index_rows[int(child_id) - 1].copy()
                 child_row['id'] = i
+                child_row['child_id'] = child_id
                 child_row['ncalls'] = ncalls
                 child_row['total'] = ftime
                 child_rows.append(child_row)
@@ -288,11 +317,12 @@ class Function(tornado.web.RequestHandler):
 
         let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
                         "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
-        let timingtable = make_table(parent_data, colnames, is_par, null, "#func_table");
+        let parenttable = make_table(parent_data, colnames, is_par, null, "#func_table", null);
 
         colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
                     "parallel", "ncalls", "total"]
-        let timingtable = make_table(table_data, colnames, is_par, timingheight, "#callees_table");
+        let childtable = make_table(table_data, colnames, is_par, timingheight,
+                                    "#callees_table", "child_id");
 
     }}
     </script>
