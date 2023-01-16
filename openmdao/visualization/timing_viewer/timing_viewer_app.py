@@ -1,11 +1,11 @@
 
 import os
 import time
-import pickle
 from functools import partial
 import webbrowser
 import threading
 import json
+import sqlite3
 
 import tornado.ioloop
 import tornado.web
@@ -13,7 +13,7 @@ import tornado.web
 import openmdao.utils.hooks as hooks
 from openmdao.core.problem import _problem_names, set_default_prob_name, num_problems
 from openmdao.visualization.timing_viewer.timer import timing_context, _set_timer_setup_hook, \
-    _save_timing_data, _main_table_row_iter, _global_info
+    _save_timing_data, _main_table_row_iter, _global_info, id2func_info, children_iter
 import openmdao.visualization.timing_viewer.timer as timer_mod
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
 from openmdao.utils.om_warnings import issue_warning
@@ -54,9 +54,9 @@ def format_time(dt, digits=2):
     return f"{dt:.{digits}f}"
 
 
-def ftup2key(ftup):
-    # (rank, probname, sysname, method_name)
-    return (ftup[0], ftup[1], ftup[3], ftup[7])
+# def ftup2key(ftup):
+#     # (rank, probname, sysname, method_name)
+#     return (ftup[0], ftup[1], ftup[3], ftup[7])
 
 
 _view_options = [
@@ -71,12 +71,14 @@ class Application(tornado.web.Application):
     def __init__(self, db_fname):
         self.func_to_id = {}
         self.db_fname = db_fname
+        self.is_par = None
+        self.index_rows = None
 
         self.total_time, self.nprocs = _global_info(db_fname)
 
         handlers = [
             (r"/", Index),
-            # (r"/func/([0-9]+)", Function),
+            (r"/func/([0-9]+)", Function),
         ]
 
         settings = dict(
@@ -84,23 +86,112 @@ class Application(tornado.web.Application):
             static_path=os.path.join(os.path.dirname(__file__), "static"),
         )
 
+        self.common_js = """
+        function val_cell_formatter(cell, formatterParams, onRendered) {
+            let val = cell.getValue();
+            if (val === "") {
+                return "";
+            }
+            return String(val.toFixed(9));
+            //return vsprintf('%g8.3', [val]);
+        }
+
+        function val_sorter(a, b, aRow, bRow, column, dir, sorterParams) {
+            if (a === "") {
+                a = -1e99;
+            }
+            if (b === "") {
+                b = -1e99;
+            }
+            return a - b;
+        }
+
+        function numcol(title, field) {
+            return {
+                title: title,
+                field: field,
+                hozAlign: "right",
+                visible: true,
+                headerFilter: false,
+                formatter: val_cell_formatter,
+                sorter: val_sorter,
+            }
+        }
+
+        function make_table(tdata, colnames, is_par, theight, tid, tlayout="fitDataFill") {
+          let tdict = {
+            probname: {title: "Problem", field:"probname", hozAlign:"left", headerFilter:true,
+                       visible:false,},
+            sysname: {title: "System", field:"sysname", hozAlign:"left", headerFilter:true,
+                      visible:true,
+                      tooltip:function(cell){
+                        return  cell.getRow().getData()["class"];
+                      },
+            },
+            method: {title: "Method", field:"method", hozAlign:"left", headerFilter:true,
+                     visible:true,},
+            class: {title: "Class", field:"class", hozAlign:"center", headerFilter:true,
+                    visible:false,},
+            rank: {title: "Rank", field:"rank", hozAlign:"center", headerFilter:true,
+                   visible:is_par,},
+            nprocs: {title: "Num Procs", field:"nprocs", hozAlign:"center", headerFilter:true,
+                     visible:is_par,},
+            level: {title: "Tree Level", field:"level", hozAlign:"center", headerFilter:true,
+                    visible:true,},
+            parallel:  {title: "Parallel Child", field:"parallel", hozAlign:"center",
+                        visible: is_par,
+                        headerFilter: "tickCross",
+                        // need 3 states (checked/unchecked/mixed)
+                        headerFilterParams:{"tristate": true},
+                        headerFilterEmptyCheck: function(value){return value === null},
+                        formatter:"tickCross",
+                        formatterParams: {
+                          crossElement: false, // get rid of 'x' elements so only check marks show
+                        },
+            },
+            ncalls: {title: "Calls", field:"ncalls", hozAlign:"center", headerFilter:false,
+                     visible:true,},
+            total: numcol("Total Time", "total"),
+            avg: numcol("Avg Time", "avg"),
+            tmin: numcol("Min Time", "tmin"),
+            tmax: numcol("Max Time", "tmax"),
+          }
+
+        let tcols = colnames.map(function (colname) {
+            return tdict[colname];
+        });
+
+        let timingtable = new Tabulator(tid, {
+            // set height of table (in CSS or here), this enables the Virtual DOM and
+            // improves render speed dramatically (can be any valid css height value)
+            height: theight,
+            data: tdata, //assign data to table
+            layout: tlayout,  // "fitDataFill", "fitColumns", "fitDataFill",
+            columns: tcols,
+        });
+
+        return timingtable;
+        }
+
+    """
+
         super(Application, self).__init__(handlers, **settings)
 
-    def format_func(self, ftup):
-        rank, probname, sysname, method_name = ftup2key(ftup)
-        prefix = []
-        if rank is not None:
-            prefix.append(f"rank {rank}")
-        if probname is not None:
-            prefix.append(probname)
-        path = sysname + '.' if sysname else ''
-        prefix.append(path + method_name)
-        return shrink(':'.join(prefix))
+    # def format_func(self, ftup):
+    #     rank, probname, sysname, method_name = ftup2key(ftup)
+    #     prefix = []
+    #     if rank is not None:
+    #         prefix.append(f"rank {rank}")
+    #     if probname is not None:
+    #         prefix.append(probname)
+    #     path = sysname + '.' if sysname else ''
+    #     prefix.append(path + method_name)
+    #     return shrink(':'.join(prefix))
 
-    def get_function_link(self, ftup):
-        fkey = ftup2key(ftup)
-        fid, _ = self.func_to_id[fkey]
-        return f'<a href="/func/{fid}">{self.format_func(ftup)}</a>'
+    # def get_function_link(self, ftup):
+    #     fkey = ftup2key(ftup)
+    #     fid, _ = self.func_to_id[fkey]
+    #     return f'<a href="/func/{fid}">{self.format_func(ftup)}</a>'
 
     def child_iter(self, func_id):
         fkey = self.id_to_func[func_id]
@@ -109,21 +200,24 @@ class Application(tornado.web.Application):
             yield child, info
 
     def get_index_table_rows(self):
-        rows = list(_main_table_row_iter(self.db_fname))
-        is_par = False
-        for r in rows:
-            if r['parallel']:
-                is_par = True
-                break
-        return json.dumps(rows), is_par
+        if self.index_rows is None:
+            self.index_rows = rows = list(_main_table_row_iter(self.db_fname))
+            if self.is_par is None:
+                self.is_par = False
+                for r in rows:
+                    if r['parallel']:
+                        self.is_par = True
+                        break
+
+        return json.dumps(self.index_rows)
 
 
 class Index(tornado.web.RequestHandler):
     def get(self):
         app = self.application
 
-        table_data, is_par = app.get_index_table_rows()
-        is_par = 'true' if is_par else 'false'
+        table_data = app.get_index_table_rows()
+        is_par = 'true' if app.is_par else 'false'
 
         self.write(f'''\
     <html>
@@ -138,90 +232,13 @@ class Index(tornado.web.RequestHandler):
         let is_par = {is_par};
         let timingheight = (table_data.length > 15) ? 650 : null;
 
-        function val_cell_formatter(cell, formatterParams, onRendered) {{
-            let val = cell.getValue();
-            if (val === "") {{
-                return "";
-            }}
-            return String(val.toFixed(9));
-            //return vsprintf('%g8.3', [val]);
-        }}
+        {app.common_js}
 
+        let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
+                        "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
+        let timingtable = make_table(table_data, colnames, is_par, timingheight,
+                                     "#index-timing-table");
 
-        function val_sorter(a, b, aRow, bRow, column, dir, sorterParams) {{
-            if (a === "") {{
-                a = -1e99;
-            }}
-            if (b === "") {{
-                b = -1e99;
-            }}
-            return a - b;
-        }}
-
-
-        function numcol(title, field) {{
-            return {{
-                title: title,
-                field: field,
-                hozAlign: "right",
-                visible: true,
-                headerFilter: false,
-                formatter: val_cell_formatter,
-                sorter: val_sorter,
-            }}
-        }}
-
-        let timingtable = new Tabulator("#index-timing-table", {{
-            // set height of table (in CSS or here), this enables the Virtual DOM and
-            // improves render speed dramatically (can be any valid css height value)
-            height: timingheight,
-            data: table_data, //assign data to table
-            layout:"fitDataFill", //"fitColumns", "fitDataFill",
-            columns:[ //Define Table Columns
-                {{title: "Problem", field:"probname", hozAlign:"left", headerFilter:true,
-                  visible:false,}},
-                {{title: "System", field:"sysname", hozAlign:"left", headerFilter:true,
-                    visible:true,
-                    tooltip:function(cell){{
-                        return  cell.getRow().getData()["class"];
-                    }},
-                }},
-                {{title: "Method", field:"method", hozAlign:"left", headerFilter:true,
-                  visible:true,}},
-                {{title: "Class", field:"class", hozAlign:"center", headerFilter:true,
-                  visible:false,}},
-                {{title: "Rank", field:"rank", hozAlign:"center", headerFilter:true,
-                  visible:is_par,}},
-                {{title: "Num Procs", field:"nprocs", hozAlign:"center", headerFilter:true,
-                  visible:is_par,}},
-                {{title: "Tree Level", field:"level", hozAlign:"center", headerFilter:true,
-                  visible:true,}},
-                {{title: "Parallel Child", field:"parallel", hozAlign:"center", visible: is_par,
-                    headerFilter: "tickCross",
-                    // need 3 states (checked/unchecked/mixed)
-                    headerFilterParams:{{"tristate": true}},
-                    headerFilterEmptyCheck: function(value){{return value === null}},
-                    formatter:"tickCross",
-                    formatterParams: {{
-                        crossElement: false,  // gets rid of 'x' elements so only check marks show
-                    }},
-                }},
-                {{title: "Calls", field:"ncalls", hozAlign:"center", headerFilter:false,
-                  visible:true,}},
-                //{{title: "Total Time", field:"total", hozAlign:"right", headerFilter:false,
-                //  visible:true,}},
-                //{{title: "Avg Time", field:"avg", hozAlign:"right", headerFilter:false,
-                //  visible:true,}},
-                //{{title: "Min Time", field:"tmin", hozAlign:"right", headerFilter:false,
-                //  visible:true,}},
-                //{{title: "Max Time", field:"tmax", hozAlign:"right", headerFilter:false,
-                //  visible:true,}},
-                numcol("Total Time", "total"),
-                numcol("Avg Time", "avg"),
-                numcol("Min Time", "tmin"),
-                numcol("Max Time", "tmax"),
-            ]
-        }});
     }}
     </script>
     <body onload="startup()">
@@ -236,25 +253,57 @@ class Index(tornado.web.RequestHandler):
 class Function(tornado.web.RequestHandler):
     def get(self, func_id):
         app = self.application
-        func_id = int(func_id)
+        is_par = 'true' if app.is_par else 'false'
 
-        def buildFunctionTable(items):
-            pass
+        parent_row = self.index_rows[func_id - 1].copy()
+        parent_row['id'] = 0
+        parent_rows = [parent_row]
+
+        with sqlite3.connect(self.db_fname) as dbcon:
+
+            child_rows = []
+            for i, tup in enumerate(children_iter(dbcon, func_id)):
+                child_id, _, ncalls, ftime = tup
+                child_row = self.index_rows[child_id - 1].copy()
+                child_row['id'] = i
+                child_row['ncalls'] = ncalls
+                child_row['total'] = ftime
+                child_rows.append(child_row)
+
 
         self.write(f'''\
     <html>
     <head>
-    <style>{app.tabstyle}</style>
     </head>
-    <body>
-    <a href="/">Home</a>
-    <h1>{app.get_function_link(app.id_to_func[func_id])}</h1>
-    <h2>Callers</h2>
-    <div id="callers_table">
-    </div>
-    <h2>Callees</h2>
-    <div id="callees_table">
-    </div>
+    <link href="/static/tabulator.min.css" rel="stylesheet">
+    <script type="text/javascript" src="/static/tabulator.min.js"></script>
+    <script type="text/javascript">
+    function startup() {{
+        let parent_data = {parent_rows};
+        let table_data = {child_rows};
+        let is_par = {is_par};
+        let timingheight = (table_data.length > 15) ? 650 : null;
+
+        {app.common_js}
+
+        let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
+                        "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
+        let timingtable = make_table(parent_data, colnames, is_par, null, "#func_table");
+
+        colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
+                    "parallel", "ncalls", "total"]
+        let timingtable = make_table(table_data, colnames, is_par, timingheight, "#callees_table");
+
+    }}
+    </script>
+    <body onload="startup()">
+        <a href="/">Home</a>
+        <h2>Function</h2>
+        <div id="func_table"></div>
+        <h2>Callers</h2>
+        <div id="callers_table"></div>
+        <h2>Callees</h2>
+        <div id="callees_table"></div>
     </body>
     </html>
     ''')
@@ -288,30 +337,6 @@ def view_timing(fname, port=8009):
 
 #     rows = list(_main_table_row_iter(fname))
 #     generate_table(rows, 'tabulator', headers='keys').display()
-
-
-def _create_timing_file(options):
-    timing_managers = timer_mod._timing_managers
-    timing_file = options.outfile
-
-    if timing_file is None:
-        timing_file = 'timings.pkl'
-
-    nprobs = num_problems()
-
-    timing_data = (timing_managers, timer_mod._total_time, nprobs)
-
-    if MPI is not None:
-        # need to consolidate the timing data from different procs
-        all_managers = MPI.COMM_WORLD.gather(timing_data, root=0)
-        if MPI.COMM_WORLD.rank != 0:
-            return
-    else:
-        all_managers = [timing_data]
-
-    with open(timing_file, 'wb') as f:
-        print(f"Saving timing data to '{timing_file}'.")
-        pickle.dump(all_managers, f)  # , pickle.HIGHEST_PROTOCOL)
 
 
 def _timing_setup_parser(parser):
