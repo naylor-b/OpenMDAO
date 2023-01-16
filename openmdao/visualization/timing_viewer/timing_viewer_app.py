@@ -11,9 +11,9 @@ import tornado.ioloop
 import tornado.web
 
 import openmdao.utils.hooks as hooks
-from openmdao.core.problem import _problem_names, set_default_prob_name, num_problems
+from openmdao.core.problem import _problem_names, set_default_prob_name
 from openmdao.visualization.timing_viewer.timer import timing_context, _set_timer_setup_hook, \
-    _save_timing_data, _main_table_row_iter, _global_info, id2func_info, children_iter
+    _save_timing_data, _main_table_row_iter, _global_info, calls_iter, called_by_iter
 import openmdao.visualization.timing_viewer.timer as timer_mod
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
 from openmdao.utils.om_warnings import issue_warning
@@ -124,7 +124,7 @@ class Application(tornado.web.Application):
             }
         }
 
-        function make_table(tdata, colnames, is_par, theight, tid, idname, tlayout="fitDataFill") {
+        function make_table(tdata, colnames, is_par, theight, tid, idname, tlayout="fitDataTable") {
           let filt = true;
           let sort = true;
           let hsort = true;
@@ -193,7 +193,7 @@ class Application(tornado.web.Application):
             // improves render speed dramatically (can be any valid css height value)
             height: theight,
             data: tdata, //assign data to table
-            layout: tlayout,  // "fitDataFill", "fitColumns", "fitDataFill",
+            layout: tlayout,  // "fitDataFill", "fitColumns", "fitDataTable",
             columns: tcols,
         });
 
@@ -203,22 +203,6 @@ class Application(tornado.web.Application):
     """
 
         super(Application, self).__init__(handlers, **settings)
-
-    # def format_func(self, ftup):
-    #     rank, probname, sysname, method_name = ftup2key(ftup)
-    #     prefix = []
-    #     if rank is not None:
-    #         prefix.append(f"rank {rank}")
-    #     if probname is not None:
-    #         prefix.append(probname)
-    #     path = sysname + '.' if sysname else ''
-    #     prefix.append(path + method_name)
-    #     return shrink(':'.join(prefix))
-
-    # def get_function_link(self, ftup):
-    #     fkey = ftup2key(ftup)
-    #     fid, _ = self.func_to_id[fkey]
-    #     return f'<a href="/func/{fid}">{self.format_func(ftup)}</a>'
 
     def child_iter(self, func_id):
         fkey = self.id_to_func[func_id]
@@ -283,22 +267,39 @@ class Function(tornado.web.RequestHandler):
         is_par = 'true' if app.is_par else 'false'
         func_id = int(func_id)
 
-        parent_row = app.index_rows[func_id - 1].copy()
-        parent_row['id'] = 0
-        parent_rows = [parent_row]
+        func_row = app.index_rows[func_id - 1].copy()
+        func_row['id'] = 0
+        func_rows = [func_row]
 
         with sqlite3.connect(app.db_fname) as dbcon:
 
-            child_rows = []
-            for i, tup in enumerate(children_iter(dbcon, func_id)):
-                child_id, _, ncalls, ftime = tup
-                child_row = app.index_rows[int(child_id) - 1].copy()
-                child_row['id'] = i
-                child_row['child_id'] = child_id
-                child_row['ncalls'] = ncalls
-                child_row['total'] = ftime
-                child_rows.append(child_row)
+            called_rows = []
+            for i, tup in enumerate(calls_iter(dbcon, func_id)):
+                _, _, _, _, called_id, ncalls, ftime, tmin, tmax = tup
+                avg = ftime / ncalls
+                called_row = app.index_rows[int(called_id) - 1].copy()
+                called_row['id'] = i
+                called_row['child_id'] = called_id
+                called_row['ncalls'] = ncalls
+                called_row['total'] = ftime
+                called_row['avg'] = avg
+                called_row['tmin'] = tmin
+                called_row['tmax'] = tmax
+                called_rows.append(called_row)
 
+            # parent_name, parent_id, called_name, child_id, ncalls, ftime, tmin, tmax
+            called_by_rows = []
+            for i, tup in enumerate(called_by_iter(dbcon, func_id)):
+                _, _, called_by_id, _, _, ncalls, ftime, tmin, tmax = tup
+                called_by_row = app.index_rows[int(called_by_id) - 1].copy()
+                called_by_row['id'] = i
+                called_by_row['parent_id'] = called_by_id
+                called_by_row['ncalls'] = ncalls
+                called_by_row['total'] = ftime
+                called_by_row['avg'] = avg
+                called_by_row['tmin'] = tmin
+                called_by_row['tmax'] = tmax
+                called_by_rows.append(called_by_row)
 
         self.write(f'''\
     <html>
@@ -308,32 +309,34 @@ class Function(tornado.web.RequestHandler):
     <script type="text/javascript" src="/static/tabulator.min.js"></script>
     <script type="text/javascript">
     function startup() {{
-        let parent_data = {parent_rows};
-        let table_data = {child_rows};
+        let func_rows = {func_rows};
+        let called_rows = {called_rows};
+        let called_by_rows = {called_by_rows};
         let is_par = {is_par};
-        let timingheight = (table_data.length > 15) ? 650 : null;
+        let timingheight = (called_rows.length > 15) ? 650 : null;
 
         {app.common_js}
 
         let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
                         "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
-        let parenttable = make_table(parent_data, colnames, is_par, null, "#func_table", null);
 
-        colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
-                    "parallel", "ncalls", "total"]
-        let childtable = make_table(table_data, colnames, is_par, timingheight,
-                                    "#callees_table", "child_id");
+        let parenttable = make_table(func_rows, colnames, is_par, null, "#func_table", null);
 
+        let called_by_table = make_table(called_by_rows, colnames, is_par, timingheight,
+                                         "#called_by_table", "parent_id");
+
+        let called_table = make_table(called_rows, colnames, is_par, timingheight,
+                                      "#calls_table", "child_id");
     }}
     </script>
     <body onload="startup()">
         <a href="/">Home</a>
         <h2>Function</h2>
         <div id="func_table"></div>
-        <h2>Callers</h2>
-        <div id="callers_table"></div>
-        <h2>Callees</h2>
-        <div id="callees_table"></div>
+        <h2>Called By</h2>
+        <div id="called_by_table"></div>
+        <h2>Calls</h2>
+        <div id="calls_table"></div>
     </body>
     </html>
     ''')
@@ -360,13 +363,6 @@ def view_timing(fname, port=8009):
 
     while serve_thread.isAlive():
         serve_thread.join(timeout=1)
-
-
-# def view_timing(fname, port=8009):
-#     from openmdao.visualization.tables.table_builder import generate_table
-
-#     rows = list(_main_table_row_iter(fname))
-#     generate_table(rows, 'tabulator', headers='keys').display()
 
 
 def _timing_setup_parser(parser):

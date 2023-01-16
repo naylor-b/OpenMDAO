@@ -552,16 +552,31 @@ def func_info_iter(dbcon, sys_name, method=None, prob_name=None, rank=None):
         yield None
 
 
-def children_iter(dbcon, func_id, child_id=None):
+def calls_iter(dbcon, func_id, child_id=None):
     where = wherestr(parent_id=func_id, child_id=child_id)
     cur = dbcon.cursor()
-    for row in cur.execute(f"SELECT child_id, child_name, ncalls, ftime from call_tree {where}"):
+    for row in cur.execute(f"SELECT * from call_tree {where}"):
         yield row
 
 
-def parent_iter(dbcon, func_id):
+def called_by_iter(dbcon, child_id):
+    """
+    Yield rows from db for all callers of the given function id.
+
+    Parameters
+    ----------
+    dbcon : Database connection
+        Connection to an open database.
+    child_id : int
+        Id into the top level function index table.
+
+    Yields
+    ------
+    tuple
+        Entries for a givel database row.
+    """
     cur = dbcon.cursor()
-    for row in cur.execute(f"SELECT * from call_tree WHERE child_id = {func_id}"):
+    for row in cur.execute(f"SELECT * from call_tree WHERE child_id = {child_id}"):
         yield row
 
 
@@ -602,7 +617,7 @@ def func_tree(dbcon, sys_name, method=None, prob_name=None, rank=None):
 
         print(f"{sys_name}.{method} {ncalls}  {ftime}, {tmin}  {tmax}")
 
-        stack = [children_iter(dbcon, fid)]
+        stack = [calls_iter(dbcon, fid)]
         seen = set()
         while stack:
             indent = '  ' * len(stack)
@@ -615,7 +630,7 @@ def func_tree(dbcon, sys_name, method=None, prob_name=None, rank=None):
             print(f"{indent}{child_name}, {ncalls}, {ftime}")
 
             if child_id not in seen:
-                stack.append(children_iter(dbcon, child_id))
+                stack.append(calls_iter(dbcon, child_id))
 
 
 def obj_tree(dbcon):
