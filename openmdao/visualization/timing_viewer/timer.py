@@ -15,6 +15,7 @@ from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.mpi import MPI
 from openmdao.core.parallel_group import ParallelGroup
 from openmdao.core.system import System
+from openmdao.core.group import Group
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.solvers.solver import Solver
@@ -37,14 +38,7 @@ def _timing_iter(all_timing_managers):
                     if t.info.ncalls > 0:
                         fname = t.name.rpartition('.')[2]
                         yield rank, probname, classname, sysname, level, parallel, nprocs, fname,\
-                            t.info.ncalls, t.avg(), t.info.min, t.info.max, t.info.total, tot_time,\
-                            t.children
-
-
-# def _timing_file_iter(timing_file):
-#     # iterates over the given timing file
-#     with open(timing_file, 'rb') as f:
-#         yield from _timing_iter(_restricted_load(f))
+                            t.info.ncalls, t.info.min, t.info.max, t.info.total, t.children
 
 
 def _get_par_child_info(timing_iter, method_info):
@@ -52,11 +46,12 @@ def _get_par_child_info(timing_iter, method_info):
     parents = {}
     klass, method = method_info
 
-    for rank, probname, classname, sysname, level, parallel, nprocs, func, ncalls, avg, tmin, tmax,\
-            ttot, tot_time, children in timing_iter:
+    for rank, probname, classname, sysname, level, parallel, nprocs, func, ncalls, tmin, tmax,\
+            ttot, children in timing_iter:
         if not parallel or method != func:
             continue
 
+        avg = ttot / ncalls
         parent = sysname.rpartition('.')[0]
         key = (probname, parent)
         if key not in parents:
@@ -98,7 +93,7 @@ class _AttrMatcher(object):
 
 _timer_methods = {
     'default': [
-        _AttrMatcher((System,), '_solve_nonlinear'),
+        _AttrMatcher((Group,), '_solve_nonlinear'),
         _AttrMatcher((System,), '_solve_linear'),
         _AttrMatcher((System,), '_apply_nonlinear'),
         _AttrMatcher((System,), '_apply_linear'),
@@ -143,19 +138,6 @@ class FuncTimerInfo(object):
             self.max = dt
         self.total += dt
         self.ncalls += 1
-
-    def avg(self):
-        """
-        Return the average elapsed time for a method call.
-
-        Returns
-        -------
-        float
-            The average elapsed time for a method call.
-        """
-        if self.ncalls > 0:
-            return self.total / self.ncalls
-        return 0.
 
 
 class FuncTimer(object):
@@ -220,17 +202,6 @@ class FuncTimer(object):
                 stack.push([self, count-1])
             if stack:
                 stack[-1][0].children[self.name].called(dt)
-
-    def avg(self):
-        """
-        Return the average elapsed time for a method call.
-
-        Returns
-        -------
-        float
-            The average elapsed time for a method call.
-        """
-        return self.info.avg()
 
 
 def _timer_wrap(f, timer):
@@ -478,7 +449,7 @@ def _save_timing_data(options):
         childlist = []
         for fid, tup in enumerate(_timing_iter(all_managers)):
             rank, probname, classname, objname, level, parallel, nprocs, funcname, \
-                ncalls, tavg, tmin, tmax, total, tot_time, children = tup
+                ncalls, tmin, tmax, total, children = tup
 
             # uniquely identifies a function called from a specific parent
             idtup = (rank, probname, objname, funcname)
@@ -585,7 +556,7 @@ def _main_table_row_iter(db_fname):
         cur = dbcon.cursor()
         for fid, rank, pname, cname, objname, fname, level, par, nprocs, calls, time, tmin, tmax \
                 in cur.execute(f"SELECT * from func_index"):
-            tavg = (tmax - tmin) / calls
+            tavg = time / calls
             yield {
                 'id': fid,
                 'method': fname,

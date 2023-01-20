@@ -1,5 +1,6 @@
 
 import os
+import sys
 import time
 from functools import partial
 import webbrowser
@@ -10,10 +11,12 @@ import sqlite3
 import tornado.ioloop
 import tornado.web
 
+from openmdao.core.constants import _DEFAULT_OUT_STREAM
 import openmdao.utils.hooks as hooks
 from openmdao.core.problem import _problem_names, set_default_prob_name
 from openmdao.visualization.timing_viewer.timer import timing_context, _set_timer_setup_hook, \
-    _save_timing_data, _main_table_row_iter, _global_info, calls_iter, called_by_iter
+    _save_timing_data, _main_table_row_iter, _global_info, calls_iter, called_by_iter, \
+    _get_par_child_info
 import openmdao.visualization.timing_viewer.timer as timer_mod
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
 from openmdao.utils.om_warnings import issue_warning
@@ -291,6 +294,7 @@ class Function(tornado.web.RequestHandler):
             called_by_rows = []
             for i, tup in enumerate(called_by_iter(dbcon, func_id)):
                 _, _, called_by_id, _, _, ncalls, ftime, tmin, tmax = tup
+                avg = ftime / ncalls
                 called_by_row = app.index_rows[int(called_by_id) - 1].copy()
                 called_by_row['id'] = i
                 called_by_row['parent_id'] = called_by_id
@@ -317,8 +321,8 @@ class Function(tornado.web.RequestHandler):
 
         {app.common_js}
 
-        let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs", "level",
-                        "parallel", "ncalls", "total", "avg", "tmin", "tmax"]
+        let colnames = ["probname", "sysname", "method", "class", "rank", "nprocs",
+                        "ncalls", "total", "avg", "tmin", "tmax"]
 
         let parenttable = make_table(func_rows, colnames, is_par, null, "#func_table", null);
 
@@ -363,6 +367,65 @@ def view_timing(fname, port=8009):
 
     while serve_thread.isAlive():
         serve_thread.join(timeout=1)
+
+
+def view_MPI_timing(timing_file, method, out_stream=_DEFAULT_OUT_STREAM):
+    """
+    Print timings of direct children of ParallelGroups to a file or to stdout.
+
+    Parameters
+    ----------
+    timing_file : str
+        The name of the db file contining the timing data.
+    method : str
+        Name of method to show timings for. Default is _solve_nonlinear.
+    out_stream : file-like or None
+        Where the output will be printed. If None, generate no output.
+
+    Returns
+    -------
+    dict or None
+        Timing info dict or None.
+    """
+    if out_stream is None:
+        return
+    elif out_stream is _DEFAULT_OUT_STREAM:
+        out_stream = sys.stdout
+
+    seen = set()
+    with sqlite3.connect(timing_file) as dbcon:
+        cur = dbcon.cursor()
+        for row in cur.execute(f"SELECT * from func_index"):
+            yield row
+        parinfo = _get_par_child_info(_timing_file_iter(timing_file), method)
+
+    if not parinfo:
+        return
+
+    cols = ['System', 'Rank', 'Calls', 'Avg Time', 'Min Time', 'Max_time', 'Total Time']
+    colspc = ['-' * len(s) for s in cols]
+    for key, sdict in parinfo.items():
+        probname, parentsys = key
+        if probname not in seen:
+            print(f"\n\nProblem: {probname}   method: {method}", file=out_stream)
+            seen.add(probname)
+
+        slist = list(sdict.items())
+        # get ncalls from a subsystem (ncalls will be same for all and for the parent)
+        ncalls = slist[0][1][0][1]
+
+        print(f"\n  Parallel group: {parentsys} (ncalls = {ncalls})\n", file=out_stream)
+        print(f"  {cols[0]:20}  {cols[1]:>5}  {cols[3]:>12} {cols[4]:>12} "
+              f"{cols[5]:>12} {cols[6]:>12}", file=out_stream)
+        print(f"  {colspc[0]:20}  {colspc[1]:>5}  {colspc[3]:>12} {colspc[4]:>12} "
+              f"{colspc[5]:>12} {colspc[6]:>12}", file=out_stream)
+        for sysname, dlist in slist:
+            relname = sysname.rpartition('.')[2]
+            for (rank, ncalls, avg, tmin, tmax, ttot) in dlist:
+                print(f"  {relname:20}  {rank:>5}  {avg:12.4f} {tmin:12.4f}"
+                      f" {tmax:12.4f} {ttot:12.4f}", file=out_stream)
+
+    return parinfo
 
 
 def _timing_setup_parser(parser):
@@ -415,7 +478,8 @@ def _timing_cmd(options, user_args):
 
     view = options.view.lower()
     if view == 'browser':
-        view_timing(db_fname, port=options.port)
+        if MPI is None or MPI.COMM_WORLD.rank == 0:
+            view_timing(db_fname, port=options.port)
     # elif view == 'text':
     #     for method in options.funcs:
     #         ret = view_MPI_timing(timing_file, method=method, out_stream=sys.stdout)
