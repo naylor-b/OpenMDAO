@@ -304,7 +304,7 @@ jobs:
           echo "###################################################"
           cp .coveragerc $HOME
           cd $HOME
-          python -m pip install git+https://github.com/OpenMDAO/testflo/tree/subtests
+          python -m pip install git+https://github.com/naylor-b/testflo.git@subtests
           testflo -n 2 openmdao --timeout=240 --show_skipped --coverage --coverpkg openmdao --durations=20
 
       - name: Submit coverage
@@ -504,7 +504,7 @@ jobs:
           echo "============================================================="
           copy .coveragerc $HOME
           cd $HOME
-          python -m pip install git+https://github.com/OpenMDAO/testflo/tree/subtests
+          python -m pip install git+https://github.com/naylor-b/testflo.git@subtests
           testflo -n 2 openmdao --timeout=240 --show_skipped --coverage  --coverpkg openmdao --durations=20
 
       - name: Submit coverage
