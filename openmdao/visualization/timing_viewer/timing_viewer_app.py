@@ -96,7 +96,6 @@ class Application(tornado.web.Application):
                 return "";
             }
             return String(val.toFixed(9));
-            //return vsprintf('%g8.3', [val]);
         }
 
         function val_sorter(a, b, aRow, bRow, column, dir, sorterParams) {
@@ -239,7 +238,6 @@ class Index(tornado.web.RequestHandler):
     </head>
     <link href="/static/tabulator.min.css" rel="stylesheet">
     <script type="text/javascript" src="/static/tabulator.min.js"></script>
-    //<script type="text/javascript" src="/static/sprintf.min.js"></script>
     <script type="text/javascript">
     function startup() {{
         let table_data = {table_data};
