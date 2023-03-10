@@ -65,3 +65,4 @@ sphinx:
   - 'sphinx.ext.viewcode'
   - 'sphinx_sitemap'
   - 'numpydoc'
+

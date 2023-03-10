@@ -254,12 +254,108 @@ class TestDesVarsResponses(unittest.TestCase):
         G1.add_design_var('x', units='ft*ft/ft')
         self.assertEqual(G1._static_design_vars['x']['units'], 'ft')
 
+    def test_component_desvar_units1(self):
+
+        class Paraboloid(om.ExplicitComponent):
+            """
+            Evaluates the equation f(x,y) = (x-3)^2 + xy + (y+4)^2 - 3.
+            """
+            def setup(self):
+                self.add_input('x', val=0.0, units='m')
+                self.add_input('y', val=0.0, units='m')
+
+                self.add_output('f_xy', val=0.0, units='m**2')
+
+                self.add_design_var('x', lower=-50, upper=50, units='m')
+                self.add_design_var('y', lower=-50, upper=50, units='m')
+
+            def setup_partials(self):
+                self.declare_partials('*', '*', method='fd')
+
+            def compute(self, inputs, outputs):
+                """
+                f(x,y) = (x-3)^2 + xy + (y+4)^2 - 3
+
+                Unconstrained Minimum at: x = 6.6667; y = -7.3333
+                Constrained Minimum (x + y <= 10) at: x = 7; y = -7
+                """
+                x = inputs['x']
+                y = inputs['y']
+
+                outputs['f_xy'] = (x - 3.0)**2 + x * y + (y + 4.0)**2 - 3.0
+
+        # build the model
+        prob = om.Problem()
+        prob.model.add_subsystem('parab', Paraboloid(),
+                                 promotes_inputs=['x', 'y'])
+
+        prob.model.add_subsystem('const', om.ExecComp('g = x + y', units='m'),
+                                 promotes_inputs=['x', 'y'])
+
+        prob.model.add_objective('parab.f_xy')
+        prob.model.add_constraint('const.g', lower=0, upper=10.)
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP')
+
+        # Design variables 'x' and 'y' span components,
+        # so we need to provide a common initial value for them.
+        prob.model.set_input_defaults('x', 3.0, units='m')
+        prob.model.set_input_defaults('y', -4.0, units='m')
+
+        prob.setup()
+        prob.run_driver()
+
+        assert_near_equal(prob.get_val('parab.f_xy'), -27., 1e-6)
+        assert_near_equal(prob.get_val('x'), 7, 1e-4)
+        assert_near_equal(prob.get_val('y'), -7, 1e-4)
+
+        # provide a common initial values again,
+        # but in imperial units this time
+        ft_per_m = 3.28084
+        prob.model.set_input_defaults('x', 3*ft_per_m, units='ft')
+        prob.model.set_input_defaults('y', 4*ft_per_m, units='ft')
+
+        prob.setup()
+        prob.run_driver()
+
+        # minimum value (still in meters)
+        assert_near_equal(prob.get_val('parab.f_xy'), -27., 1e-6)
+
+        # location of the minimum (in feet)
+        assert_near_equal(prob.get_val('x'), 7*ft_per_m, 1e-4)
+        assert_near_equal(prob.get_val('y'), -7*ft_per_m, 1e-4)
+
+    def test_component_desvar_units2(self):
+
+        class Double(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=0.0, units='degF')
+                self.add_output('y', val=0.0, units='degF')
+
+                self.add_design_var('x', lower=-50, upper=50, units='ft')
+
+            def compute(self, inputs, outputs):
+                outputs['y'] = inputs['x'] * 2
+
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', Double(), promotes=['x'])
+
+        prob.setup()
+
+        with self.assertRaises(RuntimeError) as context:
+            prob.final_setup()
+
+        msg = "'comp' <class Double>: Target for design variable x has 'degF' units, but 'ft' units were specified."
+        self.assertEqual(str(context.exception), msg)
+
 
 class TestDesvarOnModel(unittest.TestCase):
 
     def test_design_var_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='design_var_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
@@ -269,7 +365,9 @@ class TestDesvarOnModel(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.setup()
 
-        self.assertEqual(str(context.exception), "<model> <class SellarDerivatives>: Output not found for design variable 'junk'.")
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'design_var_not_exist':"
+           "\n   <model> <class SellarDerivatives>: Output not found for design variable 'junk'.")
 
     def test_desvar_affine_and_scaleradder(self):
 
@@ -398,21 +496,24 @@ class TestDesvarOnModel(unittest.TestCase):
             prob.model.add_design_var('x', lower=0.0, upper=['a', 'b'],
                                       ref0=-100.0, ref=100)
 
+
 class TestConstraintOnModel(unittest.TestCase):
 
     def test_constraint_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='constraint_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
 
         prob.model.add_constraint('junk')
 
-        with self.assertRaises(RuntimeError) as context:
+        with self.assertRaises(Exception) as context:
             prob.setup()
 
-        self.assertEqual(str(context.exception), "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'constraint_not_exist':"
+           "\n   <model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_constraint_affine_and_scaleradder(self):
 
@@ -608,12 +709,12 @@ class TestConstraintOnModel(unittest.TestCase):
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
 
-        with self.assertRaises(TypeError) as context:
+        with self.assertRaises(Exception) as context:
             prob.model.add_constraint('con1', lower=0.0, upper=5.0, indices='foo')
 
         self.assertEqual(str(context.exception), "<class SellarDerivatives>: Invalid indices foo for constraint 'con1'.")
 
-        with self.assertRaises(TypeError) as context:
+        with self.assertRaises(Exception) as context:
             prob.model.add_constraint('con3', lower=0.0, upper=5.0, indices=[1, 'k'])
 
         self.assertEqual(str(context.exception), "<class SellarDerivatives>: Invalid indices [1, 'k'] for constraint 'con3'.")
@@ -733,7 +834,6 @@ class TestConstraintFancyIndex(unittest.TestCase):
         np.testing.assert_allclose(prob.get_val("exampleComp.c_xy")[:, 1], [25.00000002, 75.00000024])
 
 
-
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
 class TestAddConstraintMPI(unittest.TestCase):
 
@@ -741,7 +841,7 @@ class TestAddConstraintMPI(unittest.TestCase):
 
     def test_add_bad_con(self):
         # From a bug, this message didn't work in mpi.
-        prob = om.Problem()
+        prob = om.Problem(name='add_bad_con')
         model = prob.model
 
         sub = model.add_subsystem('sub', SellarDerivatives())
@@ -752,15 +852,17 @@ class TestAddConstraintMPI(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.setup(mode='rev')
 
-        msg = "'sub' <class SellarDerivatives>: Output not found for response 'd1.junk'."
-        self.assertEqual(str(context.exception), msg)
+        self.assertEqual(str(context.exception),
+           "\nCollected errors for problem 'add_bad_con':"
+           "\n   <model> <class Group>: 'sub' <class SellarDerivatives>: Output not found for "
+           "response 'd1.junk'.")
 
 
 class TestObjectiveOnModel(unittest.TestCase):
 
     def test_obective_not_exist(self):
 
-        prob = om.Problem()
+        prob = om.Problem(name='obective_not_exist')
 
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
@@ -771,7 +873,7 @@ class TestObjectiveOnModel(unittest.TestCase):
             prob.setup()
 
         self.assertEqual(str(context.exception),
-                         "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
+                         "\nCollected errors for problem 'obective_not_exist':\n   <model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_objective_affine_and_scaleradder(self):
 

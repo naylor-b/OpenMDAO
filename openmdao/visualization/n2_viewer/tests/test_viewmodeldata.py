@@ -53,6 +53,7 @@ class TestViewModelData(unittest.TestCase):
         self.problem_html_filename = os.path.join(self.dir, "problem_n2.html")
         self.title_html_filename = os.path.join(self.dir, "title_n2.html")
         self.conn_html_filename = os.path.join(self.dir, "conn_n2.html")
+        self.component_model_filename = os.path.join(self.dir, "component_model.html")
 
         self.parent_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -320,8 +321,10 @@ class TestViewModelData(unittest.TestCase):
         p.setup()
 
         msg = "Viewer data is not available for sub-Group 'sub'."
-        with assert_warning(UserWarning, msg):
+        with self.assertRaises(TypeError) as cm:
             _get_viewer_data(p.model.sub)
+
+        self.assertEqual(str(cm.exception), msg)
 
     def test_viewer_data_from_None(self):
         """
@@ -461,16 +464,16 @@ class TestViewModelData(unittest.TestCase):
         """
         from openmdao.test_suite.scripts.bad_connection import BadConnectionModel
 
-        p = om.Problem(BadConnectionModel())
+        p = om.Problem(BadConnectionModel(), name='n2_connection_error')
 
-        # this would be set by the command line hook
-        p.model._raise_connection_errors = False
+        msg = "\nCollected errors for problem 'n2_connection_error':" \
+              "\n   'sub' <class Group>: Attempted to connect from 'tgt.x' to 'cmp.x', but " \
+              "'tgt.x' is an input. All connections must be from an output to an input."
 
-        expected = "'sub' <class Group>: Attempted to connect from 'tgt.x' to 'cmp.x', but " + \
-                   "'tgt.x' is an input. All connections must be from an output to an input."
-
-        with assert_warning(UserWarning, expected):
+        with self.assertRaises(Exception) as cm:
             p.setup()
+
+        self.assertEqual(cm.exception.args[0], msg)
 
         n2(p, outfile=self.conn_html_filename, show_browser=DEBUG_BROWSER,
            title="Bad Connection")
@@ -480,6 +483,32 @@ class TestViewModelData(unittest.TestCase):
                         (self.conn_html_filename + " is not a valid file."))
         self.assertTrue('OpenMDAO Model Hierarchy and N2 diagram: Bad Connection'
                         in open(self.conn_html_filename, 'r', encoding='utf-8').read())
+
+    def test_component_as_model(self):
+
+        prob = om.Problem()
+
+        prob.model = om.ExecComp('z = x + y')
+
+        prob.setup()
+
+        prob.set_val('x', 2)
+        prob.set_val('y', 5)
+
+        prob.run_model()
+
+        msg = "The model is of type ExecComp, viewer data is only available if the model is a Group."
+
+        with self.assertRaises(TypeError) as cm:
+            _get_viewer_data(prob)
+
+        self.assertEqual(str(cm.exception), msg)
+
+        n2(prob, outfile=self.component_model_filename, show_browser=DEBUG_BROWSER,
+           title="Component as model")
+
+        with open(self.component_model_filename, 'r') as f:
+            self.assertTrue(f.read(), msg)
 
 
 @use_tempdirs

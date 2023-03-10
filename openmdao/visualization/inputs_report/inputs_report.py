@@ -28,7 +28,7 @@ def _unit_str(meta):
 
 
 def _get_val_cells(val):
-    if isinstance(val, np.ndarray):
+    if isinstance(val, np.ndarray) and val.size > 0:
         minval = np.min(val)
         maxval = np.max(val)
         if val.size > 5:
@@ -130,7 +130,7 @@ def inputs_report(prob, outfile=None, display=True, precision=6, title=None,
                           category=OMDeprecationWarning)
 
         rows.append([target, prom, src, src_is_ivc, src in desvars, '', None, sorted(meta['tags']),
-                     val, None, None])
+                     val, None, None, src])
 
     if not rows:
         column_meta = []

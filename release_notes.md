@@ -1,4 +1,199 @@
 ***********************************
+# Release Notes for OpenMDAO 3.25.0
+
+January 27, 2023
+
+OpenMDAO 3.25.0 includes only one change, which is the convention OpenMDAO uses when transferring data between distributed and non-distributed variables. The underlying principle is that serial variables and their derivatives must have consistent values across all ranks where those variables exist.
+
+This is a backwards incompatible change that could break some matrix-free components with a mix of distributed and non-distributed variables.  Users developing components involving distributed inputs should consult [POEM 075](https://github.com/OpenMDAO/POEMs/blob/master/POEM_075.md).
+
+## New Deprecations
+
+- None
+
+## Backwards Incompatible API Changes
+
+- **POEM 75** implementation: changes the convention OpenMDAO uses when transferring data between distributed and non-distributed variables. [#2751](https://github.com/OpenMDAO/OpenMDAO/pull/2751)
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- None
+
+## Bug Fixes
+
+- None
+
+## Miscellaneous
+
+- None
+
+
+***********************************
+# Release Notes for OpenMDAO 3.24.0
+
+January 25, 2023
+
+OpenMDAO 3.24.0 serves as a transitional release that marks a change in the way distributed I/O is handled.
+Moving forward from 3.25.0 onward, users developing components involving distributed inputs should consult
+[POEM 075](https://github.com/OpenMDAO/POEMs/blob/master/POEM_075.md), as OpenMDAO is changing this convention
+and the switch will not be backwards compatible.
+
+For the N2 diagram, we've added information about connections between systems when a connection node is highlighted in
+NodeInfo mode.
+
+## New Deprecations
+
+- **POEM 75** implementation: Problems involving systems with distributed inputs will raise a deprecation regarding upcoming changes to their behavior. [#2784](https://github.com/OpenMDAO/OpenMDAO/pull/2784)
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- N2: Connections displayed during mouseover of a connection node when in NodeInfo mode [#2778](https://github.com/OpenMDAO/OpenMDAO/pull/2778)
+- Added set_val as a method of System. [#2785](https://github.com/OpenMDAO/OpenMDAO/pull/2785)
+
+## Bug Fixes
+
+- Fixed a bug in the handling of design variable bounds conditions when using COBYLA. [#2770](https://github.com/OpenMDAO/OpenMDAO/pull/2770)
+- Fixed a bug in System.get_io_metadata() that caused the `discrete` property to always be shown as `True`. [#2771](https://github.com/OpenMDAO/OpenMDAO/pull/2771)
+- Fixed a bug that prevented `Problem.set_solver_print` from impacting output in multi-run scenarios [#2773](https://github.com/OpenMDAO/OpenMDAO/pull/2773)
+- Fixed a bug in `set_output_solver_options`, `set_design_var_options`, and `set_constraint_options` that prevented them from working when given vector values. [#2782](https://github.com/OpenMDAO/OpenMDAO/pull/2782)
+
+## Miscellaneous
+
+- Fixed a bug in our docstring linting so that now we can detect class attributes that aren't created in __init__. [#2780](https://github.com/OpenMDAO/OpenMDAO/pull/2780)
+
+
+***********************************
+# Release Notes for OpenMDAO 3.23.0
+
+January 10, 2023
+
+OpenMDAO 3.23.0 fixes a few bugs and and provides functionality with numpy 1.24, which removed several previously deprecated features.
+
+POEM 79 is implemented. This will cause a warning to be issued if the initial value of a design variable is outside of the bounds it was given.
+Previously, this behavior was handled differently by different optimizers, with `IPOPT` clipping the values to lay within the bounds, while other optimizers just silently proceeded starting from an invalid design point.
+More often than not, setting design variables to invalid values is an oversight by the user and so they will receive a warning in the current release if such a condition is found.
+This warning will be changed to an exception in OpenMDAO 3.25, but the user will continue to have the ability to choose whether OpenMDAO warns, raises, or ignores the condition.
+
+We've also addressed several bugs that were found by users, so please continue to submit those issues.
+
+## New Deprecations
+
+- **POEM 79** implementation: Warning issued for design variables whose initial value exceeds their bounds. This will become an exception in OpenMDAO 3.25. [#2747](https://github.com/OpenMDAO/OpenMDAO/pull/2747)
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- **POEM 79** implementation: Warning issued for design variables whose initial value exceeds their bounds. This will become an exception in OpenMDAO 3.25. [#2747](https://github.com/OpenMDAO/OpenMDAO/pull/2747)
+- Updates for numpy 1.24 removed features. [#2738](https://github.com/OpenMDAO/OpenMDAO/pull/2738)
+
+## Bug Fixes
+
+- Fixed a bug with units check when design variable is specified in a Component. [#2742](https://github.com/OpenMDAO/OpenMDAO/pull/2742)
+- Fixed a bug regarding size 0 arrays in inputs report. [#2743](https://github.com/OpenMDAO/OpenMDAO/pull/2743)
+- Fixed an errant warning when regarding non-existent report hooks. [#2744](https://github.com/OpenMDAO/OpenMDAO/pull/2744)
+- The optimization report should now correctly compute the min/max value for discrete desvars. [#2746](https://github.com/OpenMDAO/OpenMDAO/pull/2746)
+
+## Miscellaneous
+
+- Added skipUnless to a couple distributed recording tests that need pyDOE2 [#2733](https://github.com/OpenMDAO/OpenMDAO/pull/2733)
+- Temporarily ignored GitPython vulnerability in audit [#2734](https://github.com/OpenMDAO/OpenMDAO/pull/2734)
+
+***********************************
+# Release Notes for OpenMDAO 3.22.0
+
+December 14, 2022
+
+OpenMDAO 3.22.0 contains a variety of new user-facing capabilities and bug fixes.
+Here are some of the highlights:
+
+We've removed our dependency on the tabulate package.
+The dependencies on pyDOE2 and pyparsing are no longer required unless the user
+attempts to use an OpenMDAO feature that requires them. In this case, that means
+the DOEDriver or the external code file-wrapping capabilities, respectively.
+
+OpenMDAO will now raise an exception if a single solver instance is attached to multiple systems.
+
+We've implemented several [POEMs](https://github.com/OpenMDAO/POEMs) in this release.
+POEM 74 is implemented, and OpenMDAO will suggest closely-matching connection targets if you happen to misspell it during the `connect` call.
+POEM 70 adds a new _inputs report_ (`inputs.html`) that allows the user to quickly view the available inputs in a model, see which are ultimately connected to IndepVarComps, and to see which are design variables controlled by the Driver.
+POEM 69 allows users to provide more clear names for the residuals associated with implicit outputs, rather than assigning them the same name.
+Users were sometimes confused that the existing implementation seemed to associate some residuals specifically with some outputs, when in reality it often just matters that a solver be given `N` implicit outputs and `N` corresponding residuals.
+
+## New Deprecations
+
+- Setting `prob.model` to a component is now deprecated, as the technical burden of supporting this corner case has outweighed its usefulness. The `model` assigned to a Problem should now always be a Group.
+
+## Backwards Incompatible API Changes
+
+- None
+
+## Backwards Incompatible Non-API Changes
+
+- None
+
+## New Features
+
+- **POEM 70** implementation: Added the inputs report, and a generate_table function to eliminate dependency on the tabulate package. [#2655](https://github.com/OpenMDAO/OpenMDAO/pull/2655)
+- Added a command line test for the scaling report. [#2657](https://github.com/OpenMDAO/OpenMDAO/pull/2657)
+- Changed ImplicitComponent.apply_nonlinear() to raise NotImplementedError [#2664](https://github.com/OpenMDAO/OpenMDAO/pull/2664)
+- Changed check_partials to skip components with no outputs or no inputs [#2667](https://github.com/OpenMDAO/OpenMDAO/pull/2667)
+- OpenMDAO will now consider relevance information when running _linearize. As a result of this change, a component with finite differenced or complex stepped partials will not compute them for inputs that do not contribute to the model relevancy (as measured from the model's objectives and constraints to the design variables.) [#2675](https://github.com/OpenMDAO/OpenMDAO/pull/2675)
+- **POEM 74** implementation: Suggest variables for failed connection [#2681](https://github.com/OpenMDAO/OpenMDAO/pull/2681)
+- Made pyDOE2 an optional dependency. [#2689](https://github.com/OpenMDAO/OpenMDAO/pull/2689)
+- Added support for constraint alias in the case reader. [#2698](https://github.com/OpenMDAO/OpenMDAO/pull/2698)
+- **POEM 69** implementation: Allow residual names to be different from the corresponding implicit output names. [#2709](https://github.com/OpenMDAO/OpenMDAO/pull/2709)
+- Changed default for Driver supports['optimization'] to False [#2715](https://github.com/OpenMDAO/OpenMDAO/pull/2715)
+- Deprecated Component as a model, handle gracefully. [#2716](https://github.com/OpenMDAO/OpenMDAO/pull/2716)
+- Added pyoptsparse to windows build on GitHub Actions. [#2718](https://github.com/OpenMDAO/OpenMDAO/pull/2718)
+- Removed pyparsing as an explicit OpenMDAO dependency. [#2723](https://github.com/OpenMDAO/OpenMDAO/pull/2723)
+- OpenMDAO will now raise an exception if a solver is assigned to more than one System [#2724](https://github.com/OpenMDAO/OpenMDAO/pull/2724)
+- Cached setup errors so they can be raised at one time. [#2726](https://github.com/OpenMDAO/OpenMDAO/pull/2726)
+
+## Bug Fixes
+
+- Added `indep_var` tag to work with inputs report for backward compatibility. [#2683](https://github.com/OpenMDAO/OpenMDAO/pull/2683)
+- Fixed an issue with embedded newlines in tables and added some '*grid' formats. [#2679](https://github.com/OpenMDAO/OpenMDAO/pull/2679)
+- Fixed doc for linking [#2680](https://github.com/OpenMDAO/OpenMDAO/pull/2680)
+- Fixed an issue with hang in guess_nonlinear in ParallelGroup [#2671](https://github.com/OpenMDAO/OpenMDAO/pull/2671)
+- Fixed various numpy deprecation warnings. [#2708](https://github.com/OpenMDAO/OpenMDAO/pull/2708)
+
+## Miscellaneous
+
+- Moved filterwarnings into catch_warnings context. [#2677](https://github.com/OpenMDAO/OpenMDAO/pull/2677)
+- Dropped required Python version back to 3.7. [#2662](https://github.com/OpenMDAO/OpenMDAO/pull/2662)
+- Changed map test to use weighted interpolant. [#2658](https://github.com/OpenMDAO/OpenMDAO/pull/2658)
+- Incremented version in issue template. [#2661](https://github.com/OpenMDAO/OpenMDAO/pull/2661)
+- Added document describing how to contribute to OpenMDAO via issues, POEMS and pull requests. [#2663](https://github.com/OpenMDAO/OpenMDAO/pull/2663)
+- Added "Debugging your Optimizations" document. [#2672](https://github.com/OpenMDAO/OpenMDAO/pull/2672)
+- Updated CI to use conda vs mamba due to Python 3.11 release [#2687](https://github.com/OpenMDAO/OpenMDAO/pull/2687)
+- Updated GitHub workflow to work properly with Python 3.11 [#2699](https://github.com/OpenMDAO/OpenMDAO/pull/2699)
+- Separated vulnerabilities check from the CI build process [#2703](https://github.com/OpenMDAO/OpenMDAO/pull/2703)
+- Updated GitHub test workflow [#2704](https://github.com/OpenMDAO/OpenMDAO/pull/2704)
+- Updated version of JAX used in GitHub workflow [#2705](https://github.com/OpenMDAO/OpenMDAO/pull/2705)
+- Removed audit step from Windows job in GitHub workflow [#2707](https://github.com/OpenMDAO/OpenMDAO/pull/2707)
+- Fixed description of ExternalCodeComp 'command' option. [#2719](https://github.com/OpenMDAO/OpenMDAO/pull/2719)
+
+
+***********************************
 # Release Notes for OpenMDAO 3.21.0
 
 September 28, 2022
