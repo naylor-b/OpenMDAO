@@ -357,12 +357,13 @@ def _obj_nprocs_iter(problem):
     yield (problem._name, problem, problem.comm.size)
     yield (problem._name + '.driver', problem.driver, problem.comm.size)
     for s in problem.model.system_iter(include_self=True, recurse=True):
-        yield (s.pathname, s, s.comm.size)
+        commsize = 1 if s.comm is None else s.comm.size
+        yield (s.pathname, s, commsize)
         if s.linear_solver:
-            yield (s.pathname + '.linear_solver', s.linear_solver, s.comm.size)
+            yield (s.pathname + '.linear_solver', s.linear_solver, commsize)
 
         if s.nonlinear_solver:
-            yield (s.pathname + '.nonlinear_solver', s.nonlinear_solver, s.comm.size)
+            yield (s.pathname + '.nonlinear_solver', s.nonlinear_solver, commsize)
 
 
 def _setup_sys_timers(options, problem, system, methods):

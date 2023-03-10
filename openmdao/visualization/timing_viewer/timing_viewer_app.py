@@ -491,3 +491,8 @@ def _timing_cmd(options, user_args):
     else:
         issue_warning(f"Viewing option '{view}' ignored. Valid options are "
                       f"{_view_options}.")
+
+
+if __name__ == '__main__':
+    import sys
+    launch_browser(int(sys.argv[1]))
