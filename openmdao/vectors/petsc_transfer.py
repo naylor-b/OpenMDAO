@@ -42,8 +42,6 @@ else:
         ----------
         _scatter : method
             Method that performs a PETSc scatter.
-        _transfer : method
-            Method that performs either a normal transfer or a multi-transfer.
         """
 
         def __init__(self, in_vec, out_vec, in_inds, out_inds, comm):
@@ -133,7 +131,8 @@ else:
                             # src_indices are not allowed.
                             raise RuntimeError(f"{group.msginfo}: Can't connect distributed output "
                                                f"'{abs_out}' to non-distributed input '{abs_in}' "
-                                               "without declaring src_indices.")
+                                               "without declaring src_indices.",
+                                               ident=(abs_out, abs_in))
                         else:
                             rank = myproc if abs_out in abs2meta_out else owner
                             offset = offsets_out[rank, idx_out]

@@ -16,7 +16,8 @@ from openmdao.utils.om_warnings import issue_warning, CaseRecorderWarning
 
 from openmdao.recorders.sqlite_recorder import format_version, META_KEY_SEP
 
-from openmdao.utils.notebook_utils import notebook, tabulate, display, HTML
+from openmdao.utils.notebook_utils import notebook, display, HTML
+from openmdao.visualization.tables.table_builder import generate_table
 
 import pickle
 import zlib
@@ -48,8 +49,6 @@ class SqliteCaseReader(BaseCaseReader):
         Metadata about each system in the recorded model, including options and scaling factors.
     _format_version : int
         The version of the format assumed when loading the file.
-    _solver_metadata : dict
-        Metadata for all the solvers in the model, including their type and options
     _filename : str
         The path to the filename containing the recorded data.
     _abs2meta : dict
@@ -65,8 +64,6 @@ class SqliteCaseReader(BaseCaseReader):
         connections or a promoted input name for multiple connections. This is for output display.
     _driver_cases : DriverCases
         Helper object for accessing cases from the driver_iterations table.
-    _deriv_cases : DerivCases
-        Helper object for accessing cases from the driver_derivatives table.
     _system_cases : SystemCases
         Helper object for accessing cases from the system_iterations table.
     _solver_cases : SolverCases
@@ -291,7 +288,7 @@ class SqliteCaseReader(BaseCaseReader):
         """
         Load data from the system table.
 
-        Populates the `system_options` attribute of this CaseReader.
+        Populates the `_system_options` attribute of this CaseReader.
 
         Parameters
         ----------
@@ -391,10 +388,9 @@ class SqliteCaseReader(BaseCaseReader):
             sources.extend(self._problem_cases.list_sources())
 
         if out_stream:
-            if notebook and tabulate and out_stream is _DEFAULT_OUT_STREAM:
-                display(HTML(tabulate([[s] for s in sources],
-                                      disable_numparse=True, colalign=["center"],
-                                      headers=["Sources"], tablefmt='html')))
+            if notebook and out_stream is _DEFAULT_OUT_STREAM:
+                display(HTML(str(generate_table([[s] for s in sources], headers=['Sources'],
+                                                tablefmt='html'))))
             else:
                 if out_stream is _DEFAULT_OUT_STREAM:
                     out_stream = sys.stdout
@@ -657,14 +653,11 @@ class SqliteCaseReader(BaseCaseReader):
                             (source, type(source).__name__))
 
         if not source:
-            return self._list_cases_recurse_flat(out_stream=out_stream)
+            cases = self._list_cases_recurse_flat(out_stream=None)
 
         elif source == 'problem':
             if self._format_version >= 2:
                 cases = self._problem_cases.list_cases()
-                if out_stream:
-                    write_source_table({'problem': cases}, out_stream)
-                return cases
             else:
                 raise RuntimeError('No problem cases recorded (data format = %d).' %
                                    self._format_version)
@@ -684,16 +677,12 @@ class SqliteCaseReader(BaseCaseReader):
                 if not recurse:
                     # return list of cases from the source alone
                     cases = case_table.list_cases(source)
-                    if out_stream:
-                        write_source_table({source: cases}, out_stream)
-                    return cases
                 elif flat:
                     # return list of cases from the source plus child cases
                     cases = []
                     source_cases = case_table.get_cases(source)
                     for case in source_cases:
-                        cases += self._list_cases_recurse_flat(case.name, out_stream=out_stream)
-                    return cases
+                        cases += self._list_cases_recurse_flat(case.name, out_stream=None)
                 else:
                     # return nested dict of cases from the source and child cases
                     cases = OrderedDict()
@@ -705,11 +694,22 @@ class SqliteCaseReader(BaseCaseReader):
                 # source is a coordinate
                 if recurse:
                     if flat:
-                        return self._list_cases_recurse_flat(source, out_stream=out_stream)
+                        cases = self._list_cases_recurse_flat(source, out_stream=None)
                     else:
                         return self._list_cases_recurse_nested(source)
             else:
                 raise RuntimeError('Source not found: %s' % source)
+
+        if out_stream:
+            if not source:
+                for source, subcases in self.source_cases_table.items():
+                    if subcases:
+                        write_source_table({source: subcases}, out_stream)
+                del self.source_cases_table
+            else:
+                write_source_table({source: cases}, out_stream)
+
+        return cases
 
     def _list_cases_recurse_flat(self, coord=None, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -1072,7 +1072,7 @@ class CaseTable(object):
             with sqlite3.connect(self._filename) as con:
                 cur = con.cursor()
                 cur.execute(f"SELECT {self._index_name} FROM {self._table_name}"
-                            " ORDER BY id ASC")
+                            " ORDER BY id ASC")  # nosec trusted input
                 rows = cur.fetchall()
 
             con.close()

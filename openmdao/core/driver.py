@@ -2,26 +2,27 @@
 from itertools import chain
 import pprint
 import sys
+import time
 import os
 import weakref
 
 import numpy as np
 
 from openmdao.core.total_jac import _TotalJacInfo
-from openmdao.core.constants import INT_DTYPE
+from openmdao.core.constants import INT_DTYPE, _SetupStatus
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.recorders.recording_iteration_stack import Recording
+from openmdao.utils.hooks import _setup_hooks
 from openmdao.utils.record_util import create_local_meta, check_path
-from openmdao.utils.general_utils import _src_name_iter
+from openmdao.utils.general_utils import _src_name_iter, _src_or_alias_name
 from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
-from openmdao.vectors.vector import _full_slice
-from openmdao.utils.indexer import indexer
-from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, MPIWarning, \
-    warn_deprecation
-from openmdao.utils.hooks import _setup_hooks
+from openmdao.vectors.vector import _full_slice, _flat_full_indexer
+from openmdao.utils.indexer import indexer, slicer
+from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, DriverWarning
+import openmdao.utils.coloring as c_mod
 
 
 class Driver(object):
@@ -78,11 +79,18 @@ class Driver(object):
         Metadata pertaining to total coloring.
     _total_jac_sparsity : dict, str, or None
         Specifies sparsity of sub-jacobians of the total jacobian. Only used by pyOptSparseDriver.
+    _total_jac_format : str
+        Specifies the format of the total jacobian. Allowed values are 'flat_dict', 'dict', and
+        'array'.
     _res_subjacs : dict
         Dict of sparse subjacobians for use with certain optimizers, e.g. pyOptSparseDriver.
         Keyed by sources and aliases.
     _total_jac : _TotalJacInfo or None
         Cached total jacobian handling object.
+    _total_jac_linear : _TotalJacInfo or None
+        Cached linear total jacobian handling object.
+    opt_result : dict
+        Dictionary containing information for use in the optimization report.
     """
 
     def __init__(self, **kwargs):
@@ -107,22 +115,24 @@ class Driver(object):
                                   "iteration.",
                              default=[])
 
+        default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
+
+        self.options.declare('invalid_desvar_behavior', values=('warn', 'raise', 'ignore'),
+                             desc='Behavior of driver if the initial value of a design '
+                                  'variable exceeds its bounds. The default value may be'
+                                  'set using the `OPENMDAO_INVALID_DESVAR_BEHAVIOR` environment '
+                                  'variable to one of the valid options.',
+                             default=default_desvar_behavior)
+
         # Case recording options
         self.recording_options = OptionsDictionary(parent_name=type(self).__name__)
 
-        self.recording_options.declare('record_model_metadata', types=bool, default=True,
-                                       desc='Deprecated. Recording of model metadata will always '
-                                            'be done',
-                                       deprecation="The recording option, record_model_metadata, "
-                                                   "on Driver is deprecated. Recording of model "
-                                                   "metadata will always be done")
         self.recording_options.declare('record_desvars', types=bool, default=True,
                                        desc='Set to True to record design variables at the '
                                             'driver level')
         self.recording_options.declare('record_responses', types=bool, default=False,
                                        desc='Set True to record constraints and objectives at the '
                                             'driver level')
-
         self.recording_options.declare('record_objectives', types=bool, default=True,
                                        desc='Set to True to record objectives at the driver level')
         self.recording_options.declare('record_constraints', types=bool, default=True,
@@ -148,6 +158,7 @@ class Driver(object):
 
         # What the driver supports.
         self.supports = OptionsDictionary(parent_name=type(self).__name__)
+        self.supports.declare('optimization', types=bool, default=False)
         self.supports.declare('inequality_constraints', types=bool, default=False)
         self.supports.declare('equality_constraints', types=bool, default=False)
         self.supports.declare('linear_constraints', types=bool, default=False)
@@ -166,13 +177,23 @@ class Driver(object):
         self._coloring_info = coloring_mod._get_coloring_meta()
 
         self._total_jac_sparsity = None
+        self._total_jac_format = 'flat_dict'
         self._res_subjacs = {}
         self._total_jac = None
+        self._total_jac_linear = None
 
         self.fail = False
 
         self._declare_options()
         self.options.update(kwargs)
+
+        self.opt_result = {
+            'runtime': 0.0,
+            'iter_count': 0,
+            'obj_calls': 0,
+            'deriv_calls': 0,
+            'exit_status': 'NOT_RUN'
+        }
 
         # Want to allow the setting of hooks on Drivers
         _setup_hooks(self)
@@ -236,6 +257,17 @@ class Driver(object):
         """
         return comm
 
+    def _set_problem(self, problem):
+        """
+        Set a reference to the containing Problem.
+
+        Parameters
+        ----------
+        problem : <Problem>
+            Reference to the containing problem.
+        """
+        self._problem = weakref.ref(problem)
+
     def _setup_driver(self, problem):
         """
         Prepare the driver for execution.
@@ -247,7 +279,6 @@ class Driver(object):
         problem : <Problem>
             Pointer to the containing problem.
         """
-        self._problem = weakref.ref(problem)
         model = problem.model
 
         self._total_jac = None
@@ -330,6 +361,7 @@ class Driver(object):
 
                 indices = voimeta['indices']
                 vsrc = voimeta['source']
+                drv_name = _src_or_alias_name(voimeta)
 
                 meta = abs2meta_out[vsrc]
                 i = abs2idx[vsrc]
@@ -355,10 +387,11 @@ class Driver(object):
                                 distrib_indices = dist_inds
 
                         ind = indexer(local_indices, src_shape=(tot_size,), flat_src=True)
-                        dist_dict[vname] = (ind, true_sizes, distrib_indices)
+                        dist_dict[drv_name] = (ind, true_sizes, distrib_indices)
                     else:
-                        dist_dict[vname] = (_full_slice, dist_sizes,
-                                            slice(offsets[rank], offsets[rank] + dist_sizes[rank]))
+                        dist_dict[drv_name] = (_flat_full_indexer, dist_sizes,
+                                               slice(offsets[rank],
+                                                     offsets[rank] + dist_sizes[rank]))
 
                 else:
                     owner = owning_ranks[vsrc]
@@ -395,6 +428,47 @@ class Driver(object):
         if len(self._objs) == 0:
             msg = "Driver requires objective to be declared"
             raise RuntimeError(msg)
+
+    def _check_for_invalid_desvar_values(self):
+        """
+        Check for design variable values that exceed their bounds.
+
+        This method's behavior is controlled by the OPENMDAO_INVALID_DESVAR environment variable,
+        which may take on values 'ignore', 'error', 'warn'.
+        - 'ignore' : Proceed without checking desvar bounds.
+        - 'warn' : Issue a warning if one or more desvar values exceed bounds.
+        - 'raise' : Raise an exception if one or more desvar values exceed bounds.
+
+        These options are case insensitive.
+        """
+        if self.options['invalid_desvar_behavior'] != 'ignore':
+            invalid_desvar_data = []
+            for var, meta in self._designvars.items():
+                _val = self._problem().get_val(var, units=meta['units'], get_remote=True)
+                val = np.array([_val]) if np.ndim(_val) == 0 else _val  # Handle discrete desvars
+                idxs = meta['indices']() if meta['indices'] else None
+                flat_idxs = meta['flat_indices']
+                scaler = meta['scaler'] or 1.
+                adder = meta['adder'] or 0.
+                lower = meta['lower'] / scaler - adder
+                upper = meta['upper'] / scaler - adder
+                flat_val = val.ravel()[idxs] if flat_idxs else val[idxs].ravel()
+
+                if (flat_val < lower).any() or (flat_val > upper).any():
+                    invalid_desvar_data.append((var, val, lower, upper))
+            if invalid_desvar_data:
+                s = 'The following design variable initial conditions are out of their ' \
+                    'specified bounds:'
+                for var, val, lower, upper in invalid_desvar_data:
+                    s += f'\n  {var}\n    val: {val.ravel()}' \
+                         f'\n    lower: {lower}\n    upper: {upper}'
+                s += '\nSet the initial value of the design variable to a valid value or set ' \
+                     'the driver option[\'invalid_desvar_behavior\'] to \'ignore\'.'
+                s += '\nThis warning will become an error by default in OpenMDAO version 3.25.'
+                if self.options['invalid_desvar_behavior'] == 'raise':
+                    raise ValueError(s)
+                else:
+                    issue_warning(s, category=DriverWarning)
 
     def _get_vars_to_record(self, recording_options):
         """
@@ -516,7 +590,7 @@ class Driver(object):
         src_name = meta['source']
 
         # If there's an alias, use that for driver related stuff
-        drv_name = name if meta.get('alias') else src_name
+        drv_name = _src_or_alias_name(meta)
 
         if MPI:
             distributed = comm.size > 0 and drv_name in self._dist_driver_vars
@@ -594,6 +668,28 @@ class Driver(object):
 
         return val
 
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        return 0
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        return 0
+
     def get_design_var_values(self, get_remote=True, driver_scaling=True):
         """
         Return the design variable values.
@@ -641,6 +737,9 @@ class Driver(object):
 
         src_name = meta['source']
 
+        # If there's an alias, use that for driver related stuff
+        drv_name = _src_or_alias_name(meta)
+
         # if the value is not local, don't set the value
         if (src_name in self._remote_dvs and
                 problem.model._owning_rank[src_name] != problem.comm.rank):
@@ -658,14 +757,15 @@ class Driver(object):
                     # Setting an integer value with a 1D array - don't want to convert to array.
                     value = int(value)
                 else:
-                    value = value.astype(np.int)
+                    value = value.astype(int)
 
             problem.model._discrete_outputs[src_name] = value
 
         elif problem.model._outputs._contains_abs(src_name):
             desvar = problem.model._outputs._abs_get_val(src_name)
-            if name in self._dist_driver_vars:
-                loc_idxs, _, dist_idxs = self._dist_driver_vars[name]
+            if drv_name in self._dist_driver_vars:
+                loc_idxs, _, dist_idxs = self._dist_driver_vars[drv_name]
+                loc_idxs = loc_idxs()  # don't use indexer here
             else:
                 loc_idxs = meta['indices']
                 if loc_idxs is None:
@@ -790,6 +890,7 @@ class Driver(object):
 
         model._setup_driver_units()
 
+        # driver _responses are keyed by either the alias or the promoted name
         self._responses = resps = model.get_responses(recurse=True, use_prom_ivc=True)
         for name, data in resps.items():
             if data['type'] == 'con':
@@ -804,6 +905,17 @@ class Driver(object):
         desvar_size = sum(data['global_size'] for data in designvars.values())
 
         return response_size, desvar_size
+
+    def get_exit_status(self):
+        """
+        Return exit status of driver run.
+
+        Returns
+        -------
+        str
+            String indicating result of driver run.
+        """
+        return 'FAIL' if self.fail else 'SUCCESS'
 
     def run(self):
         """
@@ -821,14 +933,15 @@ class Driver(object):
             self._problem().model.run_solve_nonlinear()
 
         self.iter_count += 1
+
         return False
 
     @property
     def _recording_iter(self):
         return self._problem()._metadata['recording_iter']
 
-    def _compute_totals(self, of=None, wrt=None, return_format='flat_dict', global_names=None,
-                        use_abs_names=True):
+    def _compute_totals(self, of=None, wrt=None, return_format='flat_dict',
+                        use_abs_names=True, driver_scaling=True):
         """
         Compute derivatives of desired quantities with respect to desired inputs.
 
@@ -846,10 +959,11 @@ class Driver(object):
             Format to return the derivatives. Default is a 'flat_dict', which
             returns them in a dictionary whose keys are tuples of form (of, wrt). For
             the scipy optimizer, 'array' is also supported.
-        global_names : bool
-            Deprecated.  Use 'use_abs_names' instead.
         use_abs_names : bool
             Set to True when passing in absolute names to skip some translation steps.
+        driver_scaling : bool
+            If True (default), scale derivative values by the quantities specified when the desvars
+            and responses were added. If False, leave them unscaled.
 
         Returns
         -------
@@ -866,21 +980,21 @@ class Driver(object):
             print(header)
             print(len(header) * '-' + '\n')
 
-        if global_names is not None:
-            warn_deprecation("'global_names' is deprecated in calls to _compute_totals. "
-                             "Use 'use_abs_names' instead.")
-            use_abs_names = global_names
-
         if problem.model._owns_approx_jac:
             self._recording_iter.push(('_compute_totals_approx', 0))
 
             try:
                 if total_jac is None:
                     total_jac = _TotalJacInfo(problem, of, wrt, use_abs_names,
-                                              return_format, approx=True, debug_print=debug_print)
+                                              return_format, approx=True, debug_print=debug_print,
+                                              driver_scaling=driver_scaling)
 
-                    # Don't cache linear constraint jacobian
-                    if not total_jac.has_lin_cons:
+                    if total_jac.has_lin_cons:
+                        # if we're doing a scaling report, cache the linear total jacobian so we
+                        # don't have to recreate it
+                        if problem._has_active_report('scaling'):
+                            self._total_jac_linear = total_jac
+                    else:
                         self._total_jac = total_jac
 
                     totals = total_jac.compute_totals_approx(initialize=True)
@@ -892,10 +1006,14 @@ class Driver(object):
         else:
             if total_jac is None:
                 total_jac = _TotalJacInfo(problem, of, wrt, use_abs_names, return_format,
-                                          debug_print=debug_print)
+                                          debug_print=debug_print, driver_scaling=driver_scaling)
 
-                # don't cache linear constraint jacobian
-                if not total_jac.has_lin_cons:
+                if total_jac.has_lin_cons:
+                    # if we're doing a scaling report, cache the linear total jacobian so we
+                    # don't have to recreate it
+                    if problem._has_active_report('scaling'):
+                        self._total_jac_linear = total_jac
+                else:
                     self._total_jac = total_jac
 
             self._recording_iter.push(('_compute_totals', 0))
@@ -915,7 +1033,8 @@ class Driver(object):
         """
         Record an iteration of the current Driver.
         """
-        if self._problem:
+        status = -1 if self._problem is None else self._problem()._metadata['setup_status']
+        if status >= _SetupStatus.POST_FINAL_SETUP:
             record_iteration(self, self._problem(), self._get_name())
         else:
             raise RuntimeError(f'{self.msginfo} attempted to record iteration but '
@@ -1119,12 +1238,12 @@ class Driver(object):
         from openmdao.visualization.scaling_viewer.scaling_report import view_driver_scaling
 
         # Run the model if it hasn't been run yet.
-        try:
-            prob = self._problem()
-        except TypeError:
+        status = -1 if self._problem is None else self._problem()._metadata['setup_status']
+        if status < _SetupStatus.POST_FINAL_SETUP:
             raise RuntimeError("Either 'run_model' or 'final_setup' must be called before the "
                                "scaling report can be generated.")
 
+        prob = self._problem()
         if prob._run_counter < 0:
             prob.run_model()
 
@@ -1196,6 +1315,113 @@ class Driver(object):
                 print()
 
         sys.stdout.flush()
+
+    def get_reports_dir(self):
+        """
+        Get the path to the directory where the report files should go.
+
+        If it doesn't exist, it will be created.
+
+        Returns
+        -------
+        str
+            The path to the directory where reports should be written.
+        """
+        return self._problem().get_reports_dir()
+
+    def _get_coloring(self, run_model=None):
+        """
+        Get the total coloring for this driver.
+
+        If necessary, dynamically generate it.
+
+        Parameters
+        ----------
+        run_model : bool or None
+            If False, don't run model, else use problem _run_counter to decide.
+
+        Returns
+        -------
+        Coloring or None
+            Coloring object, possible loaded from a file or dynamically generated, or None
+        """
+        if c_mod._use_total_sparsity:
+            coloring = None
+            if self._coloring_info['coloring'] is None and self._coloring_info['dynamic']:
+                coloring = c_mod.dynamic_total_coloring(self, run_model=run_model,
+                                                        fname=self._get_total_coloring_fname())
+
+            if coloring is not None:
+                # if the improvement wasn't large enough, don't use coloring
+                pct = coloring._solves_info()[-1]
+                info = self._coloring_info
+                if info['min_improve_pct'] > pct:
+                    info['coloring'] = info['static'] = None
+                    msg = f"Coloring was deactivated.  Improvement of {pct:.1f}% was less " \
+                          f"than min allowed ({info['min_improve_pct']:.1f}%)."
+                    issue_warning(msg, prefix=self.msginfo, category=DerivativesWarning)
+                    self._coloring_info['coloring'] = coloring = None
+
+            return coloring
+
+
+class SaveOptResult(object):
+    """
+    A context manager that saves details about a driver run.
+
+    Parameters
+    ----------
+    driver : Driver
+        The driver.
+
+    Attributes
+    ----------
+    _driver : Driver
+        The driver for which we are saving results.
+    _start_time : float
+        The start time used to compute the run time.
+    """
+
+    def __init__(self, driver):
+        """
+        Initialize attributes.
+        """
+        self._driver = driver
+
+    def __enter__(self):
+        """
+        Set start time for the driver run.
+
+        This uses 'perf_counter()' which gives "the value (in fractional seconds)
+        of a performance counter, i.e. a clock with the highest available resolution
+        to measure a short duration. It does include time elapsed during sleep and
+        is system-wide."
+
+        Returns
+        -------
+        self : object
+            self
+        """
+        self._start_time = time.perf_counter()
+        return self
+
+    def __exit__(self, *args):
+        """
+        Save driver run information in the 'opt_result' attribute.
+
+        Parameters
+        ----------
+        *args : array
+            Solver recording requires extra args.
+        """
+        driver = self._driver
+        driver.opt_result = {
+            'runtime': time.perf_counter() - self._start_time,
+            'iter_count': driver.iter_count,
+            'obj_calls': driver.get_driver_objective_calls(),
+            'deriv_calls': driver.get_driver_derivative_calls(),
+            'exit_status': driver.get_exit_status()
+        }
 
 
 class RecordingDebugging(Recording):

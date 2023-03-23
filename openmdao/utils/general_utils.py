@@ -2,24 +2,22 @@
 import os
 import re
 import sys
-import warnings
+import types
 import unittest
 from contextlib import contextmanager
 from fnmatch import fnmatchcase
 from io import StringIO
 from numbers import Integral
+from inspect import currentframe, getouterframes
 
 from collections.abc import Iterable
 
 import numpy as np
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.utils.om_warnings import issue_warning, _warn_simple_format, warn_deprecation
+from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 from openmdao.utils.array_utils import shape_to_len
 
-# Certain command line tools can make use of this to allow visualization of models when errors
-# are present that would normally cause setup to abort.
-_ignore_errors = False
 
 _float_inf = float('inf')
 
@@ -43,98 +41,6 @@ def _convert_auto_ivc_to_conn_name(conns_dict, name):
     for key, val in conns_dict.items():
         if val == name:
             return key
-
-
-def ignore_errors(flag=None):
-    """
-    Disable certain errors that will prevent setup from completing.
-
-    Parameters
-    ----------
-    flag : bool or None
-        If not None, set the value of _ignore_errors to this value.
-
-    Returns
-    -------
-    bool
-        The current value of _ignore_errors.
-    """
-    global _ignore_errors
-    if flag is not None:
-        _ignore_errors = flag
-    return _ignore_errors
-
-
-def conditional_error(msg, exc=RuntimeError, category=UserWarning, err=None):
-    """
-    Raise an exception or issue a warning, depending on the value of _ignore_errors.
-
-    Parameters
-    ----------
-    msg : str
-        The error/warning message.
-    exc : Exception class or exception info tuple (exception class, exception instance, traceback)
-        This exception class is used to create the exception to be raised, or an exception info
-        tuple from a previously raised exception that is to be re-raised, contingent on the value
-        of 'err'.
-    category : warning class
-        This category is the class of warning to be issued.
-    err : bool
-        If None, use ignore_errors(), otherwise use value of err to determine whether to
-        raise an exception (err=True) or issue a warning (err=False).
-    """
-    if (err is None and ignore_errors()) or err is False:
-        issue_warning(msg, category=category)
-    else:
-        if isinstance(exc, tuple):
-            raise exc[0](msg).with_traceback(exc[2])
-        else:
-            raise exc(msg)
-
-
-@contextmanager
-def ignore_errors_context(flag=True):
-    """
-    Set ignore_errors to the given flag in this context.
-
-    Parameters
-    ----------
-    flag : bool
-        If not None, set ignore_errors to this value.
-
-    Yields
-    ------
-    None
-    """
-    save = ignore_errors()
-    ignore_errors(flag)
-    try:
-        yield
-    finally:
-        ignore_errors(save)
-
-
-def simple_warning(msg, category=UserWarning, stacklevel=2):
-    """
-    Display a simple warning message without the annoying extra line showing the warning call.
-
-    Parameters
-    ----------
-    msg : str
-        The warning message.
-    category : class
-        The warning class.
-    stacklevel : int
-        Number of levels up the stack to identify as the warning location.
-    """
-    warn_deprecation('simple_warning is deprecated. '
-                     'Use openmdao.utils.om_warnings.issue_warning instead.')
-    old_format = warnings.formatwarning
-    warnings.formatwarning = _warn_simple_format
-    try:
-        warnings.warn(msg, category, stacklevel)
-    finally:
-        warnings.formatwarning = old_format
 
 
 def ensure_compatible(name, value, shape=None, indices=None):
@@ -499,21 +405,37 @@ def pad_name(name, pad_num=10, quotes=False):
     str
         Padded string.
     """
-    l_name = len(name)
-    quotes_len = 2 if quotes else 0
-    if l_name + quotes_len < pad_num:
-        pad = pad_num - (l_name + quotes_len)
-        if quotes:
-            pad_str = "'{name}'{sep:<{pad}}"
-        else:
-            pad_str = "{name}{sep:<{pad}}"
-        pad_name = pad_str.format(name=name, sep='', pad=pad)
-        return pad_name
+    name = f"'{name}'" if quotes else name
+    if pad_num > len(name):
+        return f"{name:<{pad_num}}"
     else:
-        if quotes:
-            return "'{0}'".format(name)
-        else:
-            return '{0}'.format(name)
+        return f'{name}'
+
+
+def add_border(msg, borderstr='=', vpad=0):
+    """
+    Add border lines before and after a message.
+
+    The message is assumed not to span multiple lines.
+
+    Parameters
+    ----------
+    msg : str
+        The message to be enclosed in a border.
+    borderstr : str
+        The repeating string to be used in the border.
+    vpad : int
+        The number of blank lines between the border and the message (before and after).
+
+    Returns
+    -------
+    str
+        A string containing the original message enclosed in a border.
+    """
+    border = len(msg) * borderstr
+    # handle borderstr of more than 1 char
+    border = border[:len(msg)]
+    return f"{border}\n{msg}\n{border}"
 
 
 def run_model(prob, ignore_exception=False):
@@ -842,7 +764,7 @@ def make_set(str_data, name=None):
 
 def match_includes_excludes(name, includes=None, excludes=None):
     """
-    Check to see if the variable names pass through the includes and excludes filter.
+    Check to see if the variable name passes through the includes and excludes filter.
 
     Parameters
     ----------
@@ -874,6 +796,30 @@ def match_includes_excludes(name, includes=None, excludes=None):
                 return True
 
     return False
+
+
+def filtered_name_iter(name_iter, includes=None, excludes=None):
+    """
+    Yield names that pass through the includes and excludes filters.
+
+    Parameters
+    ----------
+    name_iter : iter of str
+        Iterator over names to be checked for match.
+    includes : iter of str or None
+        Glob patterns for name to include in the filtering.  None, the default, means
+        include all.
+    excludes : iter of str or None
+        Glob patterns for name to exclude in the filtering.
+
+    Yields
+    ------
+    str
+        Each name that passes through the filters.
+    """
+    for name in name_iter:
+        if match_includes_excludes(name, includes, excludes):
+            yield name
 
 
 def match_prom_or_abs(name, prom_name, includes=None, excludes=None):
@@ -916,7 +862,24 @@ def match_prom_or_abs(name, prom_name, includes=None, excludes=None):
     return False
 
 
-_falsey = {'0', 'false', 'no', ''}
+_falsey = {'0', 'false', 'no', 'off', 'none', ''}
+
+
+def is_truthy(s):
+    """
+    Return True if the given string is 'truthy'.
+
+    Parameters
+    ----------
+    s : str
+        The name string being tested.
+
+    Returns
+    -------
+    bool
+        True if the specified string is 'truthy'.
+    """
+    return s.lower() not in _falsey
 
 
 def env_truthy(env_var):
@@ -933,7 +896,24 @@ def env_truthy(env_var):
     bool
         True if the specified environment variable is 'truthy'.
     """
-    return os.environ.get(env_var, '0').lower() not in _falsey
+    return is_truthy(os.environ.get(env_var, ''))
+
+
+def env_none(env_var):
+    """
+    Return True if the given environment variable is None.
+
+    Parameters
+    ----------
+    env_var : str
+        The name of the environment variable.
+
+    Returns
+    -------
+    bool
+        True if the specified environment variable is None.
+    """
+    return os.environ.get(env_var) is None
 
 
 def common_subpath(pathnames):
@@ -1276,3 +1256,92 @@ class LocalRangeIterable(object):
             An iterator over our indices.
         """
         return self._iter()
+
+
+def make_traceback():
+    """
+    Create a traceback for use later with an exception.
+
+    The traceback will begin at the stack frame *above* the caller of make_traceback.
+
+    Returns
+    -------
+    traceback
+        The newly constructed traceback.
+    """
+    finfo = getouterframes(currentframe())[2]
+    return types.TracebackType(None, finfo.frame, finfo.frame.f_lasti, finfo.frame.f_lineno)
+
+
+if env_truthy('OM_DBG'):
+    def dprint(*args, **kwargs):
+        """
+        Print only if OM_DBG is truthy in the environment.
+
+        Parameters
+        ----------
+        args : list
+            Positional args.
+        kwargs : dict
+            Named args.
+        """
+        print(*args, **kwargs)
+else:
+    def dprint(*args, **kwargs):
+        """
+        Print only if OM_DBG is truthy in the environment.
+
+        Parameters
+        ----------
+        args : list
+            Positional args.
+        kwargs : dict
+            Named args.
+        """
+        pass
+
+
+def inconsistent_across_procs(comm, arr, tol=1e-15, return_array=True):
+    """
+    Check serial deriv values across ranks.
+
+    This should only be run after _apply_linear.
+
+    Parameters
+    ----------
+    comm : MPI communicator
+        Communicator belonging to the component that owns the derivs array.
+    arr : ndarray
+        The array being checked for consistency across processes.
+    tol : float
+        Tolerance to determine if diff is 0.
+    return_array : bool
+        If True, return a boolean array on rank 0 indicating which indices are inconsistent.
+
+    Returns
+    -------
+    ndarray on rank 0, boolean elsewhere, or bool everywhere if return_array is False
+        On rank 0, boolean array with True in entries that are not consistent across all processes
+        in the communicator.  On other ranks, True if there are inconsistent entries.
+    """
+    if comm.size < 2:
+        return np.zeros(0, dtype=bool) if return_array and comm.rank == 0 else False
+
+    if comm.rank == 0:
+        result = np.zeros(arr.size, dtype=bool) if return_array else False
+        for rank, val in enumerate(comm.gather(arr, root=0)):
+            if rank == 0:
+                baseval = val
+            elif return_array:
+                result |= (np.abs(baseval - val) > tol).flat
+            else:
+                result |= np.any(np.abs(baseval - val) > tol)
+
+        if return_array:
+            comm.bcast(np.any(result), root=0)
+        else:
+            comm.bcast(result, root=0)
+        return result
+
+    comm.gather(arr, root=0)
+    return comm.bcast(None, root=0)

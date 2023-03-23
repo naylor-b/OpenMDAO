@@ -1,31 +1,32 @@
-import re
-import sys
-
 from setuptools import setup
+
+from pathlib import Path
+from io import open
+
+import re
 
 __version__ = re.findall(
     r"""__version__ = ["']+([0-9\.\-dev]*)["']+""",
     open('openmdao/__init__.py').read(),
 )[0]
 
+with open(Path(__file__).parent / "README.md", encoding="utf-8") as f:
+    long_description = f.read()
+
+
 optional_dependencies = {
     'docs': [
         'matplotlib',
-        'jupyter',
-        'nbconvert',
-        'testflo',
-        'ipyparallel',
         'numpydoc>=1.1',
-        'tabulate',
-        'jupyter-book',
-        'jupyter-sphinx',
-        'sphinx-sitemap'
+        'jupyter-book==0.14',
+        'sphinx-sitemap',
+        'ipyparallel'
+    ],
+    'doe': [
+        'pyDOE2'
     ],
     'notebooks': [
         'notebook',
-        'tabulate',
-        'ipython',
-        'ipywidgets>=7.6.5',
         'ipympl'
     ],
     'visualization': [
@@ -37,7 +38,7 @@ optional_dependencies = {
         'parameterized',
         'numpydoc>=1.1',
         'pycodestyle>=2.4.0',
-        'pydocstyle==2.0.0',
+        'pydocstyle>=2.0.0',
         'testflo>=1.3.6',
         'websockets>8',
         'aiounittest',
@@ -57,11 +58,8 @@ setup(
     name='openmdao',
     version=__version__,
     description="OpenMDAO framework infrastructure",
-    long_description="""OpenMDAO is an open-source high-performance computing platform
-    for systems analysis and multidisciplinary optimization, written in Python. It
-    enables you to decompose your models, making them easier to build and maintain,
-    while still solving them in a tightly coupled manner with efficient parallel numerical methods.
-    """,
+    long_description=long_description,
+    long_description_content_type='text/markdown',
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Intended Audience :: Science/Research',
@@ -73,7 +71,6 @@ setup(
         'Topic :: Scientific/Engineering',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: Implementation :: CPython',
     ],
     keywords='optimization multidisciplinary multi-disciplinary analysis',
@@ -117,16 +114,21 @@ setup(
         'openmdao.visualization',
         'openmdao.visualization.case_viewer',
         'openmdao.visualization.connection_viewer',
+        'openmdao.visualization.inputs_report',
         'openmdao.visualization.timing_viewer',
         'openmdao.visualization.scaling_viewer',
         'openmdao.visualization.n2_viewer',
         'openmdao.visualization.meta_model_viewer',
+        'openmdao.visualization.opt_report',
+        'openmdao.visualization.tables',
     ],
     package_data={
         'openmdao.devtools': ['*.wpr', ],
         'openmdao.visualization': [
             'common/libs/*.js',
-            'common/style/*.css'
+            'common/libs/*.js.map',
+            'common/style/*.css',
+            'common/style/*.css.map'
         ],
         'openmdao.visualization.n2_viewer': [
             'assets/*png*',
@@ -143,10 +145,16 @@ setup(
         'openmdao.visualization.connection_viewer': [
             '*.html',
         ],
+        'openmdao.visualization.tables': [
+            '*.template',
+        ],
         'openmdao.visualization.timing_viewer': [
             '*.html',
         ],
         'openmdao.visualization.scaling_viewer': [
+            '*.html',
+        ],
+        'openmdao.visualization.opt_report': [
             '*.html',
         ],
         'openmdao.visualization.meta_model_viewer': [
@@ -176,8 +184,6 @@ setup(
     install_requires=[
         'networkx>=2.0',
         'numpy',
-        'pyDOE2',
-        'pyparsing',
         'scipy',
         'requests',
         'packaging'
@@ -200,7 +206,6 @@ setup(
             'addsubtractcomp=openmdao.components.add_subtract_comp:AddSubtractComp',
             'balancecomp=openmdao.components.balance_comp:BalanceComp',
             'crossproductcomp=openmdao.components.cross_product_comp:CrossProductComp',
-            'demuxcomp=openmdao.components.demux_comp:DemuxComp',
             'dotproductcomp=openmdao.components.dot_product_comp:DotProductComp',
             'eqconstraintcomp=openmdao.components.eq_constraint_comp:EQConstraintComp',
             'execcomp=openmdao.components.exec_comp:ExecComp',
@@ -249,6 +254,16 @@ setup(
             'nonlinearrunonce=openmdao.solvers.nonlinear.nonlinear_runonce:NonlinearRunOnce',
             'armijogoldsteinls=openmdao.solvers.linesearch.backtracking:ArmijoGoldsteinLS',
             'boundsenforcels=openmdao.solvers.linesearch.backtracking:BoundsEnforceLS',
+        ],
+        'openmdao_report': [
+            'n2=openmdao.visualization.n2_viewer.n2_viewer:_n2_report_register',
+            'scaling=openmdao.visualization.scaling_viewer.scaling_report:_scaling_report_register',
+            'optimizer=openmdao.visualization.opt_report.opt_report:_optimizer_report_register',
+            'connections=openmdao.visualization.connection_viewer.viewconns:_connections_report_register',
+            'inputs=openmdao.visualization.inputs_report.inputs_report:_inputs_report_register',
+            'total_coloring=openmdao.utils.coloring:_total_coloring_report_register',
+            'summary=openmdao.devtools.debug:_summary_report_register',
+            'checks=openmdao.error_checking.check_config:_check_report_register',
         ],
         'openmdao_surrogate_model': [
             'krigingsurrogate=openmdao.surrogate_models.kriging:KrigingSurrogate',

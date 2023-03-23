@@ -72,7 +72,11 @@ class COOMatrix(Matrix):
             key_ranges[key] = (start, end, dense, rows)
             start = end
 
-        data = np.zeros(end)
+        if system is not None and system.under_complex_step:
+            data = np.zeros(end, dtype=complex)
+        else:
+            data = np.zeros(end)
+
         rows = np.empty(end, dtype=INT_DTYPE)
         cols = np.empty(end, dtype=INT_DTYPE)
 
@@ -273,7 +277,7 @@ class COOMatrix(Matrix):
                 self._coo.dtype = complex
         else:
             self._coo.data = self._coo.data.real
-            self._coo.dtype = np.float
+            self._coo.dtype = float
 
     def _convert_mask(self, mask):
         """

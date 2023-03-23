@@ -113,6 +113,12 @@ n2_gui_test_scripts = {
             "arrowCount": 4
         },
         {
+            "desc": "Hover on an N2 cell with cycle arrows and count",
+            "test": "hoverArrow",
+            "selector": "#cellShape_conn_33_to_13",
+            "arrowCount": 4
+        },
+        {
             "desc": "Left-click on partition tree element to zoom",
             "test": "click",
             "selector": "g#tree rect#circuit_R2",
@@ -449,6 +455,23 @@ n2_gui_test_scripts = {
             "selector": "g#n2elements rect#cellShape_node_23.vMid",
             "arrowCount": 2
         },
+        {"test": "root"},
+        {
+            "desc": "Expand solver selector toolbar group",
+            "test": "hover",
+            "selector": "div.group-3 > div.expandable:nth-child(2)"
+        },
+        {
+            "desc": "Click on non-linear solver toolbar button",
+            "test": "click",
+            "button": "left",
+            "selector": "#non-linear-solver-button"
+        },
+        {
+            "desc": "Check that solver names have been updated",
+            "test": "hover",
+            "selector": 'g.solver_nl_nlbgs:has-text("NL: NLBGS") > rect'
+        }
     ],
     "parabaloid": [
         {
@@ -550,20 +573,14 @@ n2_gui_test_scripts = {
             "selector": "#p1_A",
         },
         {
-            "desc": "Click p1.A to make Node Info window persistent",
-            "test": "click",
-            "selector": "#p1_A",
-            "button": "left"
-        },
-        {
-            "desc": "Hover to bring up Node Info window for p2.b",
+            "desc": "Hover to bring up Node Info window for lingrp.lin.x",
             "test": "hover",
-            "selector": "#p2_b",
+            "selector": "#lingrp_lin_x",
         },
         {
-            "desc": "Click p2.b to make Node Info window persistent",
+            "desc": "Click lingrp.lin.x to make Node Info window persistent",
             "test": "click",
-            "selector": "#p2_b",
+            "selector": "#lingrp_lin_x",
             "button": "left"
         },
         {
@@ -578,32 +595,16 @@ n2_gui_test_scripts = {
             "button": "left"
         },
         {
-            "desc": "Hover to bring up Node Info window for lingrp.lin.b",
-            "test": "hover",
-            "selector": "#lingrp_lin_b",
-        },
-        {
-            "desc": "Click lingrp.lin.b to make Node Info window persistent",
+            "desc": "Click p1.A to make Node Info window persistent",
             "test": "click",
-            "selector": "#lingrp_lin_b",
+            "selector": "#p1_A",
             "button": "left"
         },
         {
-            "desc": "Hover to bring up Node Info window for lingrp.lin.x",
-            "test": "hover",
-            "selector": "#lingrp_lin_x",
-        },
-        {
-            "desc": "Click lingrp.lin.x to make Node Info window persistent",
-            "test": "click",
-            "selector": "#lingrp_lin_x",
-            "button": "left"
-        },
-        {
-            "desc": "Check for 5 open persistent Node Info windows",
+            "desc": "Check for 3 open persistent Node Info windows",
             "test": "count",
             "selector": "[id^='persistentNodeInfo']",
-            "count": 5
+            "count": 3
         },
         {
             "desc": "Close All Node Info windows",

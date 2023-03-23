@@ -20,7 +20,8 @@ except ImportError:
 import openmdao.api as om
 from openmdao.components.exec_comp import _expr_dict, _temporary_expr_dict
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_warning
-from openmdao.utils.om_warnings import OMDeprecationWarning
+from openmdao.utils.general_utils import env_truthy
+from openmdao.utils.om_warnings import OMDeprecationWarning, SetupWarning
 
 _ufunc_test_data = {
     'min': {
@@ -275,28 +276,6 @@ _ufunc_test_data = {
         'check_val': np.zeros(21),
         'args': {'f': {'val': np.zeros(21)}}},
 }
-
-
-# 'factorial' will raise a RuntimeError or a deprecation warning depending on scipy version
-if Version(scipy.__version__) >= Version("1.5.0"):
-    _ufunc_test_data['factorial'] = {
-        'str': 'f=factorial(x)',
-        'args': {'f': {'val': np.zeros(6)},
-                 'x': {'val': np.random.random(6)}},
-        'error': (RuntimeError,
-                  "The 'factorial' function is not supported for SciPy "
-                  f"versions >= 1.5, current version: {scipy.__version__}")
-    }
-else:
-    _ufunc_test_data['factorial'] = {
-        'str': 'f=factorial(x)',
-        'check_func': scipy.special.factorial,
-        'args': {'f': {'val': np.zeros(6)},
-                 'x': {'val': np.random.random(6)}},
-        'warning': (OMDeprecationWarning,
-                    "The 'factorial' function is deprecated. "
-                    "It is no longer supported for SciPy versions >= 1.5.")
-    }
 
 
 class TestExecComp(unittest.TestCase):
@@ -786,13 +765,13 @@ class TestExecComp(unittest.TestCase):
 
     def test_arctan_complex_step(self):
         prob = om.Problem()
-        C1 = prob.model.add_subsystem('C1', om.ExecComp('y=2.0*arctan2(y, x)', x=np.array([1+2j]), y=1))
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('z=2.0*arctan2(y, x)', x=np.array([1+2j]), y=1))
 
         prob.setup()
         prob.set_solver_print(level=0)
         prob.run_model()
 
-        assert_near_equal(C1._outputs['y'], np.array([1.57079633]), 1e-8)
+        assert_near_equal(C1._outputs['z'], np.array([1.57079633]), 1e-8)
 
     def test_abs_array_complex_step(self):
         prob = om.Problem()
@@ -883,7 +862,7 @@ class TestExecComp(unittest.TestCase):
         p.setup()
         p.final_setup()
 
-        # make sure only the partials that are needed are declared
+        ## make sure only the partials that are needed are declared
         declared_partials = comp._declared_partials
         self.assertListEqual( sorted([('y1', 'x1'), ('y2', 'x2') ]),
                               sorted(declared_partials.keys()))
@@ -977,49 +956,49 @@ class TestExecComp(unittest.TestCase):
         prob.run_model()
 
         # Inputs no tags
-        inputs = prob.model.list_inputs(values=False, out_stream=None)
+        inputs = prob.model.list_inputs(val=False, out_stream=None)
         self.assertEqual(sorted(inputs), [
             ('C1.x', {}),
             ('C1.z', {}),
         ])
 
         # Inputs with tags
-        inputs = prob.model.list_inputs(values=False, out_stream=None, tags="tagx")
+        inputs = prob.model.list_inputs(val=False, out_stream=None, tags="tagx")
         self.assertEqual(sorted(inputs), [
             ('C1.x', {}),
         ])
 
         # Inputs with multiple tags
-        inputs = prob.model.list_inputs(values=False, out_stream=None, tags=["tagx", "tagz"])
+        inputs = prob.model.list_inputs(val=False, out_stream=None, tags=["tagx", "tagz"])
         self.assertEqual(sorted(inputs), [
             ('C1.x', {}),
             ('C1.z', {}),
         ])
 
         # Inputs with tag that does not match
-        inputs = prob.model.list_inputs(values=False, out_stream=None, tags="tag_wrong")
+        inputs = prob.model.list_inputs(val=False, out_stream=None, tags="tag_wrong")
         self.assertEqual(sorted(inputs), [])
 
         # Outputs no tags
-        outputs = prob.model.list_outputs(values=False, out_stream=None)
+        outputs = prob.model.list_outputs(val=False, out_stream=None)
         self.assertEqual(sorted(outputs), [
             ('C1.y', {}),
         ])
 
         # Outputs with tags
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags="tagy")
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags="tagy")
         self.assertEqual(sorted(outputs), [
             ('C1.y', {}),
         ])
 
         # Outputs with multiple tags
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags=["tagy", "tagx"])
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags=["tagy", "tagx"])
         self.assertEqual(sorted(outputs), [
             ('C1.y', {}),
         ])
 
         # Outputs with tag that does not match
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags="tag_wrong")
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags="tag_wrong")
         self.assertEqual(sorted(outputs), [])
 
     def test_feature_has_diag_partials(self):
@@ -1168,9 +1147,9 @@ class TestExecComp(unittest.TestCase):
             "quad_1",
             om.ExecComp(
                 "y = a * x ** 2 + b * x + c",
-                a={"value": 2.0},
-                b={"value": 5.0},
-                c={"value": 3.0},
+                a={"val": 2.0},
+                b={"val": 5.0},
+                c={"val": 3.0},
                 x={"shape": (2,)},
                 y={"shape": (2,)},
             ),
@@ -1365,31 +1344,6 @@ class TestExecComp(unittest.TestCase):
         self.assertEquals(cm.exception.args[0],
                           "'zzz' <class ExecComp>: The output 'y' has already been defined by an expression.")
 
-    def test_value_deprecation(self):
-        p = om.Problem()
-
-        msg = ("'zzz' <class ExecComp>: 'value' will be deprecated in 4.0. Please use 'val' in the future.")
-
-        excomp = om.ExecComp('y=x**2', x={'value': np.ones(10)}, y={'val': np.ones(10)})
-
-        p.model.add_subsystem('zzz', excomp)
-        with assert_warning(OMDeprecationWarning, msg):
-            p.setup()
-
-    def test_val_value_error(self):
-        p = om.Problem()
-
-        msg = ("Cannot use 'val' and 'value' at the same time, use 'val'.")
-
-        excomp = om.ExecComp('y=x**2', x={'value': np.ones(10), 'val': np.ones(10)},
-                                       y={'val': np.ones(10)})
-
-        p.model.add_subsystem('zzz', excomp)
-
-        with self.assertRaises(RuntimeError) as cm:
-            p.setup()
-            self.assertEquals(cm.exception.args[0], msg)
-
     def test_feature_add_expr(self):
 
         class ConfigGroup(om.Group):
@@ -1437,6 +1391,95 @@ class TestExecComp(unittest.TestCase):
                 if not isinstance(val, np.ndarray):
                     self.fail(f"The {typ} variable '{abs_name}' has a value of {val} "
                               f"with type {type(val)}, but it should be a numpy array.")
+
+
+    def test_constants_simple(self):
+        prob = om.Problem()
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'val': 6, 'constant':True}))
+
+        prob.setup()
+        prob.final_setup()
+
+        self.assertFalse('a' in C1._inputs)
+        self.assertTrue('b' in C1._inputs)
+        self.assertTrue('x' in C1._outputs)
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(C1._outputs['x'], 7.0, 0.00001)
+
+    def test_constants_val_not_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True}))
+
+        with self.assertRaises(RuntimeError) as cm:
+            prob.setup()
+            self.assertEqual(str(cm.exception), "C1' <class ExecComp>: arg 'a' in call to ExecComp() is a constant but no value is given")
+
+    def test_constants_units_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True, 'val': 6, 'units': 'ft'}))
+
+        expected_warning_msg = "'C1' <class ExecComp>: arg 'a' in call to " \
+                               "ExecComp() is a constant. The units will be ignored"
+        with assert_warning(SetupWarning, expected_warning_msg):
+            prob.setup()
+
+    def test_constants_shape_given(self):
+        prob = om.Problem()
+        prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'constant':True, 'val': 6, 'shape': (1,)}))
+
+        expected_warning_msg = "'C1' <class ExecComp>: arg 'a' in call to " \
+                               "ExecComp() is a constant. The shape will be ignored"
+        with assert_warning(SetupWarning, expected_warning_msg):
+            prob.setup()
+
+    def test_constants_set_constant_false(self):
+        prob = om.Problem()
+        C1 = prob.model.add_subsystem('C1', om.ExecComp('x = a + b', a={'val': 6, 'constant':False}))
+
+        prob.setup()
+
+        # Conclude setup but don't run model.
+        prob.final_setup()
+
+        self.assertTrue('a' in C1._inputs)
+        self.assertTrue('b' in C1._inputs)
+        self.assertTrue('x' in C1._outputs)
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(C1._outputs['x'], 7.0, 0.00001)
+
+    def test_constants_multiple_equations(self):
+        prob = om.Problem()
+        model = prob.model
+        comp = om.ExecComp(['y1=2.0*x1+a', 'y2=3.0*x2-a'], x1=1.0, x2=2.0, a={'val': 6, 'constant':True})
+        model.add_subsystem('comp', comp)
+        prob.setup()
+        prob.run_model()
+
+        assert_near_equal(comp._outputs['y1'], 8.0, 0.00001)
+        assert_near_equal(comp._outputs['y2'], 0.0, 0.00001)
+
+    def test_constants_arrays(self):
+        prob = om.Problem()
+        model = prob.model
+
+        comp = model.add_subsystem('comp', om.ExecComp('y=x+a',
+                                                       y={'shape': (3,), 'val': np.zeros(3)},
+
+                                                x=np.array([1., 2., 3.]),
+                                                a={ 'val': np.array([1., 2., 3.]), 'constant':True}))
+
+        prob.setup()
+
+        prob.set_solver_print(level=0)
+        prob.run_model()
+
+        assert_near_equal(comp._outputs['y'], 2.0 * np.array([1., 2., 3.]), 0.00001)
 
 
 class TestFunctionRegistration(unittest.TestCase):
@@ -1596,7 +1639,10 @@ class TestFunctionRegistration(unittest.TestCase):
             assert_near_equal(p['comp.area_square'], np.ones(size) * 9., 1e-11)
 
             data = p.check_partials(out_stream=None)
-            self.assertEqual(list(data), [])
+            if env_truthy('CI'):
+                self.assertEqual(list(data), ['comp'])
+            else:
+                self.assertEqual(list(data), [])
 
     def test_register_simple_arr_manual_partials_cs(self):
         with _temporary_expr_dict():
@@ -1681,8 +1727,7 @@ class TestFunctionRegistration(unittest.TestCase):
 
             # have to use regex to handle differences in numpy print formats for shape
             msg = "'comp' <class ExecComp>: Error occurred evaluating 'y = double\(x\) \* 3\.':\n" \
-                  "'comp' <class ExecComp>: Failed to set value of 'y': could not broadcast " \
-                  "input array from shape \(10.*\) into shape \(8.*\)."
+                  "could not broadcast input array from shape \(10.*\) into shape \(8.*\)"
             with self.assertRaisesRegex(Exception, msg) as cm:
                 p.run_model()
 
@@ -1783,7 +1828,7 @@ class TestFunctionRegistrationColoring(unittest.TestCase):
         except OSError:
             pass
 
-    def test_coloring(self):
+    def test_manual_coloring(self):
         with _temporary_expr_dict():
 
             prob = om.Problem(coloring_dir=self.tempdir)
@@ -1801,6 +1846,32 @@ class TestFunctionRegistrationColoring(unittest.TestCase):
                                                             y=np.ones(sparsity.shape[0])))
             comp.declare_coloring('x', method='cs')
 
+            prob.setup(mode='fwd')
+            prob.set_solver_print(level=0)
+            prob.run_model()
+
+            J = prob.compute_totals('comp.y', 'comp.x')
+
+            assert_near_equal(J['comp.y', 'comp.x'], sparsity)
+
+            self.assertTrue(np.all(comp._coloring_info['coloring'].get_dense_sparsity() == _MASK))
+
+    def test_auto_coloring(self):
+        with _temporary_expr_dict():
+
+            prob = om.Problem(coloring_dir=self.tempdir)
+            model = prob.model
+
+            sparsity = setup_sparsity(_MASK)
+
+            def mydot(x):
+                return sparsity.dot(x)
+
+            om.ExecComp.register('mydot', mydot, complex_safe=True)
+
+            comp = model.add_subsystem('comp', om.ExecComp('y=mydot(x)',
+                                                            x=np.ones(sparsity.shape[1]),
+                                                            y=np.ones(sparsity.shape[0])))
             prob.setup(mode='fwd')
             prob.set_solver_print(level=0)
             prob.run_model()

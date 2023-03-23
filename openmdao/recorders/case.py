@@ -16,7 +16,6 @@ from openmdao.utils.variable_table import write_var_table
 from openmdao.utils.general_utils import make_set, match_prom_or_abs
 from openmdao.utils.units import unit_conversion, simplify_unit
 from openmdao.recorders.sqlite_recorder import format_version as current_version
-from openmdao.utils.om_warnings import issue_warning
 
 _AMBIGOUS_PROM_NAME = object()
 
@@ -190,7 +189,8 @@ class Case(object):
             if jacobian is not None:
                 self.derivatives = PromAbsDict(jacobian, prom2abs['output'], abs2prom['output'],
                                                in_prom2abs=prom2abs['input'],
-                                               auto_ivc_map=auto_ivc_map)
+                                               auto_ivc_map=auto_ivc_map,
+                                               var_info=var_info)
 
         # save var name & meta dict references for use by self._get_variables_of_type()
         self._prom2abs = prom2abs
@@ -403,8 +403,9 @@ class Case(object):
                     tags=None,
                     includes=None,
                     excludes=None,
+                    is_indep_var=None,
+                    is_design_var=None,
                     out_stream=_DEFAULT_OUT_STREAM,
-                    values=None,
                     print_min=False,
                     print_max=False):
         """
@@ -441,11 +442,17 @@ class Case(object):
         excludes : str, iter of str, or None
             Glob patterns for pathnames to exclude from the check. Default is None, which
             excludes nothing.
+        is_indep_var : bool or None
+            If None (the default), do no additional filtering of the inputs.
+            If True, list only inputs connected to an output tagged `openmdao:indep_var`.
+            If False, list only inputs _not_ connected to outputs tagged `openmdao:indep_var`.
+        is_design_var : bool or None
+            If None (the default), do no additional filtering of the inputs.
+            If True, list only inputs connected to outputs that are driver design variables.
+            If False, list only inputs _not_ connected to outputs that are driver design variables.
         out_stream : file-like object
             Where to send human readable output. Default is sys.stdout.
             Set to None to suppress.
-        values : bool, optional
-            This argument has been deprecated and will be removed in 4.0.
         print_min : bool, optional
             When true, if the input value is an array, print its smallest value.
         print_max : bool, optional
@@ -462,14 +469,6 @@ class Case(object):
         # string to display when an attribute is not available (e.g. for a discrete)
         NA = 'Unavailable'
 
-        if values is not None:
-            issue_warning("'value' is deprecated and will be removed in 4.0. "
-                          "Please index in using 'val'")
-        elif not val and values:
-            values = True
-        else:
-            values = val
-
         if isinstance(includes, str):
             includes = [includes, ]
 
@@ -479,6 +478,9 @@ class Case(object):
         if self.inputs is not None:
             print_options = np.get_printoptions()
             np_precision = print_options['precision']
+
+            if is_design_var is not None:
+                des_vars = self._get_variables_of_type('desvar')
 
             for var_name in self.inputs.absolute_names():
                 meta = abs2meta[var_name]
@@ -492,18 +494,38 @@ class Case(object):
                 if not match_prom_or_abs(var_name, var_name_prom, includes, excludes):
                     continue
 
-                val = self.inputs[var_name]
+                # handle is_indep_var
+                if is_indep_var is not None:
+                    src_name = self._conns[var_name]
+                    src_name_prom = self._abs2prom['output'][src_name]
+                    src_meta = abs2meta[src_name]
+                    if is_indep_var is True and 'openmdao:indep_var' not in src_meta['tags']:
+                        continue
+                    elif is_indep_var is False and 'openmdao:indep_var' in src_meta['tags']:
+                        continue
+
+                # handle is_design_var
+                if is_design_var is not None:
+                    src_name = self._conns[var_name]
+                    src_name_prom = self._abs2prom['output'][src_name]
+                    if src_name_prom.startswith('_auto_ivc.'):
+                        src_name_prom = self._auto_ivc_map[src_name_prom]
+                    if is_design_var is True and src_name_prom not in des_vars:
+                        continue
+                    elif is_design_var is False and src_name_prom in des_vars:
+                        continue
+
+                var_val = self.inputs[var_name]
 
                 var_meta = {}
-                if values:
-                    var_meta['val'] = val
-                    var_meta['value'] = val
-                    if isinstance(val, np.ndarray):
+                if val:
+                    var_meta['val'] = var_val
+                    if isinstance(var_val, np.ndarray):
                         if print_min:
-                            var_meta['min'] = np.round(np.min(val), np_precision)
+                            var_meta['min'] = np.round(np.min(var_val), np_precision)
 
                         if print_max:
-                            var_meta['max'] = np.round(np.max(val), np_precision)
+                            var_meta['max'] = np.round(np.max(var_val), np_precision)
 
                 if prom_name:
                     var_meta['prom_name'] = var_name_prom
@@ -511,7 +533,7 @@ class Case(object):
                     var_meta['units'] = meta.get('units', NA)
                 if shape:
                     try:
-                        var_meta['shape'] = val.shape
+                        var_meta['shape'] = var_val.shape
                     except AttributeError:
                         var_meta['shape'] = NA
                 if desc:
@@ -545,9 +567,10 @@ class Case(object):
                      tags=None,
                      includes=None,
                      excludes=None,
+                     is_indep_var=None,
+                     is_design_var=None,
                      list_autoivcs=False,
                      out_stream=_DEFAULT_OUT_STREAM,
-                     values=None,
                      print_min=False,
                      print_max=False):
         """
@@ -598,13 +621,19 @@ class Case(object):
         excludes : str, iter of str, or None
             Glob patterns for pathnames to exclude from the check. Default is None, which
             excludes nothing.
+        is_indep_var : bool or None
+            If None (the default), do no additional filtering of the inputs.
+            If True, list only inputs connected to an output tagged `openmdao:indep_var`.
+            If False, list only inputs _not_ connected to outputs tagged `openmdao:indep_var`.
+        is_design_var : bool or None
+            If None (the default), do no additional filtering of the inputs.
+            If True, list only inputs connected to outputs that are driver design variables.
+            If False, list only inputs _not_ connected to outputs that are driver design variables.
         list_autoivcs : bool
             If True, include auto_ivc outputs in the listing.  Defaults to False.
         out_stream : file-like
             Where to send human readable output. Default is sys.stdout.
             Set to None to suppress.
-        values : bool, optional
-            This argument has been deprecated and will be removed in 4.0.
         print_min : bool, optional
             When true, if the output value is an array, print its smallest value.
         print_max : bool, optional
@@ -622,14 +651,6 @@ class Case(object):
         # string to display when an attribute is not available (e.g. for a discrete)
         NA = 'Unavailable'
 
-        if values is not None:
-            issue_warning("'value' is deprecated and will be removed in 4.0. "
-                          "Please index in using 'val'")
-        elif not val and values:
-            values = True
-        else:
-            values = val
-
         if isinstance(includes, str):
             includes = [includes, ]
 
@@ -638,6 +659,9 @@ class Case(object):
 
         print_options = np.get_printoptions()
         np_precision = print_options['precision']
+
+        if is_design_var is not None:
+            des_vars = self._get_variables_of_type('desvar')
 
         for var_name in self.outputs.absolute_names():
             if not list_autoivcs and var_name.startswith('_auto_ivc.'):
@@ -654,6 +678,23 @@ class Case(object):
             if not match_prom_or_abs(var_name, var_name_prom, includes, excludes):
                 continue
 
+            # handle is_indep_var
+            if is_indep_var is not None:
+                if is_indep_var is True and 'openmdao:indep_var' not in meta['tags']:
+                    continue
+                elif is_indep_var is False and 'openmdao:indep_var' in meta['tags']:
+                    continue
+
+            # handle is_design_var
+            if is_design_var is not None:
+                var_name_prom = self._abs2prom['output'][var_name]
+                if var_name_prom.startswith('_auto_ivc.'):
+                    var_name_prom = self._auto_ivc_map[var_name_prom]
+                if is_design_var is True and var_name_prom not in des_vars:
+                    continue
+                elif is_design_var is False and var_name_prom in des_vars:
+                    continue
+
             # check if residuals were recorded, skip if within specifed tolerance
             if residuals and self.residuals and var_name in self.residuals.absolute_names():
                 resids = self.residuals[var_name]
@@ -662,18 +703,17 @@ class Case(object):
             else:
                 resids = 'Not Recorded'
 
-            val = self.outputs[var_name]
+            var_val = self.outputs[var_name]
 
             var_meta = {}
-            if values:
-                var_meta['val'] = val
-                var_meta['value'] = val
-                if isinstance(val, np.ndarray):
+            if val:
+                var_meta['val'] = var_val
+                if isinstance(var_val, np.ndarray):
                     if print_min:
-                        var_meta['min'] = np.round(np.min(val), np_precision)
+                        var_meta['min'] = np.round(np.min(var_val), np_precision)
 
                     if print_max:
-                        var_meta['max'] = np.round(np.max(val), np_precision)
+                        var_meta['max'] = np.round(np.max(var_val), np_precision)
             if prom_name:
                 var_meta['prom_name'] = var_name_prom
             if residuals:
@@ -682,7 +722,7 @@ class Case(object):
                 var_meta['units'] = meta.get('units', NA)
             if shape:
                 try:
-                    var_meta['shape'] = val.shape
+                    var_meta['shape'] = var_val.shape
                 except AttributeError:
                     var_meta['shape'] = NA
             if bounds:
@@ -801,20 +841,34 @@ class Case(object):
 
         ret_vars = {}
         update_vals = scaled or use_indices
-        for name in self.outputs.absolute_names():
+
+        names = [name for name in self.outputs.absolute_names()]
+        if var_type == 'constraint':
+            # Add the aliased constraints.
+            alias_cons = [k for k, v in self._var_info.items()
+                          if isinstance(v, dict) and v.get('alias')]
+            names.extend(alias_cons)
+
+        for name in names:
             if name in abs2meta:
                 type_match = var_type in abs2meta[name]['type']
+                val_name = name
             elif name in prom2abs:
                 abs_name = prom2abs[name][0]
                 src_name = conns[abs_name]
                 type_match = var_type in abs2meta[src_name]['type']
+                val_name = name
+            else:
+                # Support for constraint aliases.
+                type_match = var_type == 'constraint'
+                val_name = self._var_info[name]['source']
 
             if type_match:
                 if name in auto_ivc_map:
                     return_name = auto_ivc_map[name]
                 else:
                     return_name = name
-                ret_vars[return_name] = val = self.outputs[name].copy()
+                ret_vars[return_name] = val = self.outputs[val_name].copy()
                 if update_vals and name in self._var_info:
                     meta = self._var_info[name]
                     if use_indices and meta['indices'] is not None:
@@ -827,7 +881,8 @@ class Case(object):
                     ret_vars[return_name] = val
 
         return PromAbsDict(ret_vars, self._prom2abs['output'], self._abs2prom['output'],
-                           in_prom2abs=prom2abs, auto_ivc_map=auto_ivc_map)
+                           in_prom2abs=prom2abs, auto_ivc_map=auto_ivc_map,
+                           var_info=self._var_info)
 
 
 class PromAbsDict(dict):
@@ -850,6 +905,8 @@ class PromAbsDict(dict):
         Dictionary that maps all auto_ivc sources to either an absolute input name for single
         connections or a promoted input name for multiple connections. This is for output
         display.
+    var_info : dict
+        Dictionary of variable metadata. Needed when there are constraint aliases.
 
     Attributes
     ----------
@@ -864,12 +921,14 @@ class PromAbsDict(dict):
     _auto_ivc_map : dict
         Dictionary that maps all auto_ivc sources to either an absolute input name for single
         connections or a promoted input name for multiple connections. This is for output display.
+    _var_info : dict
+        Dictionary of variable metadata. Needed when there are constraint aliases.
     _DERIV_KEY_SEP : str
         Separator character for derivative keys.
     """
 
     def __init__(self, values, prom2abs, abs2prom, data_format=current_version,
-                 in_prom2abs=None, auto_ivc_map=None):
+                 in_prom2abs=None, auto_ivc_map=None, var_info=None):
         """
         Initialize.
         """
@@ -878,6 +937,7 @@ class PromAbsDict(dict):
         self._prom2abs = prom2abs
         self._abs2prom = abs2prom
         auto_ivc_map = auto_ivc_map if auto_ivc_map is not None else {}
+        self._var_info = var_info
         self._auto_ivc_map = auto_ivc_map
 
         if data_format <= 8:
@@ -914,6 +974,11 @@ class PromAbsDict(dict):
                     # Auto-ivc outputs, use abs source (which is prom source.)
                     self._values[key] = values[key]
                     super().__setitem__(key, values[key])
+                else:
+                    # Constraint alias support.
+                    self._values[key] = values[key]
+                    super().__setitem__(key, values[key])
+
             self._keys = self._values.keys()
         else:
             # numpy structured array, which will always use absolute names
@@ -980,8 +1045,20 @@ class PromAbsDict(dict):
         else:
             of, wrt = key.split(DERIV_KEY_SEP)
 
-        # if promoted, will map to all connected absolute names
-        abs_of = [of] if of in abs2prom else prom2abs[of]
+        if of in abs2prom:
+            # if promoted, will map to all connected absolute names
+            abs_of = [of]
+            prom_of = abs2prom[of]
+        elif of in prom2abs:
+            abs_of = prom2abs[of]
+            prom_of = of
+        else:
+            # Support for constraint aliases.
+            abs_of = [self._var_info[of]['source']]
+
+            # The "of" part of the key name should be the alias.
+            prom_of = of
+
         if wrt in prom2abs:
             abs_wrt = [prom2abs[wrt]][0]
         else:
@@ -989,7 +1066,6 @@ class PromAbsDict(dict):
 
         abs_keys = ['%s%s%s' % (o, DERIV_KEY_SEP, w) for o, w in itertools.product(abs_of, abs_wrt)]
 
-        prom_of = of if of in prom2abs else abs2prom[of]
         if wrt in abs2prom:
             prom_wrt = abs2prom[wrt]
         else:

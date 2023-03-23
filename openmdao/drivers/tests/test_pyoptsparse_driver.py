@@ -14,9 +14,9 @@ from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_check_totals
 from openmdao.utils.general_utils import set_pyoptsparse_opt, run_driver
-from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse
+from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse, set_env_vars_context
 from openmdao.utils.mpi import MPI
-from openmdao.utils.om_warnings import OMDeprecationWarning
+
 
 # check that pyoptsparse is installed
 # if it is, try to use SNOPT but fall back to SLSQP
@@ -247,7 +247,8 @@ class TestMPIScatter(unittest.TestCase):
         model.add_subsystem('sum', om.ExecComp('f_sum = sum(f_xy)',
                                                f_sum=np.ones((size, )),
                                                f_xy=np.ones((size, ))),
-                            promotes=['*'])
+                            promotes_outputs=['*'])
+        model.promotes('sum', inputs=['f_xy'], src_indices=om.slicer[:])
 
         model.add_design_var('x', lower=-50.0, upper=50.0)
         model.add_design_var('y', lower=-50.0, upper=50.0)
@@ -557,6 +558,64 @@ class TestPyoptSparse(unittest.TestCase):
 
         # Minimum should be at (7.166667, -7.833334)
         assert_near_equal(prob['x'] - prob['y'], 11.0, 1e-6)
+
+    def test_simple_paraboloid_linear_with_y_intercept_eq(self):
+        prob = om.Problem()
+        model = prob.model
+
+        model.set_input_defaults('x', 50.0)
+        model.set_input_defaults('y', 50.0)
+
+        parab = om.ExecComp('f_xy = (x-3.0)**2 + x*y + (y+4.0)**2 - 3.0')
+
+        model.add_subsystem('comp', parab, promotes=['*'])
+        model.add_subsystem('con', om.ExecComp('c = x + y - 25.0'), promotes=['*'])
+
+        prob.set_solver_print(level=0)
+
+        prob.driver = om.pyOptSparseDriver()
+        prob.driver.options['optimizer'] = OPTIMIZER
+
+        model.add_design_var('x', lower=-50.0, upper=50.0)
+        model.add_design_var('y', lower=-50.0, upper=50.0)
+        model.add_objective('f_xy')
+        model.add_constraint('c', equals=0.0, linear=True)
+
+        prob.setup()
+
+        prob.run_driver()
+
+        assert_near_equal(prob['x'], 19.5, 1e-6)
+        assert_near_equal(prob['y'], 5.5, 1e-6)
+
+    def test_simple_paraboloid_linear_with_y_intercept_ineq(self):
+        prob = om.Problem()
+        model = prob.model
+
+        model.set_input_defaults('x', 50.0)
+        model.set_input_defaults('y', 50.0)
+
+        parab = om.ExecComp('f_xy = (x-3.0)**2 + x*y + (y+4.0)**2 - 3.0')
+
+        model.add_subsystem('comp', parab, promotes=['*'])
+        model.add_subsystem('con', om.ExecComp('c = x + y - 25.0'), promotes=['*'])
+
+        prob.set_solver_print(level=0)
+
+        prob.driver = om.pyOptSparseDriver()
+        prob.driver.options['optimizer'] = OPTIMIZER
+
+        model.add_design_var('x', lower=-50.0, upper=50.0)
+        model.add_design_var('y', lower=-50.0, upper=50.0)
+        model.add_objective('f_xy')
+        model.add_constraint('c', lower=0.0, linear=True)
+
+        prob.setup()
+
+        prob.run_driver()
+
+        assert_near_equal(prob['x'], 19.5, 1e-6)
+        assert_near_equal(prob['y'], 5.5, 1e-6)
 
     def test_simple_array_comp2D(self):
 
@@ -1209,7 +1268,8 @@ class TestPyoptSparse(unittest.TestCase):
     def test_sellar_mdf(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = pyOptSparseDriver()
         prob.driver.options['optimizer'] = OPTIMIZER
@@ -1347,51 +1407,6 @@ class TestPyoptSparse(unittest.TestCase):
         # Piggyback test: make sure we can run the driver again as a subdriver without a keyerror.
         prob.driver.run()
 
-    def test_analysis_error_objfunc(self):
-
-        # Component raises an analysis error during some runs, and pyopt
-        # attempts to recover.
-
-        prob = om.Problem()
-        model = prob.model
-
-        model.add_subsystem('p1', om.IndepVarComp('x', 50.0), promotes=['*'])
-        model.add_subsystem('p2', om.IndepVarComp('y', 50.0), promotes=['*'])
-
-        model.add_subsystem('comp', ParaboloidAE(), promotes=['*'])
-
-        model.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
-
-        prob.driver = pyOptSparseDriver()
-        prob.driver.options['optimizer'] = OPTIMIZER
-
-        if OPTIMIZER == 'SLSQP':
-            prob.driver.opt_settings['ACC'] = 1e-9
-
-        prob.driver.options['print_results'] = False
-        model.add_design_var('x', lower=-50.0, upper=50.0)
-        model.add_design_var('y', lower=-50.0, upper=50.0)
-
-        model.add_objective('f_xy')
-        model.add_constraint('c', upper=-15.0)
-
-        prob.setup()
-        failed = prob.run_driver()
-
-        self.assertFalse(failed, "Optimization failed, info = " +
-                                 str(prob.driver.pyopt_solution.optInform))
-
-        # Minimum should be at (7.166667, -7.833334)
-        assert_near_equal(prob['x'], 7.16667, 1e-6)
-        assert_near_equal(prob['y'], -7.833334, 1e-6)
-
-        # Normally it takes 9 iterations, but takes 13 here because of the
-        # analysis failures. (note SLSQP takes 5 instead of 4)
-        if OPTIMIZER == 'SLSQP':
-            self.assertEqual(prob.driver.iter_count, 7)
-        else:
-            self.assertEqual(prob.driver.iter_count, 15)
-
     def test_raised_error_objfunc(self):
 
         # Component fails hard this time during execution, so we expect
@@ -1429,59 +1444,6 @@ class TestPyoptSparse(unittest.TestCase):
             prob.run_driver()
 
         # pyopt's failure message differs by platform and is not informative anyway
-
-    def test_analysis_error_sensfunc(self):
-
-        # Component raises an analysis error during some linearize calls, and
-        # pyopt attempts to recover.
-
-        prob = om.Problem()
-        model = prob.model
-
-        model.add_subsystem('p1', om.IndepVarComp('x', 50.0), promotes=['*'])
-        model.add_subsystem('p2', om.IndepVarComp('y', 50.0), promotes=['*'])
-
-        comp = model.add_subsystem('comp', ParaboloidAE(), promotes=['*'])
-
-        model.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
-
-        prob.driver = pyOptSparseDriver()
-        prob.driver.options['optimizer'] = OPTIMIZER
-
-        if OPTIMIZER == 'SLSQP':
-            prob.driver.opt_settings['ACC'] = 1e-9
-
-        prob.driver.options['print_results'] = False
-        model.add_design_var('x', lower=-50.0, upper=50.0)
-        model.add_design_var('y', lower=-50.0, upper=50.0)
-
-        model.add_objective('f_xy')
-        model.add_constraint('c', upper=-15.0)
-
-        comp.grad_fail_at = 2
-        comp.eval_fail_at = 100
-
-        prob.setup()
-
-        failed = prob.run_driver()
-
-        self.assertFalse(failed, "Optimization failed, info = " +
-                                 str(prob.driver.pyopt_solution.optInform))
-
-        # SLSQP does a bad job recovering from gradient failures
-        if OPTIMIZER == 'SLSQP':
-            tol = 1e-2
-        else:
-            tol = 1e-6
-
-        # Minimum should be at (7.166667, -7.833334)
-        assert_near_equal(prob['x'], 7.16667, tol)
-        assert_near_equal(prob['y'], -7.833334, tol)
-
-        # Normally it takes 9 iterations, but takes 13 here because of the
-        # gradfunc failures. (note SLSQP just doesn't do well)
-        if OPTIMIZER == 'SNOPT':
-            self.assertEqual(prob.driver.iter_count, 15)
 
     def test_raised_error_sensfunc(self):
 
@@ -1718,8 +1680,8 @@ class TestPyoptSparse(unittest.TestCase):
     def test_show_exception_bad_opt(self):
 
         # First, check if we have the optimizer for this test. If they do, then just skip it.
-        _, loc_opt = set_pyoptsparse_opt('NOMAD')
-        if loc_opt == 'NOMAD':
+        _, loc_opt = set_pyoptsparse_opt('NLPQLP')
+        if loc_opt == 'NLPQLP':
             raise unittest.SkipTest("Skipping because user has this optimizer.")
 
         prob = om.Problem()
@@ -1739,15 +1701,15 @@ class TestPyoptSparse(unittest.TestCase):
 
         prob.driver = pyOptSparseDriver()
 
-        # We generally don't hae a working NOMAD install.
-        prob.driver.options['optimizer'] = 'NOMAD'
+        # We generally don't have a working NLPQLP install.
+        prob.driver.options['optimizer'] = 'NLPQLP'
         prob.setup()
 
         # Test that we get exception.
         with self.assertRaises(ImportError) as raises_cm:
             prob.run_driver()
 
-        self.assertTrue("NOMAD is not available" in str(raises_cm.exception))
+        self.assertTrue("NLPQLP is not available" in str(raises_cm.exception))
 
     # Travis testing core dumps on many of the machines. Probabaly a build problem with the NSGA source.
     # Limiting this to the single travis 1.14 machine for now.
@@ -1937,6 +1899,59 @@ class TestPyoptSparse(unittest.TestCase):
         msg = "Driver requires objective to be declared"
 
         self.assertEqual(exception.args[0], msg)
+
+    def test_pyoptsparse_invalid_desvar_values(self):
+
+        expected_err = ("The following design variable initial conditions are out of their specified "
+                        "bounds:"
+                        "\n  paraboloid.x"
+                        "\n    val: [100.]"
+                        "\n    lower: -50.0"
+                        "\n    upper: 50.0"
+                        "\n  paraboloid.y"
+                        "\n    val: [-200.]"
+                        "\n    lower: -50.0"
+                        "\n    upper: 50.0"
+                        "\nSet the initial value of the design variable to a valid value or set "
+                        "the driver option['invalid_desvar_behavior'] to 'ignore'."
+                        "\nThis warning will become an error by default in OpenMDAO version 3.25.")
+
+        for option in ['warn', 'raise', 'ignore']:
+            with self.subTest(f'invalid_desvar_behavior = {option}'):
+                # build the model
+                prob = om.Problem()
+
+                prob.model.add_subsystem('paraboloid', om.ExecComp('f = (x-3)**2 + x*y + (y+4)**2 - 3'))
+
+                # setup the optimization
+                prob.driver = pyOptSparseDriver(print_results=False, invalid_desvar_behavior=option)
+                prob.driver.options['optimizer'] = 'SLSQP'
+
+                prob.model.add_design_var('paraboloid.x', lower=-50, upper=50)
+                prob.model.add_design_var('paraboloid.y', lower=-50, upper=50)
+                prob.model.add_objective('paraboloid.f')
+
+                prob.setup()
+
+                # Set initial values.
+                prob.set_val('paraboloid.x', 100.0)
+                prob.set_val('paraboloid.y', -200.0)
+
+                # run the optimization
+                if option == 'ignore':
+                    prob.run_driver()
+                elif option == 'raise':
+                    with self.assertRaises(ValueError) as ctx:
+                        prob.run_driver()
+                    self.assertEqual(str(ctx.exception), expected_err)
+                else:
+                    with assert_warning(om.DriverWarning, expected_err):
+                        prob.run_driver()
+
+                if option != 'raise':
+                    assert_near_equal(prob.get_val('paraboloid.x'), 6.66666666, tolerance=1.0E-5)
+                    assert_near_equal(prob.get_val('paraboloid.y'), -7.33333333, tolerance=1.0E-5)
+                    assert_near_equal(prob.get_val('paraboloid.f'), -27.33333333, tolerance=1.0E-5)
 
     def test_signal_handler_SNOPT(self):
         _, local_opt = set_pyoptsparse_opt('SNOPT')
@@ -2378,7 +2393,7 @@ class TestPyoptSparse(unittest.TestCase):
         assert_near_equal(p.get_val('z')[50], -70, tolerance=1e-4)
 
     def test_overlapping_response_indices(self):
-        p = om.Problem()
+        p = om.Problem(name='overlapping_response_indices')
 
         exec = om.ExecComp(['y = x**2',
                             'z = a + x**2'],
@@ -2394,14 +2409,16 @@ class TestPyoptSparse(unittest.TestCase):
         p.model.add_constraint('exec.z', indices=[0, 1], equals=25)
 
         # Need to fix up this test to run right
-        msg = "<model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping constraint/objective 'exec.z'."
         with self.assertRaises(RuntimeError) as ctx:
             p.model.add_constraint('exec.z', indices=om.slicer[1:10], lower=20, alias="ALIAS_TEST")
             p.setup()
 
-        self.assertEqual(str(ctx.exception), msg)
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
 
-        p = om.Problem()
+        p = om.Problem(name='overlapping_response_indices2')
 
         exec = om.ExecComp(['y = x**2',
                             'z = a + x**2'],
@@ -2420,9 +2437,12 @@ class TestPyoptSparse(unittest.TestCase):
             p.model.add_constraint('exec.z', indices=[0], lower=20, alias="ALIAS_TEST")
             p.setup()
 
-        self.assertEqual(str(ctx.exception), msg)
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices2':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
 
-        p = om.Problem()
+        p = om.Problem(name='overlapping_response_indices3')
 
         exec = om.ExecComp(['y = x**2',
                             'z = a + x**2'],
@@ -2441,9 +2461,12 @@ class TestPyoptSparse(unittest.TestCase):
             p.model.add_constraint('exec.z', indices=[1, 2], lower=20, alias="ALIAS_TEST")
             p.setup()
 
-        self.assertEqual(str(ctx.exception), msg)
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'overlapping_response_indices3':"
+           "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+           "constraint/objective 'exec.z'.")
 
-        p = om.Problem()
+        p = om.Problem(name='overlapping_response_indices4')
 
         exec = om.ExecComp(['y = x**2',
                             'z = a + x**2'],
@@ -2462,7 +2485,10 @@ class TestPyoptSparse(unittest.TestCase):
             p.model.add_constraint('exec.z', indices=[-1], lower=20, alias="ALIAS_TEST")
             p.setup()
 
-        self.assertEqual(str(ctx.exception), msg)
+        self.assertEqual(str(ctx.exception),
+            "\nCollected errors for problem 'overlapping_response_indices4':"
+            "\n   <model> <class Group>: Indices for aliases ['ALIAS_TEST'] are overlapping "
+            "constraint/objective 'exec.z'.")
 
     def test_constraint_aliases_standalone(self):
         size = 7
@@ -2805,7 +2831,8 @@ class TestPyoptSparseFeature(unittest.TestCase):
     def test_slsqp_maxit(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SLSQP"
@@ -2835,7 +2862,8 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
     def test_snopt_atol(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
@@ -2858,7 +2886,8 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
     def test_snopt_maxit(self):
 
         prob = om.Problem()
-        model = prob.model = SellarDerivativesGrouped()
+        model = prob.model = SellarDerivativesGrouped(nonlinear_solver=om.NonlinearBlockGS,
+                                                      linear_solver=om.ScipyKrylov)
 
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
@@ -3090,18 +3119,6 @@ class TestPyoptSparseSnoptFeature(unittest.TestCase):
         prob.driver = om.pyOptSparseDriver()
         prob.driver.options['optimizer'] = "SNOPT"
         prob.driver.options['user_terminate_signal'] = signal.SIGUSR1
-
-    def test_options_deprecated(self):
-        # Not a feature test.
-        prob = om.Problem()
-        model = prob.model
-
-        prob.driver = om.pyOptSparseDriver()
-        prob.driver.options['optimizer'] = "SNOPT"
-
-        msg = "The option 'user_teriminate_signal' was misspelled and will be deprecated. Please use 'user_terminate_signal' instead."
-        with assert_warning(OMDeprecationWarning, msg):
-            prob.driver.options['user_teriminate_signal'] = None
 
 
 class MatMultCompExact(om.ExplicitComponent):

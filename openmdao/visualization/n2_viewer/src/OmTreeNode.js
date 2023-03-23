@@ -18,19 +18,64 @@ class OmNodeDisplayData extends NodeDisplayData {
  * @typedef OmTreeNode
  */
 class OmTreeNode extends FilterCapableNode {
+    static showLinearSolverNames = true;
+
+    /**
+     * Switch back and forth between showing the linear or non-linear solver names.
+     */
+    static toggleSolverNameType() {
+        this.showLinearSolverNames = !this.showLinearSolverNames;
+    }
+
     constructor(origNode, attribNames, parent) {
         super(origNode, attribNames, parent);
 
         // Solver names may be empty, so set them to "None" instead.
         if (this.linear_solver == "") this.linear_solver = "None";
         if (this.nonlinear_solver == "") this.nonlinear_solver = "None";
-        if (this.isComponent()) this.draw.boxChildren = true;
         if (exists(this.parentComponent)) this.parentComponent = parent;
     }
 
     get absPathName() { return this.path; }
     set absPathName(newName) { this.path = newName; return newName; }
 
+    /**
+     * Perform special checking for filter and auto-IVC nodes when determining
+     * the node's name.
+     * @returns {String} The label for the node.
+     */
+    getTextName() {
+        let retVal = this.name;
+
+        if (this.name == '_auto_ivc') {
+            retVal = 'Auto-IVC';
+        }
+        else if (this.isFilter()) {
+            retVal = super.getTextName();
+        }
+        else if (this.path.match(/^_auto_ivc.*/) && this.promotedName !== undefined) {
+            retVal = this.promotedName;
+        }
+        return retVal;
+    }
+
+    /**
+     * Return the name of the linear or non-linear solver depending
+     * on the value of OmTreeNode.showLinearSolverNames.
+     * @returns {String} The label for the solver node.
+     */
+    getSolverText() {
+        const solverName = OmTreeNode.showLinearSolverNames? this.linear_solver : this.nonlinear_solver;
+        let suffix = '';
+
+        if (!OmTreeNode.showLinearSolverNames && 'solve_subsystems' in this && this.solve_subsystems) {
+            suffix = ' (sub_solve)';
+        }
+
+        return `${solverName}${suffix}`;
+    }
+
+    /** Create and return a new  OmNodeDisplayData object. */
     _newDisplayData() { return new OmNodeDisplayData(); }
 
     addFilterChild(attribNames) {
@@ -80,8 +125,9 @@ class OmTreeNode extends FilterCapableNode {
 
         if (this.hasChildren()) {
             for (const child of this.children) {
-                if (child instanceof OmTreeNode)
+                if (child instanceof OmTreeNode) {
                     child._getNodesInChildrenWithCycleArrows(arr);
+                }
             }
         }
     }

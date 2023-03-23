@@ -338,7 +338,6 @@ class ApproximationScheme(object):
         use_parallel_fd = system._num_par_fd > 1 and (system._full_comm is not None and
                                                       system._full_comm.size > 1)
         num_par_fd = system._num_par_fd if use_parallel_fd else 1
-        is_parallel = use_parallel_fd or system.comm.size > 1
         par_fd_w_serial_model = use_parallel_fd and system._num_par_fd == system._full_comm.size
         fd_count = 0
         mycomm = system._full_comm if use_parallel_fd else system.comm
@@ -442,7 +441,7 @@ class ApproximationScheme(object):
         for group_i, tup in enumerate(approx_groups):
             wrt, data, jcol_idxs, vec, vec_idxs, directional, direction = tup
             if self._progress_out:
-                start_time = time.time()
+                start_time = time.perf_counter()
 
             if direction is not None:
                 app_data = self.apply_directional(data, direction)
@@ -474,7 +473,7 @@ class ApproximationScheme(object):
                         tosend = (group_i, next(jidx_iter), result)  # use local jac row var index
 
                     if self._progress_out:
-                        end_time = time.time()
+                        end_time = time.perf_counter()
                         prom_name = _convert_auto_ivc_to_conn_name(
                             system._conn_global_abs_in2out, wrt)
                         self._progress_out.write(f"{fd_count+1}/{len(result)}: Checking "
@@ -536,8 +535,6 @@ class ApproximationScheme(object):
                 system._tot_jac.set_col(ic, col)
 
     def _compute_approx_col_iter(self, system, under_cs):
-        system._set_approx_mode(True)
-
         # This will either generate new approx groups or use cached ones
         approx_groups, colored_approx_groups = self._get_approx_groups(system, under_cs)
 
@@ -545,8 +542,6 @@ class ApproximationScheme(object):
             yield from self._colored_column_iter(system, colored_approx_groups)
 
         yield from self._uncolored_column_iter(system, approx_groups)
-
-        system._set_approx_mode(False)
 
     def _get_total_result(self, outarr, totarr):
         """

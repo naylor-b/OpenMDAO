@@ -10,11 +10,9 @@ from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-import openmdao.utils.coloring as coloring_mod
 from openmdao.core.driver import Driver, RecordingDebugging
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
-from openmdao.utils.om_warnings import issue_warning, DerivativesWarning
 
 # Optimizers in scipy.minimize
 _optimizers = {'Nelder-Mead', 'Powell', 'CG', 'BFGS', 'Newton-CG', 'L-BFGS-B',
@@ -122,6 +120,7 @@ class ScipyOptimizeDriver(Driver):
         super().__init__(**kwargs)
 
         # What we support
+        self.supports['optimization'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
         self.supports['two_sided_constraints'] = True
@@ -149,6 +148,7 @@ class ScipyOptimizeDriver(Driver):
         self.iter_count = 0
         self._check_jac = False
         self._exc_info = None
+        self._total_jac_format = 'array'
 
         self.cite = CITATIONS
 
@@ -219,11 +219,39 @@ class ScipyOptimizeDriver(Driver):
             for name, meta in self._designvars.items():
                 lower = meta['lower']
                 upper = meta['upper']
-                if isinstance(lower, np.ndarray) or lower >= -INF_BOUND \
-                        or isinstance(upper, np.ndarray) or upper <= INF_BOUND:
+                if isinstance(lower, np.ndarray) or lower > -INF_BOUND \
+                        or isinstance(upper, np.ndarray) or upper < INF_BOUND:
                     self._cons[name] = meta.copy()
                     self._cons[name]['equals'] = None
                     self._cons[name]['linear'] = True
+
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        if self.result and hasattr(self.result, 'nfev'):
+            return self.result.nfev
+        else:
+            return None
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        if self.result and hasattr(self.result, 'njev'):
+            return self.result.njev
+        else:
+            return None
 
     def run(self):
         """
@@ -241,6 +269,7 @@ class ScipyOptimizeDriver(Driver):
         self._total_jac = None
 
         self._check_for_missing_objective()
+        self._check_for_invalid_desvar_values()
 
         # Initial Run
         with RecordingDebugging(self._get_name(), self.iter_count, self) as rec:
@@ -400,7 +429,7 @@ class ScipyOptimizeDriver(Driver):
             # precalculate gradients of linear constraints
             if lincons:
                 self._lincongrad_cache = self._compute_totals(of=lincons, wrt=self._dvlist,
-                                                              return_format='array')
+                                                              return_format=self._total_jac_format)
             else:
                 self._lincongrad_cache = None
 
@@ -422,20 +451,7 @@ class ScipyOptimizeDriver(Driver):
             hess = None
 
         # compute dynamic simul deriv coloring if option is set
-        if coloring_mod._use_total_sparsity:
-            if ((self._coloring_info['coloring'] is None and self._coloring_info['dynamic'])):
-                coloring_mod.dynamic_total_coloring(self, run_model=False,
-                                                    fname=self._get_total_coloring_fname())
-
-                # if the improvement wasn't large enough, turn coloring off
-                info = self._coloring_info
-                if info['coloring'] is not None:
-                    pct = info['coloring']._solves_info()[-1]
-                    if info['min_improve_pct'] > pct:
-                        info['coloring'] = info['static'] = None
-                        msg = f"Coloring was deactivated.  Improvement of {pct:.1f}% was less " \
-                              f"than min allowed ({info['min_improve_pct']:.1f}%)."
-                        issue_warning(msg, prefix=self.msginfo, category=DerivativesWarning)
+        coloring = self._get_coloring(run_model=False)
 
         # optimize
         try:
@@ -698,7 +714,7 @@ class ScipyOptimizeDriver(Driver):
         """
         try:
             grad = self._compute_totals(of=self._obj_and_nlcons, wrt=self._dvlist,
-                                        return_format='array')
+                                        return_format=self._total_jac_format)
             self._grad_cache = grad
 
             # First time through, check for zero row/col.

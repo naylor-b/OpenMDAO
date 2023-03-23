@@ -150,15 +150,10 @@ class MetaModelUnStructuredComp(ExplicitComponent):
             self._input_size += input_size
         surrogate_input_names.append((name, input_size))
 
-        train_name = f'train:{name}'
-        good_name = f'train_{name}'
-        self.options.declare(train_name, default=None, desc='Training data for %s' % name,
-                             deprecation=(f"The option '{train_name}' has been deprecated because "
-                                          f"it's not a valid python name.  Use '{good_name}' "
-                                          "instead.", good_name))
-        self.options.declare(good_name, default=None, desc='Training data for %s' % name)
+        train_name = f'train_{name}'
+        self.options.declare(train_name, default=None, desc='Training data for %s' % name)
         if training_data is not None:
-            self.options[good_name] = training_data
+            self.options[train_name] = training_data
 
         return metadata
 
@@ -213,16 +208,11 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         else:
             metadata['default_surrogate'] = True
 
-        train_name = f'train:{name}'
-        good_name = f'train_{name}'
-        self.options.declare(train_name, default=None, desc='Training data for %s' % name,
-                             deprecation=(f"The option '{train_name}' has been deprecated because "
-                                          f"it's not a valid python name.  Use '{good_name}' "
-                                          "instead.", good_name))
-        self.options.declare(good_name, default=None, desc='Training data for %s' % name)
+        train_name = f'train_{name}'
+        self.options.declare(train_name, default=None, desc='Training data for %s' % name)
 
         if training_data is not None:
-            self.options[good_name] = training_data
+            self.options[train_name] = training_data
 
         return metadata
 
@@ -510,9 +500,8 @@ class MetaModelUnStructuredComp(ExplicitComponent):
             absolute, 'rel_avg' for a size relative to the absolute value of the vector input, or
             'rel_element' for a size relative to each value in the vector input. In addition, it
             can be 'rel_legacy' for a size relative to the norm of the vector.  For backwards
-            compatibilty, it can be 'rel', which currently defaults to 'rel_legacy', but in the
-            future will default to 'rel_avg'. Defaults to None, in which case the approximation
-            method provides its default value.
+            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to None,
+            in which case the approximation method provides its default value.
         """
         if method == 'cs':
             raise ValueError('Complex step has not been tested for MetaModelUnStructuredComp')
@@ -551,7 +540,6 @@ class MetaModelUnStructuredComp(ExplicitComponent):
                             j2 = j1 + out_size * sz
                             partials[out_name, in_name][j1:j2] = derivs[:, idx:idx + sz].flat
                             idx += sz
-
             else:
                 if overrides_method('linearize', surrogate, SurrogateModel):
                     sjac = surrogate.linearize(flat_inputs)

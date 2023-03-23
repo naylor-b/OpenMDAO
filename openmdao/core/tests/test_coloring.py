@@ -20,8 +20,8 @@ from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.array_utils import array_viz
 from openmdao.utils.coloring import _compute_coloring, compute_total_coloring, Coloring
-from openmdao.utils.mpi import MPI
-from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.utils.mpi import MPI, multi_proc_exception_check
+from openmdao.utils.testing_utils import use_tempdirs, set_env_vars
 from openmdao.test_suite.tot_jac_builder import TotJacBuilder
 from openmdao.utils.general_utils import run_driver
 
@@ -90,7 +90,7 @@ class DynPartialsComp(om.ExplicitComponent):
 
 def run_opt(driver_class, mode, assemble_type=None, color_info=None, derivs=True,
             recorder=None, has_lin_constraint=True, has_diag_partials=True, partial_coloring=False,
-            use_vois=True, auto_ivc=False, con_alias=False, **options):
+            use_vois=True, auto_ivc=False, con_alias=False, check=False, **options):
 
     p = om.Problem(model=CounterGroup())
 
@@ -164,8 +164,12 @@ def run_opt(driver_class, mode, assemble_type=None, color_info=None, derivs=True
         p.model.approx_totals(method=options['method'])
         del options['method']
 
+    min_improve_pct = options.get('min_improve_pct', 5.)
+    if 'min_improve_pct' in options:
+        del options['min_improve_pct']
+
     if 'dynamic_total_coloring' in options:
-        p.driver.declare_coloring(tol=1e-15)
+        p.driver.declare_coloring(tol=1e-15, min_improve_pct=min_improve_pct)
         del options['dynamic_total_coloring']
 
     p.driver.options.update(options)
@@ -248,7 +252,7 @@ def run_opt(driver_class, mode, assemble_type=None, color_info=None, derivs=True
     if recorder:
         p.driver.add_recorder(recorder)
 
-    p.setup(mode=mode, derivatives=derivs)
+    p.setup(mode=mode, derivatives=derivs, check=check)
     if use_vois:
         p.run_driver()
     else:
@@ -262,8 +266,11 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
 
     def setUp(self):
         # make sure no default reports run because they'll mess up run counts
-        om.clear_reports() 
+        om.clear_reports()
 
+    # turn off TESTFLO_RUNNING so that reports will be active, in order to detect a bug
+    # when scaling report and coloring are both active.
+    @set_env_vars(TESTFLO_RUNNING='0', OPENMDAO_REPORTS='scaling')
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_total_coloring_snopt_auto(self):
         # first, run w/o coloring
@@ -274,13 +281,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_total_coloring_snopt_auto_autoivc(self):
@@ -293,13 +302,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_total_coloring_snopt_auto_dyn_partials(self):
@@ -311,13 +322,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
         partial_coloring = p_color.model._get_subsystem('arctan_yox')._coloring_info['coloring']
         expected = [
@@ -342,16 +355,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
 
-        # This has been changed to greater or equal to 28 iterations. This change arose when updating
-        # to pyOptSparse v2.1.0 and SNOPT 7.7
-        self.assertGreaterEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_total_coloring_snopt_auto_assembled(self):
@@ -363,13 +375,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_fwd_simul_coloring_snopt_approx_cs(self):
@@ -382,12 +396,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - fwd coloring saves 16 nonlinear solves per driver iter  (6 vs 22).
-        # - dynamic coloring takes 66 nonlinear solves (22 each for 3 full jacs)
-        # - (total_solves - 2) / (solves_per_iter) should be equal to
-        #       (total_color_solves - 2 - dyn_solves) / color_solves_per_iter
-        self.assertEqual((p.model._solve_nl_count - 2) / 22,
-                         (p_color.model._solve_nl_count - 2 - 66) / 6)
+        p.model._solve_nl_count = 0
+        p_color.model._solve_nl_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_nl_count, 21)
+        self.assertEqual(p_color.model._solve_nl_count, 5)
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_fwd_simul_coloring_snopt_approx_fd(self):
@@ -400,13 +417,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
+        p.model._solve_nl_count = 0
+        p_color.model._solve_nl_count = 0
 
-        # - fwd coloring saves 16 nonlinear solves per driver iter  (6 vs 22).
-        # - dynamic coloring takes 66 nonlinear solves (22 each for 3 full jacs)
-        # - (total_solves - 2) / (solves_per_iter) should be equal to
-        #       (total_color_solves - 2 - dyn_solves) / color_solves_per_iter
-        self.assertEqual((p.model._solve_nl_count - 2) / 22,
-                         (p_color.model._solve_nl_count - 2 - 66) / 6)
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_nl_count, 21)
+        self.assertEqual(p_color.model._solve_nl_count, 5)
 
     def test_size_zero_array_in_component(self):
         class DynamicPartialsComp(om.ExplicitComponent):
@@ -509,13 +528,15 @@ class SimulColoringPyoptSparseTestCase(unittest.TestCase):
         p = run_opt(pyOptSparseDriver, 'auto', optimizer='SLSQP', print_results=False)
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
         # test __repr__
         rep = repr(p_color.driver._coloring_info['coloring'])
@@ -576,7 +597,7 @@ class SimulColoringPyoptSparseRevTestCase(unittest.TestCase):
     """Reverse coloring tests for pyoptsparse."""
     def setUp(self):
         # make sure no default reports run because they'll mess up run counts
-        om.clear_reports() 
+        om.clear_reports()
 
     @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
     def test_dynamic_rev_simul_coloring_snopt(self):
@@ -588,17 +609,20 @@ class SimulColoringPyoptSparseRevTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - rev coloring saves 11 solves per driver iter  (11 vs 22)
-        # - initial solve for linear constraints takes 1 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 22 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 1 for the uncolored case and 22 * 3 + 1 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 1) / 22,
-                         (p_color.model._solve_count - 1 - 22 * 3) / 11)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 11 solves per driver iter  (11 vs 22)
+        self.assertEqual(p.model._solve_count, 22)
+        self.assertEqual(p_color.model._solve_count, 11)
 
         # improve coverage of coloring.py
         coloring = p_color.driver._coloring_info['coloring']
         coloring.display_txt()
+        coloring.display(show=False)
         with open(os.devnull, 'w') as f:
             array_viz(coloring.get_dense_sparsity(), prob=p_color, stream=f)
             array_viz(coloring.get_dense_sparsity(), stream=f)
@@ -625,13 +649,65 @@ class SimulColoringPyoptSparseRevTestCase(unittest.TestCase):
         p = run_opt(pyOptSparseDriver, 'rev', optimizer='SLSQP', print_results=False)
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
 
-        # - coloring saves 11 solves per driver iter  (11 vs 22)
-        # - initial solve for linear constraints takes 1 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 22 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 1 for the uncolored case and 22 * 3 + 1 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 1) / 22,
-                         (p_color.model._solve_count - 1 - 22 * 3) / 11)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 11 solves per driver iter  (11 vs 22)
+        self.assertEqual(p.model._solve_count, 22)
+        self.assertEqual(p_color.model._solve_count, 11)
+
+    @unittest.skipUnless(OPTIMIZER == 'SNOPT', "This test requires SNOPT.")
+    def test_dynamic_total_coloring_auto_con_alias_pyoptsparse(self):
+        # This test makes sure that coloring works with aliased constraints.
+
+        p = run_opt(pyOptSparseDriver, 'auto', optimizer='SNOPT', print_results=False, con_alias=True)
+        p_color = run_opt(pyOptSparseDriver, 'auto', optimizer='SNOPT', print_results=False,
+                          dynamic_total_coloring=True, con_alias=True)
+
+        assert_almost_equal(p['circle.area'], np.pi, decimal=7)
+        assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
+
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
+
+    def test_dynamic_total_coloring_auto_con_alias_pyoptsparse_slsqp(self):
+        # This test makes sure that coloring works with aliased constraints.
+        try:
+            from pyoptsparse import OPT
+        except ImportError:
+            raise unittest.SkipTest("This test requires pyoptsparse.")
+
+        try:
+            OPT('SLSQP')
+        except:
+            raise unittest.SkipTest("This test requires pyoptsparse SLSQP.")
+
+        p = run_opt(pyOptSparseDriver, 'auto', optimizer='SLSQP', print_results=False, con_alias=True)
+        p_color = run_opt(pyOptSparseDriver, 'auto', optimizer='SLSQP', print_results=False,
+                          dynamic_total_coloring=True, con_alias=True)
+
+        assert_almost_equal(p['circle.area'], np.pi, decimal=7)
+        assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
+
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
 
 @use_tempdirs
@@ -639,7 +715,7 @@ class SimulColoringScipyTestCase(unittest.TestCase):
 
     def setUp(self):
         # make sure no default reports run because they'll mess up run counts
-        om.clear_reports() 
+        om.clear_reports()
 
     def test_bad_mode(self):
         p_color_fwd = run_opt(om.ScipyOptimizeDriver, 'fwd', optimizer='SLSQP', disp=False, dynamic_total_coloring=True)
@@ -659,13 +735,33 @@ class SimulColoringScipyTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - bidirectional coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
+
+    def test_min_improve_pct(self):
+        # first, run w/o coloring
+        p = run_opt(om.ScipyOptimizeDriver, 'auto', optimizer='SLSQP', disp=False)
+        p_color = run_opt(om.ScipyOptimizeDriver, 'auto', optimizer='SLSQP', disp=False, dynamic_total_coloring=True, min_improve_pct=99.)
+
+        assert_almost_equal(p['circle.area'], np.pi, decimal=7)
+        assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
+
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring should have been aborted since it couldn't improve more than 99% so solve counts should match
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 21)
 
     def test_dynamic_total_coloring_auto_con_alias(self):
         # This test makes sure that coloring works with aliased constraints.
@@ -677,13 +773,15 @@ class SimulColoringScipyTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - bidirectional coloring saves 16 solves per driver iter  (5 vs 21)
-        # - initial solve for linear constraints takes 21 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 21 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 21 for the uncolored case and 21 * 4 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 21) / 21,
-                         (p_color.model._solve_count - 21 * 4) / 5)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (5 vs 21)
+        self.assertEqual(p.model._solve_count, 21)
+        self.assertEqual(p_color.model._solve_count, 5)
 
     def test_problem_total_coloring_auto(self):
 
@@ -898,7 +996,7 @@ class SimulColoringRevScipyTestCase(unittest.TestCase):
 
     def setUp(self):
         # make sure no default reports run because they'll mess up run counts
-        om.clear_reports() 
+        om.clear_reports()
 
     def test_summary(self):
         p_color = run_opt(om.ScipyOptimizeDriver, 'auto', optimizer='SLSQP', disp=False, dynamic_total_coloring=True)
@@ -960,13 +1058,15 @@ class SimulColoringRevScipyTestCase(unittest.TestCase):
         assert_almost_equal(p['circle.area'], np.pi, decimal=7)
         assert_almost_equal(p_color['circle.area'], np.pi, decimal=7)
 
-        # - rev coloring saves 11 solves per driver iter  (11 vs 22)
-        # - initial solve for linear constraints takes 1 in both cases (only done once)
-        # - dynamic case does 3 full compute_totals to compute coloring, which adds 22 * 3 solves
-        # - (total_solves - N) / (solves_per_iter) should be equal between the two cases,
-        # - where N is 1 for the uncolored case and 22 * 3 + 1 for the dynamic colored case.
-        self.assertEqual((p.model._solve_count - 1) / 22,
-                         (p_color.model._solve_count - 1 - 22 * 3) / 11)
+        p.model._solve_count = 0
+        p_color.model._solve_count = 0
+
+        J = p.driver._compute_totals()
+        J_color = p_color.driver._compute_totals()
+
+        # coloring saves 16 solves per driver iter  (11 vs 22)
+        self.assertEqual(p.model._solve_count, 22)
+        self.assertEqual(p_color.model._solve_count, 11)
 
     def test_dynamic_total_coloring_no_derivs(self):
         with self.assertRaises(Exception) as context:
@@ -1043,16 +1143,63 @@ class BidirectionalTestCase(unittest.TestCase):
         self.assertEqual(tot_colors, expected_colors)
 
 
-def _get_random_mat(rows, cols):
+def _get_random_mat(rows, cols, generator=None):
+    gen = generator if generator is not None else np.random.default_rng()
+
     if MPI:
         if MPI.COMM_WORLD.rank == 0:
-            mat = np.random.random(rows * cols).reshape((rows, cols)) - 0.5
+            mat = gen.random((rows, cols)) - 0.5
             MPI.COMM_WORLD.bcast(mat, root=0)
             return mat
         else:
             return MPI.COMM_WORLD.bcast(None, root=0)
     else:
-        return np.random.random(rows * cols).reshape((rows, cols)) - 0.5
+        return gen.random((rows, cols)) - 0.5
+
+
+def build_multipoint_problem(size=10, num_pts=4):
+
+    np.random.seed(11)
+
+    p = om.Problem()
+    p.driver = pyOptSparseDriver()
+    p.driver.options['optimizer'] = OPTIMIZER
+    p.driver.declare_coloring()
+    if OPTIMIZER == 'SNOPT':
+        p.driver.opt_settings['Major iterations limit'] = 100
+        p.driver.opt_settings['Major feasibility tolerance'] = 1.0E-6
+        p.driver.opt_settings['Major optimality tolerance'] = 1.0E-6
+        # p.driver.opt_settings['iSumm'] = 6
+
+    model = p.model
+    for i in range(num_pts):
+        model.add_subsystem('indep%d' % i, om.IndepVarComp('x', val=np.ones(size)))
+        model.add_design_var('indep%d.x' % i)
+
+    par1 = model.add_subsystem('par1', om.ParallelGroup())
+    for i in range(num_pts):
+        mat = _get_random_mat(5, size)
+        par1.add_subsystem('comp%d' % i, om.ExecComp('y=A.dot(x)', A=mat, x=np.ones(size), y=np.ones(5)))
+        model.connect('indep%d.x' % i, 'par1.comp%d.x' % i)
+
+    par2 = model.add_subsystem('par2', om.ParallelGroup())
+    for i in range(num_pts):
+        mat = _get_random_mat(size, 5)
+        par2.add_subsystem('comp%d' % i, om.ExecComp('y=A.dot(x)', A=mat, x=np.ones(5), y=np.ones(size)))
+        model.connect('par1.comp%d.y' % i, 'par2.comp%d.x' % i)
+        par2.add_constraint('comp%d.y' % i, lower=-1.)
+
+        model.add_subsystem('normcomp%d' % i, om.ExecComp("y=sum(x*x)", x=np.ones(size)))
+        model.connect('par2.comp%d.y' % i, 'normcomp%d.x' % i)
+
+    model.add_subsystem('obj', om.ExecComp("y=" + '+'.join(['x%d' % i for i in range(num_pts)])))
+
+    for i in range(num_pts):
+        model.connect('normcomp%d.y' % i, 'obj.x%d' % i)
+
+    model.add_objective('obj.y')
+
+    return p
 
 
 @use_tempdirs
@@ -1060,49 +1207,8 @@ def _get_random_mat(rows, cols):
 class MatMultMultipointTestCase(unittest.TestCase):
 
     def test_multipoint_with_coloring(self):
-        size = 10
         num_pts = 4
-
-        np.random.seed(11)
-
-        p = om.Problem()
-        p.driver = pyOptSparseDriver()
-        p.driver.options['optimizer'] = OPTIMIZER
-        p.driver.declare_coloring()
-        if OPTIMIZER == 'SNOPT':
-            p.driver.opt_settings['Major iterations limit'] = 100
-            p.driver.opt_settings['Major feasibility tolerance'] = 1.0E-6
-            p.driver.opt_settings['Major optimality tolerance'] = 1.0E-6
-            # p.driver.opt_settings['iSumm'] = 6
-
-        model = p.model
-        for i in range(num_pts):
-            model.add_subsystem('indep%d' % i, om.IndepVarComp('x', val=np.ones(size)))
-            model.add_design_var('indep%d.x' % i)
-
-        par1 = model.add_subsystem('par1', om.ParallelGroup())
-        for i in range(num_pts):
-            mat = _get_random_mat(5, size)
-            par1.add_subsystem('comp%d' % i, om.ExecComp('y=A.dot(x)', A=mat, x=np.ones(size), y=np.ones(5)))
-            model.connect('indep%d.x' % i, 'par1.comp%d.x' % i)
-
-        par2 = model.add_subsystem('par2', om.ParallelGroup())
-        for i in range(num_pts):
-            mat = _get_random_mat(size, 5)
-            par2.add_subsystem('comp%d' % i, om.ExecComp('y=A.dot(x)', A=mat, x=np.ones(5), y=np.ones(size)))
-            model.connect('par1.comp%d.y' % i, 'par2.comp%d.x' % i)
-            par2.add_constraint('comp%d.y' % i, lower=-1.)
-
-            model.add_subsystem('normcomp%d' % i, om.ExecComp("y=sum(x*x)", x=np.ones(size)))
-            model.connect('par2.comp%d.y' % i, 'normcomp%d.x' % i)
-
-        model.add_subsystem('obj', om.ExecComp("y=" + '+'.join(['x%d' % i for i in range(num_pts)])))
-
-        for i in range(num_pts):
-            model.connect('normcomp%d.y' % i, 'obj.x%d' % i)
-
-        model.add_objective('obj.y')
-
+        p = build_multipoint_problem(size=10, num_pts=num_pts)
         p.setup()
 
         p.run_driver()
@@ -1110,26 +1216,15 @@ class MatMultMultipointTestCase(unittest.TestCase):
         J = p.compute_totals()
 
         for i in range(num_pts):
-            cname = 'par2.comp%d' % i
-            vname = cname + '.A'
-            A1 = p.get_val('par1.comp%d.A'%i, get_remote=True)
-            A2 = p.get_val('par2.comp%d.A'%i, get_remote=True)
+            with multi_proc_exception_check(p.comm):
+                A1 = p.get_val('par1.comp%d.A'%i, get_remote=True)
+            with multi_proc_exception_check(p.comm):
+                A2 = p.get_val('par2.comp%d.A'%i, get_remote=True)
             norm = np.linalg.norm(J['par2.comp%d.y'%i,'indep%d.x'%i] - A2.dot(A1))
-            self.assertLess(norm, 1.e-7)
+            with multi_proc_exception_check(p.comm):
+                self.assertLess(norm, 1.e-7)
 
         print("final obj:", p['obj.y'])
-
-
-# use_tempdirs is inherited
-@unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
-class MatMultMultipointMPI2TestCase(MatMultMultipointTestCase):
-    N_PROCS = 2
-
-
-# use_tempdirs is inherited
-@unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
-class MatMultMultipointMPI4TestCase(MatMultMultipointTestCase):
-    N_PROCS = 4
 
 
 @use_tempdirs

@@ -27,7 +27,7 @@ def hooks_active(f):
 
 class HooksTestCase(unittest.TestCase):
     def setUp(self):
-        openmdao.core.problem._problem_names = []  # need to reset these to simulate separate runs
+        openmdao.core.problem._clear_problem_names()  # need to reset these to simulate separate runs
 
     def build_model(self, name='problem1'):
         prob = om.Problem(name=name)
@@ -262,6 +262,7 @@ class HooksTestCase(unittest.TestCase):
 
         self.assertEqual(prob['comp.x'], x0)
         self.assertEqual(prob['comp.y'], y0)
+
 
 if __name__ == '__main__':
     unittest.main()

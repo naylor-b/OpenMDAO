@@ -33,13 +33,13 @@ def _create_profile_callback(depth, fileset, stream):
                 else:
                     klass = '?'
                 print('c', fpath, frame.f_code.co_firstlineno,
-                      frame.f_code.co_name, mem_usage(), time.time(), klass, sep='|', file=stream)
+                      frame.f_code.co_name, mem_usage(), time.perf_counter(), klass, sep='|', file=stream)
         elif event == 'return' and depth[0] > 0:
             fpath = abspath(frame.f_code.co_filename)
             depth[0] -= 1
             if fpath in fileset:
                 print('r', fpath, frame.f_code.co_firstlineno,
-                      frame.f_code.co_name, mem_usage(), time.time(), '-', sep='|', file=stream)
+                      frame.f_code.co_name, mem_usage(), time.perf_counter(), '-', sep='|', file=stream)
 
     return _wrapped
 
@@ -286,7 +286,6 @@ def _process_parts(parts, qual_cache):
 
 
 def postprocess_memtrace_tree(fname, min_mem=1.0, show_colors=True, rank=0, stream=sys.stdout):
-    from openmdao.utils.general_utils import simple_warning
     cprint, Fore, Back, Style = _get_color_printer(stream, show_colors, rank=rank)
 
     info = {}
@@ -397,7 +396,6 @@ def postprocess_memtrace_tree(fname, min_mem=1.0, show_colors=True, rank=0, stre
 
 
 def postprocess_memtrace_flat(fname, min_mem=1.0, show_colors=True, rank=0, stream=sys.stdout):
-    from openmdao.utils.general_utils import simple_warning
     cprint, Fore, Back, Style = _get_color_printer(stream, show_colors, rank=rank)
 
     info = {}

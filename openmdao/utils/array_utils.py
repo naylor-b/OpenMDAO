@@ -4,6 +4,7 @@ Utils for dealing with arrays.
 import sys
 from itertools import product
 from copy import copy
+import hashlib
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -92,6 +93,32 @@ def evenly_distrib_idxs(num_divisions, arr_size):
     return sizes, offsets
 
 
+def scatter_dist_to_local(dist_val, comm, sizes):
+    """
+    Scatter a full distributed value to local values in each MPI process.
+
+    Parameters
+    ----------
+    dist_val : ndarray
+        The full distributed value.
+    comm : MPI communicator
+        The MPI communicator.
+    sizes : ndarray
+        The array of sizes for each process.
+
+    Returns
+    -------
+    ndarray
+        The local value on this process.
+    """
+    from openmdao.utils.mpi import MPI
+    offsets = np.zeros(sizes.shape, dtype=INT_DTYPE)
+    offsets[1:] = np.cumsum(sizes)[:-1]
+    local = np.zeros(sizes[comm.rank])
+    comm.Scatterv([dist_val, sizes, offsets, MPI.DOUBLE], local, root=0)
+    return local
+
+
 def get_evenly_distributed_size(comm, full_size):
     """
     Return the size of the current rank's part of an array of the given size.
@@ -144,7 +171,7 @@ def take_nth(rank, size, seq):
     ------
     generator
     """
-    assert(rank < size)
+    assert rank < size
     it = iter(seq)
     while True:
         for proc in range(size):
@@ -592,3 +619,57 @@ def identity_column_iter(column):
         column[i - 1] = 0
         column[i] = 1
         yield column
+
+
+def array_hash(arr, alg=hashlib.sha1):
+    """
+    Return a hash of the given numpy array.
+
+    arr must be C-contiguous.
+
+    Parameters
+    ----------
+    arr : ndarray
+        The array to be hashed.
+    alg : hashing algorithm
+        Algorithm defaults to hashlib.sha1.
+
+    Returns
+    -------
+    str
+        The computed hash.
+    """
+    return alg(arr.view(np.uint8)).hexdigest()
+
+
+_randgen = np.random.default_rng()
+
+
+def get_random_arr(shape, comm=None, generator=None):
+    """
+    Request a random array, ensuring that its value will be consistent across MPI processes.
+
+    Parameters
+    ----------
+    shape : int
+        Shape of the random array.
+    comm : MPI communicator or None
+        All members of this communicator will receive the random array.
+    generator : random number generator or None
+        If not None, use this as the random number generator if on rank 0.
+
+    Returns
+    -------
+    ndarray
+        The random array.
+    """
+    gen = generator if generator is not None else _randgen
+    if comm is None or comm.size == 1:
+        return gen.random(shape)
+
+    if comm.rank == 0:
+        arr = gen.random(shape)
+    else:
+        arr = np.empty(shape)
+    comm.Bcast(arr, root=0)
+    return arr

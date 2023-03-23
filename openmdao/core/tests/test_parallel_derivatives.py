@@ -10,8 +10,8 @@ from packaging.version import Version
 import numpy as np
 
 import openmdao.api as om
-from openmdao.test_suite.groups.parallel_groups import FanOutGrouped, FanInGrouped
-from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.test_suite.groups.parallel_groups import FanOutGrouped, FanInGrouped, FanInGrouped2
+from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.mpi import MPI
 
 
@@ -39,14 +39,25 @@ class ParDerivTestCase(unittest.TestCase):
         prob.model.add_objective('c3.y')
 
         prob.setup(check=False, mode='rev')
-        prob.run_driver()
+        prob.run_model()
 
-        indep_list = ['x1', 'x2']
-        unknown_list = ['c3.y']
+        data = prob.check_totals(of=['c3.y'], wrt=['x1', 'x2'])
+        assert_check_totals(data)
 
-        J = prob.compute_totals(unknown_list, indep_list, return_format='dict')
-        assert_near_equal(J['c3.y']['x1'][0][0], -6.0, 1e-6)
-        assert_near_equal(J['c3.y']['x2'][0][0], 35.0, 1e-6)
+    def test_fan_in_serial_sets_rev_ivc(self):
+
+        prob = om.Problem()
+        prob.model = FanInGrouped2()
+
+        prob.model.add_design_var('p1.x')
+        prob.model.add_design_var('p2.x')
+        prob.model.add_objective('c3.y')
+
+        prob.setup(check=False, mode='rev')
+        prob.run_model()
+
+        data = prob.check_totals(of=['c3.y'], wrt=['p1.x', 'p2.x'])
+        assert_check_totals(data)
 
     def test_fan_in_serial_sets_fwd(self):
 
@@ -550,17 +561,17 @@ class ParDerivColorFeatureTestCase(unittest.TestCase):
 
         p.run_model()
 
-        elapsed_rev = time.time()
+        elapsed_rev = time.perf_counter()
         Jrev = p.compute_totals(of, wrt, return_format='dict')
-        elapsed_rev = time.time() - elapsed_rev
+        elapsed_rev = time.perf_counter() - elapsed_rev
 
         # run in fwd mode and compare times for deriv calculation
         p.setup(mode='fwd')
         p.run_model()
 
-        elapsed_fwd = time.time()
+        elapsed_fwd = time.perf_counter()
         Jfwd = p.compute_totals(of, wrt, return_format='dict')
-        elapsed_fwd = time.time() - elapsed_fwd
+        elapsed_fwd = time.perf_counter() - elapsed_fwd
 
         assert_near_equal(Jfwd['ParallelGroup1.Con1.y']['Comp1.x'][0], np.ones(size)*2., 1e-6)
         assert_near_equal(Jfwd['ParallelGroup1.Con2.y']['Comp1.x'][0], np.ones(size)*-3., 1e-6)
@@ -765,10 +776,13 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
         model.add_constraint('dc2.y', indices=[3], lower=-1.0, upper=1.0, parallel_deriv_color=pdc)
         model.add_objective('dc3.y', index=2, parallel_deriv_color=pdc)
 
-        prob = om.Problem(model=model)
+        prob = om.Problem(model=model, name='parallel_deriv_coloring_overlap_err')
         with self.assertRaises(Exception) as ctx:
             prob.setup(mode='rev')
-        self.assertEqual(str(ctx.exception), "<model> <class Group>: response 'pg.dc2.y' has overlapping dependencies on the same rank with other responses in parallel_deriv_color 'a'.")
+        self.assertEqual(str(ctx.exception),
+           "\nCollected errors for problem 'parallel_deriv_coloring_overlap_err':"
+           "\n   <model> <class Group>: response 'pg.dc2.y' has overlapping dependencies on the "
+           "same rank with other responses in parallel_deriv_color 'a'.")
 
 if __name__ == "__main__":
     from openmdao.utils.mpi import mpirun_tests

@@ -20,8 +20,10 @@ from openmdao.test_suite.components.sellar import SellarDerivatives, SellarDis1w
 from openmdao.test_suite.components.simple_comps import DoubleArrayComp
 from openmdao.test_suite.components.array_comp import ArrayComp
 from openmdao.test_suite.groups.parallel_groups import FanInSubbedIDVC, Diamond
-from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_check_partials
-from openmdao.utils.om_warnings import OMInvalidCheckDerivativesOptionsWarning
+from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_no_warning, \
+     assert_check_partials, assert_check_totals
+from openmdao.utils.om_warnings import DerivativesWarning, OMInvalidCheckDerivativesOptionsWarning
+from openmdao.utils.testing_utils import set_env_vars_context
 
 from openmdao.utils.mpi import MPI
 
@@ -207,10 +209,8 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        # warning about 'comp2'
-        msg = "No derivative data found for Component 'comp2'."
-
-        with assert_warning(UserWarning, msg):
+        # no warnings about 'comp2' having no derivatives
+        with assert_no_warning(DerivativesWarning):
             data = prob.check_partials(out_stream=None)
 
         # and no derivative data for 'comp2'
@@ -221,6 +221,33 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fd'][0][0], 4., 1e-6)
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fwd'][0][0], 4., 1e-15)
+
+    def test_component_has_no_inputs(self):
+        prob = om.Problem()
+        model = prob.model
+
+        comp1 = model.add_subsystem("comp1", om.ExplicitComponent())
+        comp1.add_output('x', val=5.)
+
+        model.add_subsystem("comp2", Paraboloid())
+
+        model.connect('comp1.x', 'comp2.x')
+
+        prob.setup()
+        prob.run_model()
+
+        # no warnings about 'comp1' having no derivatives
+        with assert_no_warning(DerivativesWarning):
+            data = prob.check_partials(out_stream=None)
+
+        # and no derivative data for 'comp1'
+        self.assertFalse('comp1' in data)
+
+        # but we still get good derivative data for 'comp1'
+        self.assertTrue('comp2' in data)
+
+        assert_near_equal(data['comp2'][('f_xy', 'x')]['J_fd'][0][0], 4., 1e-6)
+        assert_near_equal(data['comp2'][('f_xy', 'x')]['J_fwd'][0][0], 4., 1e-15)
 
     def test_component_no_check_partials(self):
         prob = om.Problem()
@@ -240,7 +267,10 @@ class TestProblemCheckPartials(unittest.TestCase):
         # disable partials on comp2
         #
         comp2._no_check_partials = True
-        data = prob.check_partials(out_stream=None)
+
+        # Make check_partials think we're not on CI so we'll get the expected  non-CI behavior
+        with set_env_vars_context(CI='0'):
+            data = prob.check_partials(out_stream=None)
 
         # no derivative data for 'comp2'
         self.assertFalse('comp2' in data)
@@ -960,9 +990,9 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.check_partials(out_stream=stream)
 
         lines = stream.getvalue().splitlines()
-        self.assertTrue('cs' in lines[5],
+        self.assertTrue('cs' in lines[6],
                         msg='Did you change the format for printing check derivs?')
-        self.assertTrue('fd' in lines[19],
+        self.assertTrue('fd' in lines[20],
                         msg='Did you change the format for printing check derivs?')
 
     def test_set_check_partial_options_invalid(self):
@@ -1177,6 +1207,7 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         stream = StringIO()
         prob.check_partials(out_stream=stream, compact_print=True)
+
         self.assertEqual(stream.getvalue().count('n/a'), 25)
         self.assertEqual(stream.getvalue().count('rev'), 15)
         self.assertEqual(stream.getvalue().count('Component'), 2)
@@ -1215,7 +1246,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         self.assertEqual(stream.getvalue().count('rev'), 0)
 
         stream = StringIO()
-        prob.check_partials(out_stream=stream, compact_print=False)
+        partials_data = prob.check_partials(out_stream=stream, compact_print=False)
         # So for this case, they do all provide them, so rev should not be shown
         self.assertEqual(stream.getvalue().count('Analytic Magnitude'), 2)
         self.assertEqual(stream.getvalue().count('Forward Magnitude'), 0)
@@ -1226,7 +1257,8 @@ class TestProblemCheckPartials(unittest.TestCase):
         self.assertEqual(stream.getvalue().count('Raw Forward Derivative'), 0)
         self.assertEqual(stream.getvalue().count('Raw Reverse Derivative'), 0)
         self.assertEqual(stream.getvalue().count('Raw FD Derivative'), 2)
-
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data[''][('z', 'x1')]['J_fd']}"), 1)
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data[''][('z', 'x2')]['J_fd']}"), 1)
         # 3: Explicit comp that does not define Jacobian. It defines compute_jacvec_product
         #      For both compact and non-compact display
         prob = om.Problem()
@@ -1270,7 +1302,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         self.assertEqual(stream.getvalue().count('wrt'), 8)
 
         stream = StringIO()
-        prob.check_partials(out_stream=stream, compact_print=False)
+        partials_data = prob.check_partials(out_stream=stream, compact_print=False)
         self.assertEqual(stream.getvalue().count('Analytic Magnitude'), 2)
         self.assertEqual(stream.getvalue().count('Forward Magnitude'), 2)
         self.assertEqual(stream.getvalue().count('Reverse Magnitude'), 2)
@@ -1280,6 +1312,10 @@ class TestProblemCheckPartials(unittest.TestCase):
         self.assertEqual(stream.getvalue().count('Raw Forward Derivative'), 2)
         self.assertEqual(stream.getvalue().count('Raw Reverse Derivative'), 2)
         self.assertEqual(stream.getvalue().count('Raw FD Derivative'), 4)
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data['c0'][('z', 'x1')]['J_fd']}"), 1)
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data['c0'][('z', 'x2')]['J_fd']}"), 1)
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data['comp'][('f_xy', 'x')]['J_fd']}"), 1)
+        self.assertEqual(stream.getvalue().count(f"(Jfd)\n{partials_data['comp'][('f_xy', 'y')]['J_fd']}"), 1)
 
     def test_check_partials_worst_subjac(self):
         # The first is printing the worst subjac at the bottom of the output. Worst is defined by
@@ -1328,14 +1364,12 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         stream = StringIO()
-        # prob.check_partials(compact_print=True,show_only_incorrect=False)
         prob.check_partials(out_stream=stream, compact_print=True, show_only_incorrect=True)
         self.assertEqual(stream.getvalue().count("MyCompBadPartials"), 2)
         self.assertEqual(stream.getvalue().count("'z'        wrt 'y1'"), 2)
         self.assertEqual(stream.getvalue().count("MyCompGoodPartials"), 0)
 
         stream = StringIO()
-        prob.check_partials(compact_print=False, show_only_incorrect=False)
         prob.check_partials(out_stream=stream, compact_print=False, show_only_incorrect=True)
         self.assertEqual(stream.getvalue().count("MyCompGoodPartials"), 0)
         self.assertEqual(stream.getvalue().count("MyCompBadPartials"), 1)
@@ -1494,8 +1528,8 @@ class TestProblemCheckPartials(unittest.TestCase):
         J = prob.check_partials(method='cs', out_stream=stream, compact_print=True)
         lines = stream.getvalue().splitlines()
 
-        self.assertEqual(lines[6][43:46], 'n/a')
-        assert_near_equal(float(lines[6][95:105]), 0.0, 1e-15)
+        self.assertEqual(lines[7][43:46], 'n/a')
+        assert_near_equal(float(lines[7][95:105]), 0.0, 1e-15)
 
     def test_directional_mixed_matrix_free(self):
 
@@ -1843,7 +1877,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         data = prob.check_partials(out_stream=stream)
         lines = stream.getvalue().splitlines()
 
-        self.assertTrue("Relative Error (Jan - Jfd) / Jan : 1." in lines[8])
+        self.assertTrue("Relative Error (Jan - Jfd) / Jan : 1." in lines[9])
 
     def test_directional_bug_implicit(self):
         # Test for bug in directional derivative direction for implicit var and matrix-free.
@@ -2835,6 +2869,7 @@ class TestProblemCheckTotals(unittest.TestCase):
         prob = om.Problem()
         prob.model = SellarDerivatives()
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
+        prob.model.linear_solver = om.ScipyKrylov()
 
         prob.model.add_design_var('x', lower=-100, upper=100)
         prob.model.add_design_var('z', lower=-100, upper=100)
@@ -2860,11 +2895,11 @@ class TestProblemCheckTotals(unittest.TestCase):
         lines = stream.getvalue().splitlines()
 
         # Make sure auto-ivc sources are translated to promoted input names.
-        self.assertTrue('x' in lines[3])
+        self.assertTrue('x' in lines[4])
 
-        self.assertTrue('9.80614' in lines[4], "'9.80614' not found in '%s'" % lines[4])
         self.assertTrue('9.80614' in lines[5], "'9.80614' not found in '%s'" % lines[5])
-        self.assertTrue('cs:None' in lines[5], "'cs:None not found in '%s'" % lines[5])
+        self.assertTrue('9.80614' in lines[6], "'9.80614' not found in '%s'" % lines[6])
+        self.assertTrue('cs:None' in lines[6], "'cs:None not found in '%s'" % lines[6])
 
         assert_near_equal(totals['con_cmp2.con2', 'x']['J_fwd'], [[0.09692762]], 1e-5)
         assert_near_equal(totals['con_cmp2.con2', 'x']['J_fd'], [[0.09692762]], 1e-5)
@@ -2876,10 +2911,10 @@ class TestProblemCheckTotals(unittest.TestCase):
 
         compact_lines = compact_stream.getvalue().splitlines()
 
-        self.assertTrue('<output>' in compact_lines[3],
+        self.assertTrue('<output>' in compact_lines[4],
             "'<output>' not found in '%s'" % compact_lines[4])
-        self.assertTrue('9.7743e+00' in compact_lines[11],
-            "'9.7743e+00' not found in '%s'" % compact_lines[11])
+        self.assertTrue('9.7743e+00' in compact_lines[12],
+            "'9.7743e+00' not found in '%s'" % compact_lines[12])
 
     def test_check_totals_show_progress(self):
         prob = om.Problem()
@@ -2945,10 +2980,10 @@ class TestProblemCheckTotals(unittest.TestCase):
 
         lines = stream.getvalue().splitlines()
 
-        self.assertTrue('1.000' in lines[4])
         self.assertTrue('1.000' in lines[5])
-        self.assertTrue('0.000' in lines[6])
-        self.assertTrue('0.000' in lines[8])
+        self.assertTrue('1.000' in lines[6])
+        self.assertTrue('0.000' in lines[7])
+        self.assertTrue('0.000' in lines[9])
 
         assert_near_equal(totals['x', 'x']['J_fwd'], [[1.0]], 1e-5)
         assert_near_equal(totals['x', 'x']['J_fd'], [[1.0]], 1e-5)
@@ -3381,6 +3416,52 @@ class TestProblemCheckTotals(unittest.TestCase):
         for key, val in totals.items():
             assert_near_equal(val['rel error'][0], 0.0, 1e-10)
 
+    def test_cs_around_newton_new_method(self):
+        # The old method of nudging the Newton and forcing it to reconverge could not achieve the
+        # same accuracy on this model. (1e8 vs 1e12)
+
+        class SellarDerivatives(om.Group):
+
+            def setup(self):
+                self.add_subsystem('px', om.IndepVarComp('x', 1.0), promotes=['x'])
+                self.add_subsystem('pz', om.IndepVarComp('z', np.array([5.0, 2.0])), promotes=['z'])
+
+                self.add_subsystem('d1', SellarDis1withDerivatives(), promotes=['x', 'z', 'y1', 'y2'])
+                self.add_subsystem('d2', SellarDis2withDerivatives(), promotes=['z', 'y1', 'y2'])
+                sub = self.add_subsystem('sub', om.Group(), promotes=['*'])
+
+                sub.linear_solver = om.DirectSolver(assemble_jac=True)
+                sub.options['assembled_jac_type'] = 'csc'
+
+                obj = sub.add_subsystem('obj_cmp', om.ExecComp('obj = x**2 + z[1] + y1 + exp(-y2)', obj=0.0,
+                                                         x=0.0, z=np.array([0.0, 0.0]), y1=0.0, y2=0.0),
+                                  promotes=['obj', 'x', 'z', 'y1', 'y2'])
+                obj.declare_partials(of='*', wrt='*', method='cs')
+
+                con1 = sub.add_subsystem('con_cmp1', om.ExecComp('con1 = 3.16 - y1', con1=0.0, y1=0.0),
+                                  promotes=['con1', 'y1'])
+                con2 = sub.add_subsystem('con_cmp2', om.ExecComp('con2 = y2 - 24.0', con2=0.0, y2=0.0),
+                                  promotes=['con2', 'y2'])
+                con1.declare_partials(of='*', wrt='*', method='cs')
+                con2.declare_partials(of='*', wrt='*', method='cs')
+
+                self.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
+                self.linear_solver = om.DirectSolver(assemble_jac=False)
+
+
+        prob = om.Problem()
+        prob.model = SellarDerivatives()
+        prob.set_solver_print(level=0)
+        prob.setup(force_alloc_complex=True)
+
+        prob.run_model()
+
+        wrt = ['z', 'x']
+        of = ['obj', 'con1', 'con2']
+
+        totals = prob.check_totals(of=of, wrt=wrt, method='cs', compact_print=False)
+        assert_check_totals(totals, atol=1e-12, rtol=1e-12)
+
     def test_cs_around_newton_in_comp(self):
         # CS around Newton in an ImplicitComponent.
         class MyComp(om.ImplicitComponent):
@@ -3625,7 +3706,7 @@ class TestProblemCheckTotals(unittest.TestCase):
         stream = StringIO()
         prob.check_totals(out_stream=stream)
         lines = stream.getvalue().splitlines()
-        self.assertTrue('index size: 1' in lines[3])
+        self.assertTrue('index size: 1' in lines[4])
 
     def test_linear_cons(self):
         # Linear constraints were mistakenly forgotten.
@@ -3648,9 +3729,9 @@ class TestProblemCheckTotals(unittest.TestCase):
         J_driver = p.check_totals(out_stream=stream)
         lines = stream.getvalue().splitlines()
 
-        self.assertTrue("Full Model: 'stuff.lcy' wrt 'x' (Linear constraint)" in lines[3])
-        self.assertTrue("Absolute Error (Jan - Jfd)" in lines[6])
-        self.assertTrue("Relative Error (Jan - Jfd) / Jfd" in lines[8])
+        self.assertTrue("Full Model: 'stuff.lcy' wrt 'x' (Linear constraint)" in lines[4])
+        self.assertTrue("Absolute Error (Jan - Jfd)" in lines[7])
+        self.assertTrue("Relative Error (Jan - Jfd) / Jfd" in lines[9])
 
         assert_near_equal(J_driver['stuff.y', 'x']['J_fwd'][0, 0], 1.0)
         assert_near_equal(J_driver['stuff.lcy', 'x']['J_fwd'][0, 0], 3.0)
@@ -3719,6 +3800,97 @@ class TestProblemCheckTotals(unittest.TestCase):
         assert_near_equal(totals['a2', 'p1.widths']['abs error'][0], 0.0, 1e-6)
         assert_near_equal(totals['a3', 'p1.widths']['abs error'][0], 0.0, 1e-6)
         assert_near_equal(totals['a4', 'p1.widths']['abs error'][0], 0.0, 1e-6)
+
+    def test_alias_constraints_nested(self):
+        # Tests a bug where we need to lookup the constraint alias on a response that is from
+        # a child system.
+        prob = om.Problem()
+        model = prob.model
+
+        sub = model.add_subsystem('sub', om.Group())
+
+        sub.add_subsystem('p1', om.IndepVarComp('x', 50.0), promotes=['*'])
+        sub.add_subsystem('p2', om.IndepVarComp('y', 50.0), promotes=['*'])
+        sub.add_subsystem('comp', Paraboloid(), promotes=['*'])
+        sub.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
+
+        prob.set_solver_print(level=0)
+
+        sub.add_design_var('x', lower=-50.0, upper=50.0)
+        sub.add_design_var('y', lower=-50.0, upper=50.0)
+        sub.add_objective('f_xy')
+        sub.add_constraint('c', upper=-15.0, alias="Stuff")
+
+        prob.setup()
+
+        prob.run_model()
+
+        totals = prob.check_totals(out_stream=None)
+        assert_check_totals(totals)
+
+    def test_exceed_tol_show_only_incorrect(self):
+
+        prob = om.Problem()
+        top = prob.model
+        top.add_subsystem('goodcomp', MyCompGoodPartials())
+        top.add_subsystem('badcomp', MyCompBadPartials())
+        top.add_subsystem('C1', om.ExecComp('y=2.*x'))
+        top.add_subsystem('C2', om.ExecComp('y=3.*x'))
+
+        top.connect('goodcomp.y', 'C1.x')
+        top.connect('badcomp.z', 'C2.x')
+
+        top.add_objective('C1.y')
+        top.add_constraint('C2.y', lower=0)
+        top.add_design_var('goodcomp.x1')
+        top.add_design_var('goodcomp.x2')
+        top.add_design_var('badcomp.y1')
+        top.add_design_var('badcomp.y2')
+
+        prob.set_solver_print(level=0)
+        prob.setup()
+        prob.run_model()
+        prob.compute_totals()
+
+        stream = StringIO()
+        prob.check_totals(out_stream=stream, show_only_incorrect=True)
+
+        self.assertEqual(stream.getvalue().count("'C2.y' wrt 'badcomp.y1'"), 1)
+        self.assertEqual(stream.getvalue().count("'C2.y' wrt 'badcomp.y2'"), 1)
+        self.assertEqual(stream.getvalue().count("'C1.y' wrt 'goodcomp.y1'"), 0)
+        self.assertEqual(stream.getvalue().count("'C1.y' wrt 'goodcomp.y2'"), 0)
+        self.assertEqual(stream.getvalue().count("'C2.y' wrt 'goodcomp.y1'"), 0)
+        self.assertEqual(stream.getvalue().count("'C2.y' wrt 'goodcomp.y2'"), 0)
+
+    def test_compact_print_exceed_tol_show_only_incorrect(self):
+
+        prob = om.Problem()
+        top = prob.model
+        top.add_subsystem('goodcomp', MyCompGoodPartials())
+        top.add_subsystem('badcomp', MyCompBadPartials())
+        top.add_subsystem('C1', om.ExecComp('y=2.*x'))
+        top.add_subsystem('C2', om.ExecComp('y=3.*x'))
+
+        top.connect('goodcomp.y', 'C1.x')
+        top.connect('badcomp.z', 'C2.x')
+
+        top.add_objective('C1.y')
+        top.add_constraint('C2.y', lower=0)
+        top.add_design_var('goodcomp.x1')
+        top.add_design_var('goodcomp.x2')
+        top.add_design_var('badcomp.y1')
+        top.add_design_var('badcomp.y2')
+
+        prob.set_solver_print(level=0)
+        prob.setup()
+        prob.run_model()
+        prob.compute_totals()
+
+        stream = StringIO()
+        prob.check_totals(out_stream=stream, show_only_incorrect=True, compact_print=True)
+
+        self.assertEqual(stream.getvalue().count('>ABS_TOL'), 2)
+        self.assertEqual(stream.getvalue().count('>REL_TOL'), 2)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")

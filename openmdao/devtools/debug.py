@@ -2,17 +2,18 @@
 
 
 import sys
+import pathlib
+from io import StringIO
 
 import numpy as np
 from contextlib import contextmanager
 from collections import Counter
 
-from openmdao.core.problem import Problem
-from openmdao.core.group import Group
-from openmdao.core.implicitcomponent import ImplicitComponent
-from openmdao.utils.mpi import MPI
 from openmdao.core.constants import _SetupStatus
+from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning, MPIWarning
+from openmdao.utils.reports_system import register_report
+from openmdao.utils.file_utils import text2html
 
 
 class _NoColor(object):
@@ -89,6 +90,10 @@ def tree(top, show_solvers=True, show_jacs=True, show_colors=True, show_approx=T
     stream : File-like
         Where dump output will go.
     """
+    from openmdao.core.problem import Problem
+    from openmdao.core.group import Group
+    from openmdao.core.implicitcomponent import ImplicitComponent
+
     cprint, Fore, Back, Style = _get_color_printer(stream, show_colors, rank=rank)
 
     tab = 0
@@ -214,6 +219,8 @@ def config_summary(problem, stream=sys.stdout):
     stream : File-like
         Where the output will be written.
     """
+    from openmdao.core.group import Group
+
     model = problem.model
     meta = model._var_allprocs_abs2meta
     locsystems = list(model.system_iter(recurse=True, include_self=True))
@@ -347,6 +354,18 @@ def config_summary(problem, stream=sys.stdout):
         else:
             nlstr.append(slvname)
     printer("Nonlinear Solvers: [{}]".format(', '.join(nlstr)))
+
+
+def _summary_report(prob):
+    path = str(pathlib.Path(prob.get_reports_dir()).joinpath('summary.html'))
+    s = StringIO()
+    config_summary(prob, s)
+    with open(path, 'w') as f:
+        f.write(text2html(s.getvalue()))
+
+
+def _summary_report_register():
+    register_report('summary', _summary_report, 'Model summary', 'Problem', 'final_setup', 'post')
 
 
 @contextmanager

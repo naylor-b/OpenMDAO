@@ -39,7 +39,7 @@ class Diagram {
         this.manuallyResized = false; // If the diagram has been sized by the user
 
         // Assign this way because defaultDims is read-only.
-        this.dims = structuredClone(defaultDims);
+        this.dims = {...defaultDims};
 
         this._referenceD3Elements();
         this.transitionStartDelay = transitionDefaults.startDelay;
@@ -53,7 +53,6 @@ class Diagram {
 
     _newModelData() {
         this.model = new ModelData(this.modelData);
-        console.log(this.model)
     }
 
     /** Create a Layout object. Can be overridden to create different types of Layouts */
@@ -143,8 +142,12 @@ class Diagram {
         const svgUrl = URL.createObjectURL(svgBlob);
         const downloadLink = document.createElement("a");
         downloadLink.href = svgUrl;
-        const svgFileName = prompt("Filename to save SVG as", 'partition_tree_n2.svg');
+
+        // To suggest a filename to save as, get the basename of the current HTML file,
+        // remove the .html/.htm extension, and add ".svg".
+        const svgFileName = basename() + ".svg";
         downloadLink.download = svgFileName;
+        
         document.body.appendChild(downloadLink);
         downloadLink.click();
         document.body.removeChild(downloadLink);
@@ -179,10 +182,7 @@ class Diagram {
 
         // Get rid of any existing filters before processing children, as they'll
         // be populated while processing the state of each child node.
-        if (node.hasFilters()) {
-            node.filter.inputs.wipe();
-            node.filter.outputs.wipe();
-        }
+        if (node.hasFilters()) { node.wipeFilters(); }
 
         if (node.hasChildren()) {
             for (const child of node.children) {
@@ -264,6 +264,8 @@ class Diagram {
         const enterSelection = enter
             .append("g")
             .attr("class", d => `model_tree_grp ${self.style.getNodeClass(d)}`)
+            .attr("transform", d =>
+                `translate(${scale.prev.x(d.draw.dims.prev.x)},${scale.prev.y(d.draw.dims.prev.y)})`)
             .on("click", (e,d) => self.leftClickSelector(e, d))
             .on("contextmenu", function(e,d) {
                 if (e.altKey) {
@@ -295,7 +297,7 @@ class Diagram {
         // Add a label
         enterSelection
             .append("text")
-            .text(self.layout.getText.bind(self.layout))
+            .text(d => d.getTextName())
             .style('visibility', 'hidden')
             .attr("dy", ".35em")
             .attr("transform", d => {
@@ -504,7 +506,7 @@ class Diagram {
     mouseOverOnDiagonal(e, cell) {
         if (this.matrix.cellExists(cell)) {
             this.matrix.mouseOverOnDiagonal(cell);
-            this.ui.showInfoBox(e, cell.obj, cell.color());
+            this.ui.showInfoBox(e, cell.obj, cell.color(), false);
         }
     }
 
@@ -525,6 +527,7 @@ class Diagram {
     mouseOverOffDiagonal(e, cell) {
         if (this.matrix.cellExists(cell)) {
             this.matrix.mouseOverOffDiagonal(cell);
+            this.ui.showCellInfoBox(e, cell, cell.color(), true);
         }
     }
 

@@ -17,13 +17,13 @@ class TestIndepVarComp(unittest.TestCase):
             'size': 1,
             'units': 'ft',
             'desc': '',
-            'tags': {'indep_var', 'openmdao:allow_desvar'},
+            'tags': {'openmdao:indep_var', 'openmdao:allow_desvar'},
         }
         expected_discrete = {
             'val': 3,
             'type': int,
             'desc': '',
-            'tags': {'indep_var'},
+            'tags': {'openmdao:indep_var'},
         }
 
         class IDVComp(om.IndepVarComp):
@@ -119,25 +119,25 @@ class TestIndepVarComp(unittest.TestCase):
         prob.run_model()
 
         # Outputs no tags
-        outputs = prob.model.list_outputs(values=False, out_stream=None)
+        outputs = prob.model.list_outputs(val=False, out_stream=None)
         self.assertEqual(sorted(outputs), [
             ('indep_var', {}),
         ])
 
         # Outputs with automatically added indep_var_comp tag
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags="indep_var")
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags="openmdao:indep_var")
         self.assertEqual(sorted(outputs), [
             ('indep_var', {}),
         ])
 
         # Outputs with tag
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags="tag1")
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags="tag1")
         self.assertEqual(sorted(outputs), [
             ('indep_var', {}),
         ])
 
         # Outputs with wrong tag
-        outputs = prob.model.list_outputs(values=False, out_stream=None, tags="tag_wrong")
+        outputs = prob.model.list_outputs(val=False, out_stream=None, tags="tag_wrong")
         self.assertEqual(sorted(outputs), [])
 
     def test_add_output_with_tags(self):
@@ -165,7 +165,7 @@ class TestIndepVarComp(unittest.TestCase):
         ])
 
         # Outputs with the indep_var tags
-        outputs = prob.model.list_outputs(out_stream=None, tags="indep_var")
+        outputs = prob.model.list_outputs(out_stream=None, tags="openmdao:indep_var")
         self.assertEqual(sorted(outputs), [
             ('indep_var_1', {'val': [1.]}),
             ('indep_var_2', {'val': [2.]}),
@@ -236,39 +236,6 @@ class TestIndepVarComp(unittest.TestCase):
 
         self.assertEqual(len(prob.get_val('num_x')), 4)
         self.assertEqual(prob.get_val('val_y'), 2.5)
-
-    def test_ivc_deprecations(self):
-        msg = "'p1' <class IndepVarComp>: The '{}' argument was used when adding output '{}'. " + \
-              "This argument has been deprecated and will be removed in a future version."
-
-        prob = om.Problem()
-
-        indep = prob.model.add_subsystem('p1', om.IndepVarComp())
-
-        # ref, ref0
-        with assert_warnings([(OMDeprecationWarning, msg.format('ref', 'a')),
-                              (OMDeprecationWarning, msg.format('ref0', 'a'))]):
-            indep.add_output('a', 12., ref=0.0, ref0=1.)
-
-        # res_units
-        with assert_warning(OMDeprecationWarning, msg.format('res_units', 'b')):
-            indep.add_output('b', 12., res_units='m')
-
-        # upper
-        with assert_warning(OMDeprecationWarning, msg.format('upper', 'c')):
-            indep.add_output('c', 12., upper=1.)
-
-        # lower
-        with assert_warning(OMDeprecationWarning, msg.format('lower', 'd')):
-            indep.add_output('d', 12., lower=1.)
-
-        # res_ref
-        with assert_warning(OMDeprecationWarning, msg.format('res_ref', 'e')):
-            indep.add_output('e', 12., res_ref=1.)
-
-        # res_ref
-        with assert_warning(OMDeprecationWarning, msg.format('ref', 'f')):
-            indep.add_output('f', 12., ref=2.)
 
 
 if __name__ == '__main__':

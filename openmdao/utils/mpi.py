@@ -26,12 +26,22 @@ def _redirect_streams(to_fd):
     to_fd : int
         File descriptor to redirect to.
     """
-    original_stdout_fd = sys.stdout.fileno()
-    original_stderr_fd = sys.stderr.fileno()
-
+    # get fd for sys.stdout/err,
+    #   if not a valid stream object (e.g. subprocess 'DevNull') use os.devnull
     # Flush and close sys.stdout/err - also closes the file descriptors (fd)
-    sys.stdout.close()
-    sys.stderr.close()
+    try:
+        original_stdout_fd = sys.stdout.fileno()
+        sys.stdout.close()
+    except (AttributeError, io.UnsupportedOperation) as err:
+        with open(os.devnull) as devnull:
+            original_stdout_fd = devnull.fileno()
+
+    try:
+        original_stderr_fd = sys.stderr.fileno()
+        sys.stderr.close()
+    except (AttributeError, io.UnsupportedOperation) as err:
+        with open(os.devnull) as devnull:
+            original_stderr_fd = devnull.fileno()
 
     # Make original_stdout_fd point to the same file as to_fd
     os.dup2(to_fd, original_stdout_fd)
@@ -66,11 +76,7 @@ def check_mpi_env():
     bool
         True if MPI is required, False if it's to be skipped, None if not set.
     """
-    if 'OPENMDAO_REQUIRE_MPI' in os.environ:
-        warn_deprecation("Set OPENMDAO_USE_MPI instead of OPENMDAO_REQUIRE_MPI.")
-
-    mpi_selection = os.environ.get('OPENMDAO_USE_MPI',
-                                   os.environ.get('OPENMDAO_REQUIRE_MPI', None))
+    mpi_selection = os.environ.get('OPENMDAO_USE_MPI', None)
 
     # If OPENMDAO_USE_MPI is set to a postive value, the run will fail
     # immediately if the import fails
@@ -162,7 +168,7 @@ class FakeComm(object):
 _om_mpi_debug = env_truthy('OM_MPI_DEBUG')
 
 
-def _debug_decorator(fn, scope):
+def _debug_decorator(fn, scope):  # pragma no cover
     def _wrap(*args, **kwargs):
         sc = '' if scope is None else f"{scope}."
         print(f"calling {sc}{fn.__name__}", flush=True)
@@ -172,7 +178,7 @@ def _debug_decorator(fn, scope):
     return _wrap
 
 
-class _DebugComm(object):
+class _DebugComm(object):  # pragma no cover
     """
     Debugging wrapper for an MPI communicator.
     """
@@ -194,20 +200,20 @@ class _DebugComm(object):
         setattr(self._comm, name, val)
 
 
-def _get_om_comm(comm, scope=None):
+def _get_om_comm(comm, scope=None):  # pragma no cover
     if _om_mpi_debug:
         return _DebugComm(comm, scope)
     return comm
 
 
-def _get_true_comm(comm):
+def _get_true_comm(comm):  # pragma no cover
     if isinstance(comm, _DebugComm):
         return comm._comm
     return comm
 
 
 @contextmanager
-def multi_proc_fail_check(comm):
+def multi_proc_fail_check(comm):  # pragma no cover
     """
     Raise an AnalysisError on all procs if it is raised on one.
 
@@ -243,7 +249,7 @@ def multi_proc_fail_check(comm):
 
 
 @contextmanager
-def multi_proc_exception_check(comm):
+def multi_proc_exception_check(comm):  # pragma no cover
     """
     Raise an exception on all procs if it is raised on one.
 
@@ -334,7 +340,7 @@ else:
 
 
 if MPI:
-    def mpirun_tests():
+    def mpirun_tests():  # pragma no cover
         """
         Run individual tests under MPI.
 

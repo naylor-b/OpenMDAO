@@ -24,7 +24,11 @@ import os
 import copy
 
 import numpy as np
-from pyDOE2 import lhs
+
+try:
+    from pyDOE2 import lhs
+except ModuleNotFoundError:
+    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -57,15 +61,24 @@ class SimpleGADriver(Driver):
         Main genetic algorithm lies here.
     _randomstate : np.random.RandomState, int
          Random state (or seed-number) which controls the seed and random draws.
+    _nfit : int
+         Number of successful function evaluations.
     """
 
     def __init__(self, **kwargs):
         """
         Initialize the SimpleGADriver driver.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         super().__init__(**kwargs)
 
         # What we support
+        self.supports['optimization'] = True
         self.supports['integer_design_vars'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
@@ -91,6 +104,8 @@ class SimpleGADriver(Driver):
         # Support for Parallel models.
         self._concurrent_pop_size = 0
         self._concurrent_color = 0
+
+        self._nfit = 0  # Number of successful function evaluations
 
     def _declare_options(self):
         """
@@ -263,6 +278,28 @@ class SimpleGADriver(Driver):
         """
         return "SimpleGA"
 
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        return self._nfit
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        return 0
+
     def run(self):
         """
         Execute the genetic algorithm.
@@ -287,6 +324,7 @@ class SimpleGADriver(Driver):
         Pc = self.options['Pc']
 
         self._check_for_missing_objective()
+        self._check_for_invalid_desvar_values()
 
         if compute_pareto:
             self._ga.nobj = len(self._objs)
@@ -356,9 +394,9 @@ class SimpleGADriver(Driver):
         if pop_size == 0:
             pop_size = 4 * np.sum(bits)
 
-        desvar_new, obj, nfit = ga.execute_ga(x0, lower_bound, upper_bound, outer_bound,
-                                              bits, pop_size, max_gen,
-                                              self._randomstate, Pm, Pc)
+        desvar_new, obj, self._nfit = ga.execute_ga(x0, lower_bound, upper_bound, outer_bound,
+                                                    bits, pop_size, max_gen,
+                                                    self._randomstate, Pm, Pc)
 
         if compute_pareto:
             # Just save the non-dominated points.
@@ -594,6 +632,12 @@ class GeneticAlgorithm(object):
         """
         Initialize genetic algorithm object.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         self.objfun = objfun
         self.comm = comm
 
@@ -954,7 +998,7 @@ class GeneticAlgorithm(object):
         -------
         ndarray
             New shuffled population.
-        ndarray(dtype=np.int)
+        ndarray(dtype=int)
             Index array that maps the shuffle from old to new.
         """
         temp = np.random.rand(self.npop)
@@ -973,7 +1017,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns
@@ -1012,7 +1056,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns

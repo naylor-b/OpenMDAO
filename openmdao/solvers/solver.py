@@ -1,24 +1,20 @@
 """Define the base Solver, NonlinearSolver, and LinearSolver classes."""
 
-from collections import OrderedDict
 import os
 import pprint
-import re
 import sys
 import weakref
 
 import numpy as np
 
 from openmdao.core.analysis_error import AnalysisError
+from openmdao.core.constants import _UNDEFINED
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.record_util import create_local_meta, check_path
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
-from openmdao.core.component import Component
-
-_emptyset = set()
 
 
 class SolverInfo(object):
@@ -184,12 +180,6 @@ class Solver(object):
                                        desc='Set to True to record outputs at the solver level')
         self.recording_options.declare('record_solver_residuals', types=bool, default=False,
                                        desc='Set to True to record residuals at the solver level')
-        self.recording_options.declare('record_metadata', types=bool, desc='Deprecated. Recording '
-                                       'of metadata will always be done',
-                                       deprecation="The recording option, record_metadata, on "
-                                       "Solver is "
-                                       "deprecated. Recording of metadata will always be done",
-                                       default=True)
         self.recording_options.declare('includes', types=list, default=['*'],
                                        desc="Patterns for variables to include in recording. \
                                        Paths are relative to solver's Group. \
@@ -228,7 +218,7 @@ class Solver(object):
         """
         if self._system is None:
             return type(self).__name__
-        return '{} in {}'.format(type(self).__name__, self._system().msginfo)
+        return f"{type(self).__name__} in {self._system().msginfo}"
 
     @property
     def _recording_iter(self):
@@ -284,7 +274,13 @@ class Solver(object):
         depth : int
             depth of the current system (already incremented).
         """
-        self._system = weakref.ref(system)
+        if self._system is None:
+            self._system = weakref.ref(system)
+        elif self._system != weakref.ref(system):
+            raise RuntimeError(f"{type(self).__name__} has already been assigned to "
+                               f"{self._system().msginfo} and cannot also be assigned to "
+                               f"{system.msginfo}.")
+
         self._depth = depth
         self._problem_meta = system._problem_meta
 
@@ -362,9 +358,7 @@ class Solver(object):
             if prefix.endswith('precon:'):
                 solver_name = solver_name[3:]
 
-            print_str = prefix + solver_name
-            print_str += ' %d ; %.9g %.9g' % (iteration, abs_res, rel_res)
-            print(print_str)
+            print(f"{prefix}{solver_name} {iteration} ; {abs_res:.9g} {rel_res:.9g}")
 
     def _mpi_print_header(self):
         """
@@ -375,13 +369,9 @@ class Solver(object):
 
             pathname = self._system().pathname
             if pathname:
-                nchar = len(pathname)
+                eqs = len(pathname) * "="
                 prefix = self._solver_info.prefix
-                header = prefix + "\n"
-                header += prefix + nchar * "=" + "\n"
-                header += prefix + pathname + "\n"
-                header += prefix + nchar * "="
-                print(header)
+                print(f"{prefix}\n{prefix}{eqs}\n{prefix}{pathname}\n{prefix}{eqs}")
 
     def _iter_initialize(self):
         """
@@ -503,6 +493,19 @@ class Solver(object):
                 "distributed component."
             raise RuntimeError(msg.format(type(self).__name__, s.msginfo))
 
+    def get_reports_dir(self):
+        """
+        Get the path to the directory where the report files should go.
+
+        If it doesn't exist, it will be created.
+
+        Returns
+        -------
+        str
+            The path to the directory where reports should be written.
+        """
+        return self._system().get_reports_dir()
+
 
 class NonlinearSolver(Solver):
     """
@@ -517,6 +520,10 @@ class NonlinearSolver(Solver):
     ----------
     _err_cache : dict
         Dictionary holding input and output vectors at start of iteration, if requested.
+    _output_cache : ndarray or None
+        Saved output values from last successful solve, if any.
+    _prev_fail : bool
+        If True, previous solve failed.
     """
 
     def __init__(self, **kwargs):
@@ -524,7 +531,9 @@ class NonlinearSolver(Solver):
         Initialize all attributes.
         """
         super().__init__(**kwargs)
-        self._err_cache = OrderedDict()
+        self._err_cache = {}
+        self._output_cache = None
+        self._prev_fail = False
 
     def _declare_options(self):
         """
@@ -542,6 +551,31 @@ class NonlinearSolver(Solver):
         self.options.declare('stall_tol', default=1e-12,
                              desc='When stall checking is enabled, the threshold below which the '
                                   'residual norm is considered unchanged.')
+        self.options.declare('restart_from_successful', types=bool, default=False,
+                             desc='If True, the states are cached after a successful solve and '
+                                  'used to restart the solver in the case of a failed solve.')
+
+    def _setup_solvers(self, system, depth):
+        """
+        Assign system instance, set depth, and optionally perform setup.
+
+        Parameters
+        ----------
+        system : <System>
+            pointer to the owning system.
+        depth : int
+            depth of the current system (already incremented).
+        """
+        super()._setup_solvers(system, depth)
+        # The state caching only works if we throw an error on non-convergence, otherwise
+        # the solver will disregard the caching option and issue a warning.
+        if 'restart_from_successful' in self.options and self.options['restart_from_successful']:
+            if not self.options['err_on_non_converge']:
+                issue_warning(f"{self.msginfo}: Option 'restart_from_successful' does nothing "
+                              "unless option 'err_on_non_converge' is set to True.",
+                              category=SolverWarning)
+                # reset to False so we won't waste memory allocating a cache array
+                self.options['restart_from_successful'] = False
 
     def solve(self):
         """
@@ -598,12 +632,21 @@ class NonlinearSolver(Solver):
 
         self._mpi_print(self._iter_count, norm, norm / norm0)
 
+        system = self._system()
+
         stalled = False
         stall_count = 0
         if stall_limit > 0:
             stall_norm = norm0
 
-        while self._iter_count < maxiter and norm > atol and norm / norm0 > rtol and not stalled:
+        force_one_iteration = system.under_complex_step
+
+        while ((self._iter_count < maxiter and norm > atol and norm / norm0 > rtol and
+               not stalled) or force_one_iteration):
+
+            if system.under_complex_step:
+                force_one_iteration = False
+
             with Recording(type(self).__name__, self._iter_count, self) as rec:
 
                 if stall_count == 3 and not self.linesearch.options['print_bound_enforce']:
@@ -651,8 +694,6 @@ class NonlinearSolver(Solver):
 
             self._mpi_print(self._iter_count, norm, norm / norm0)
 
-        system = self._system()
-
         # flag for the print statements. we only print on root if USE_PROC_FILES is not set to True
         print_flag = system.comm.rank == 0 or os.environ.get('USE_PROC_FILES')
 
@@ -674,16 +715,15 @@ class NonlinearSolver(Solver):
 
         # Solver hit maxiter without meeting desired tolerances.
         # Or solver stalled.
-        elif (norm > atol and norm / norm0 > rtol) or stalled:
+        elif stalled or (norm > atol and norm / norm0 > rtol):
 
             if stalled:
                 msg = "Solver '{}' on system '{}' stalled after {} iterations."
             else:
                 msg = "Solver '{}' on system '{}' failed to converge in {} iterations."
 
-            if iprint > -1 and print_flag:
-                print(prefix + msg.format(self.SOLVER, system.pathname,
-                                          self._iter_count))
+            if print_flag and iprint > -1:
+                print(prefix + msg.format(self.SOLVER, system.pathname, self._iter_count))
 
             # Raise AnalysisError if requested.
             if self.options['err_on_non_converge']:
@@ -691,10 +731,11 @@ class NonlinearSolver(Solver):
                                                self._iter_count))
 
         # Solver converged
-        elif iprint == 1 and print_flag:
-            print(prefix + ' Converged in {} iterations'.format(self._iter_count))
-        elif iprint == 2 and print_flag:
-            print(prefix + ' Converged')
+        elif print_flag:
+            if iprint == 1:
+                print(prefix + ' Converged in {} iterations'.format(self._iter_count))
+            elif iprint == 2:
+                print(prefix + ' Converged')
 
     def _run_apply(self):
         """
@@ -729,7 +770,7 @@ class NonlinearSolver(Solver):
     def _print_exc_debug_info(self):
         coord = self._recording_iter.get_formatted_iteration_coordinate()
 
-        out_strs = ["\n# Inputs and outputs at start of iteration '%s':\n" % coord]
+        out_strs = [f"\n# Inputs and outputs at start of iteration '{coord}':\n"]
         for vec_type, views in self._err_cache.items():
             out_strs.append('\n# nonlinear %s\n' % vec_type)
             out_strs.append(pprint.pformat(views))
@@ -739,12 +780,11 @@ class NonlinearSolver(Solver):
         print(out_str)
 
         rank = MPI.COMM_WORLD.rank if MPI is not None else 0
-        filename = 'solver_errors.%d.out' % rank
+        filename = f'solver_errors.{rank}.out'
 
         with open(filename, 'a') as f:
             f.write(out_str)
-            print("Inputs and outputs at start of iteration have been "
-                  "saved to '%s'." % filename)
+            print(f"Inputs and outputs at start of iteration have been saved to '{filename}'.")
             sys.stdout.flush()
 
     def _gs_iter(self):
@@ -763,6 +803,41 @@ class NonlinearSolver(Solver):
                             self.options['reraise_child_analysiserror']:
                         raise err
 
+    def _solve_with_cache_check(self):
+        """
+        Solve the nonlinear system, possibly after updating the output vector with cached values.
+
+        Cached values, if any, are from the last successful nonlinear solve, and are only used
+        if the 'restart_from_successful' option is True.
+        """
+        system = self._system()
+
+        if (self.options['restart_from_successful'] and self.options['maxiter'] > 1 and
+                not system.under_approx):
+            try:
+                # If we have a previous solver failure, we want to replace
+                # the outputs using the cache.
+                if self._prev_fail and self._output_cache is not None:
+                    system._outputs.set_val(self._output_cache)
+
+                self.solve()
+
+                # If we make it here, the solver converged.
+                self._prev_fail = False
+
+                # Save the outputs upon a successful solve
+                if self._output_cache is None:
+                    self._output_cache = system._outputs.asarray(copy=True)
+                else:
+                    self._output_cache[:] = system._outputs.asarray()
+
+            except Exception:
+                # The solver failed so we need to set the flag to True
+                self._prev_fail = True
+                raise
+        else:
+            self.solve()
+
 
 class LinearSolver(Solver):
     """
@@ -779,6 +854,10 @@ class LinearSolver(Solver):
         Names of systems relevant to the current solve.
     _assembled_jac : AssembledJacobian or None
         If not None, the AssembledJacobian instance used by this solver.
+    _scope_in : set or None or _UNDEFINED
+        Relevant input variables for the current matrix vector product.
+    _scope_out : set or None or _UNDEFINED
+        Relevant output variables for the current matrix vector product.
     """
 
     def __init__(self, **kwargs):
@@ -787,7 +866,26 @@ class LinearSolver(Solver):
         """
         self._rel_systems = None
         self._assembled_jac = None
+        self._scope_out = _UNDEFINED
+        self._scope_in = _UNDEFINED
+
         super().__init__(**kwargs)
+
+    def does_recursive_applies(self):
+        """
+        Return False.
+
+        By default, assume linear solvers don't do recursive apply_linear calls.
+
+        Returns
+        -------
+        bool
+            True if solver makes recursive apply_linear calls on its subsystems.
+        """
+        return False
+
+    def _set_matvec_scope(self, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
+        pass
 
     def _assembled_jac_solver_iter(self):
         """
@@ -861,9 +959,12 @@ class LinearSolver(Solver):
 
         self._norm0 = norm0
 
+        system = self._system()
+
         self._mpi_print(self._iter_count, norm, norm / norm0)
 
         while self._iter_count < maxiter and norm > atol and norm / norm0 > rtol:
+
             with Recording(type(self).__name__, self._iter_count, self) as rec:
                 self._single_iteration()
                 self._iter_count += 1
@@ -877,8 +978,6 @@ class LinearSolver(Solver):
                 rec.rel = norm / norm0
 
             self._mpi_print(self._iter_count, norm, norm / norm0)
-
-        system = self._system()
 
         # flag for the print statements. we only print on root if USE_PROC_FILES is not set to True
         print_flag = system.comm.rank == 0 or os.environ.get('USE_PROC_FILES')
@@ -925,7 +1024,7 @@ class LinearSolver(Solver):
         self._recording_iter.push(('_run_apply', 0))
 
         system = self._system()
-        scope_out, scope_in = system._get_scope()
+        scope_out, scope_in = system._get_matvec_scope()
 
         try:
             system._apply_linear(self._assembled_jac, self._rel_systems,
@@ -942,7 +1041,20 @@ class BlockLinearSolver(LinearSolver):
     ----------
     **kwargs : dict
         Options dictionary.
+
+    Attributes
+    ----------
+    _rhs_vec : ndarray
+        Contains the values of the linear resids (fwd) or outputs (rev) saved at the beginning
+        of the linear solve.
     """
+
+    def __init__(self, **kwargs):
+        """
+        Initialize attributes.
+        """
+        super().__init__(**kwargs)
+        self._rhs_vec = None
 
     def _declare_options(self):
         """
@@ -950,6 +1062,19 @@ class BlockLinearSolver(LinearSolver):
         """
         super()._declare_options()
         self.supports['assembled_jac'] = False
+
+    def does_recursive_applies(self):
+        """
+        Return True.
+
+        Block linear solvers make recursive apply_linear calls.
+
+        Returns
+        -------
+        bool
+            True if solver makes recursive apply_linear calls on its subsystems.
+        """
+        return True
 
     def _setup_solvers(self, system, depth):
         """
@@ -969,16 +1094,16 @@ class BlockLinearSolver(LinearSolver):
     def _create_rhs_vec(self):
         system = self._system()
         if self._mode == 'fwd':
-            self._rhs_vec = system._vectors['residual']['linear'].asarray(True)
+            self._rhs_vec = system._dresiduals.asarray(True)
         else:
-            self._rhs_vec = system._vectors['output']['linear'].asarray(True)
+            self._rhs_vec = system._doutputs.asarray(True)
 
     def _update_rhs_vec(self):
-        system = self._system()
         if self._mode == 'fwd':
-            self._rhs_vec[:] = system._vectors['residual']['linear'].asarray()
+            self._rhs_vec[:] = self._system()._dresiduals.asarray()
         else:
-            self._rhs_vec[:] = system._vectors['output']['linear'].asarray()
+            self._rhs_vec[:] = self._system()._doutputs.asarray()
+        # print("Updating RHS vec to", self._rhs_vec)
 
     def _set_complex_step_mode(self, active):
         """
@@ -996,6 +1121,48 @@ class BlockLinearSolver(LinearSolver):
         else:
             self._rhs_vec = self._rhs_vec.real
 
+    def _vars_union(self, slv_vars, sys_vars):
+        """
+        Return the union of the two 'set's of variables.
+
+        The first 'set' comes from the this solver and the second from the set of variables
+        from the current System that are relevent to the current matrix vector product. Note
+        that this is called separately for input and output variables.
+
+        Also handles cases where incoming variables are _UNDEFINED or None instead of sets.
+
+        Parameters
+        ----------
+        slv_vars : set, None, or _UNDEFINED
+            First variable set.
+        sys_vars : set, None, or _UNDEFINED
+            Second variable set.
+
+        Returns
+        -------
+        set, None, or _UNDEFINED
+            The combined variable 'set'.
+        """
+        if sys_vars is None or slv_vars is None:
+            return None
+        if slv_vars is _UNDEFINED:
+            return sys_vars
+        return sys_vars.union(slv_vars)
+
+    def _run_apply(self, init=False):
+        """
+        Run the apply_linear method on the system.
+        """
+        system = self._system()
+        self._recording_iter.push(('_run_apply', 0))
+        try:
+            scope_out, scope_in = system._get_matvec_scope()
+            system._apply_linear(self._assembled_jac, self._rel_systems, self._mode,
+                                 self._vars_union(self._scope_out, scope_out),
+                                 self._vars_union(self._scope_in, scope_in))
+        finally:
+            self._recording_iter.pop()
+
     def _iter_initialize(self):
         """
         Perform any necessary pre-processing operations.
@@ -1008,11 +1175,12 @@ class BlockLinearSolver(LinearSolver):
             error at the first iteration.
         """
         self._update_rhs_vec()
+
         if self.options['maxiter'] > 1:
             self._run_apply()
             norm = self._iter_get_norm()
         else:
-            norm = 1.0
+            return 1.0, 1.0
         norm0 = norm if norm != 0.0 else 1.0
         return norm0, norm
 
@@ -1028,15 +1196,29 @@ class BlockLinearSolver(LinearSolver):
         float
             norm.
         """
-        system = self._system()
-
         if self._mode == 'fwd':
-            b_vecs = system._vectors['residual']['linear']
+            b_vec = self._system()._dresiduals
         else:  # rev
-            b_vecs = system._vectors['output']['linear']
+            b_vec = self._system()._doutputs
 
-        b_vecs -= self._rhs_vec
-        return b_vecs.get_norm()
+        b_vec -= self._rhs_vec  # compute Ax - rhs
+        norm = b_vec.get_norm()
+        b_vec += self._rhs_vec  # revert b_vec back to original value
+        return norm
+
+    def _set_matvec_scope(self, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
+        """
+        Set the relevant variables for the current matrix vector product.
+
+        Parameters
+        ----------
+        scope_out : set, None, or _UNDEFINED
+            Outputs relevant to possible lower level calls to _apply_linear on Components.
+        scope_in : set, None, or _UNDEFINED
+            Inputs relevant to possible lower level calls to _apply_linear on Components.
+        """
+        self._scope_out = scope_out
+        self._scope_in = scope_in
 
     def solve(self, mode, rel_systems=None):
         """
@@ -1052,3 +1234,5 @@ class BlockLinearSolver(LinearSolver):
         self._rel_systems = rel_systems
         self._mode = mode
         self._solve()
+
+        self._scope_out = self._scope_in = _UNDEFINED  # reset after solve is done

@@ -3,13 +3,10 @@ import os
 import sys
 import re
 import time
-import argparse
-import warnings
 from contextlib import contextmanager
 from collections import defaultdict, OrderedDict
 
 from io import StringIO
-from numpy import ndarray
 try:
     import objgraph
 except ImportError:
@@ -93,7 +90,7 @@ def _trace_call(frame, arg, stack, context):
     """
     global time0
     if time0 is None:
-        time0 = time.time()
+        time0 = time.perf_counter()
 
     (qual_cache, method_counts, class_counts, id2count,
      verbose, memory, leaks, stream, show_ptrs) = context
@@ -166,7 +163,7 @@ def _trace_return(frame, arg, stack, context):
         if current_mem != last_mem:
             delta = current_mem - last_mem
             _printer("%s<-- %s (time: %8.5f) (total: %6.3f MB) (diff: %+.0f KB)" %
-                     (indent, '.'.join((sname, funcname)), time.time() - time0, current_mem,
+                     (indent, '.'.join((sname, funcname)), time.perf_counter() - time0, current_mem,
                      delta * 1024.))
 
             # add this delta to all callers so when they calculate their own delta, this
@@ -175,7 +172,7 @@ def _trace_return(frame, arg, stack, context):
                 memory[i] += delta
         else:
             _printer("%s<-- %s (time: %8.5f) (total: %6.3f MB)" %
-                     (indent, '.'.join((sname, funcname)), time.time() - time0, current_mem))
+                     (indent, '.'.join((sname, funcname)), time.perf_counter() - time0, current_mem))
     else:
         _printer("%s<-- %s" % (indent, '.'.join((sname, funcname))))
 
@@ -201,6 +198,7 @@ def _setup(options):
     verbose = options.verbose
     memory = options.memory
     leaks = options.leaks
+    show_returns = options.show_returns or memory or leaks
 
     if not _registered:
         methods = _get_methods(options, default='openmdao')
@@ -236,9 +234,11 @@ def _setup(options):
 
         _printer = _get_printer(stream, options.rank)
 
+        ret = _trace_return if show_returns else None
+
         _trace_calls = _create_profile_callback(call_stack, _collect_methods(methods),
                                                 do_call=_trace_call,
-                                                do_ret=_trace_return,
+                                                do_ret=ret,
                                                 context=(qual_cache, method_counts,
                                                          class_counts, id2count, verbose, memory,
                                                          leaks, stream, options.show_ptrs),
@@ -374,6 +374,8 @@ def _itrace_setup_parser(parser):
                         help="Show memory usage.")
     parser.add_argument('-l', '--leaks', action='store_true', dest='leaks',
                         help="Show objects that are not garbage collected after each function call.")
+    parser.add_argument('--show_returns', action='store_true', dest='show_returns',
+                        help="Show return for each function.")
     parser.add_argument('-r', '--rank', action='store', dest='rank', type=int,
                         default=-1, help='MPI rank where output is desired.  Default is all ranks.')
     parser.add_argument('-o', '--outfile', action='store', dest='outfile',

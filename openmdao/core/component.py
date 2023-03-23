@@ -11,19 +11,19 @@ from numpy import ndarray, isscalar, ndim, atleast_1d, atleast_2d, promote_types
 from scipy.sparse import issparse, coo_matrix
 
 from openmdao.core.system import System, _supported_methods, _DEFAULT_COLORING_META, \
-    global_meta_names, _MetadataDict
+    global_meta_names, collect_errors
 from openmdao.core.constants import INT_DTYPE
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.units import simplify_unit
-from openmdao.utils.name_maps import rel_key2abs_key, abs_key2rel_key, rel_name2abs_name
+from openmdao.utils.name_maps import abs_key_iter, abs_key2rel_key, rel_name2abs_name
 from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import format_as_float_or_array, ensure_compatible, \
-    find_matches, make_set, convert_src_inds, conditional_error
+    find_matches, make_set, convert_src_inds, inconsistent_across_procs
 from openmdao.utils.indexer import Indexer, indexer
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.om_warnings import issue_warning, MPIWarning, DistributedComponentWarning, \
-    DerivativesWarning, SetupWarning, warn_deprecation
+    DerivativesWarning, warn_deprecation
 
 _forbidden_chars = {'.', '*', '?', '!', '[', ']'}
 _whitespace = {' ', '\t', '\r', '\n'}
@@ -66,8 +66,6 @@ class Component(System):
 
     Attributes
     ----------
-    _approx_schemes : OrderedDict
-        A mapping of approximation types to the associated ApproximationScheme.
     _var_rel2meta : dict
         Dictionary mapping relative names to metadata.
         This is only needed while adding inputs and outputs. During setup, these are used to
@@ -86,6 +84,8 @@ class Component(System):
         Cached storage of user-declared check partial options.
     _no_check_partials : bool
         If True, the check_partials function will ignore this component.
+    _has_distrib_outputs : bool
+        If True, this component has at least one distributed output.
     """
 
     def __init__(self, **kwargs):
@@ -103,6 +103,7 @@ class Component(System):
         self._declared_partials = defaultdict(dict)
         self._declared_partial_checks = []
         self._no_check_partials = False
+        self._has_distrib_outputs = False
 
     def _declare_options(self):
         """
@@ -111,15 +112,38 @@ class Component(System):
         super()._declare_options()
 
         self.options.declare('distributed', types=bool, default=False,
-                             desc='True if ALL variables in this component are distributed '
-                                  'across multiple processes.',
-                             deprecation="The 'distributed' option has been deprecated. Individual "
-                                         "inputs and outputs should be set as distributed instead,"
-                                         " using calls to add_input() or add_output().")
+                             desc='If True, set all variables in this component as distributed '
+                                  'across multiple processes')
         self.options.declare('run_root_only', types=bool, default=False,
                              desc='If True, call compute, compute_partials, linearize, '
                                   'apply_linear, apply_nonlinear, and compute_jacvec_product '
                                   'only on rank 0 and broadcast the results to the other ranks.')
+
+    def _check_matfree_deprecation(self):
+        # check for mixed distributed variables
+        has_dist_ins = has_nd_ins = has_dist_outs = has_nd_outs = False
+        for name in self._var_rel_names['input']:
+            meta = self._var_rel2meta[name]
+            if meta['distributed']:
+                has_dist_ins = True
+            else:
+                has_nd_ins = True
+
+        for name in self._var_rel_names['output']:
+            meta = self._var_rel2meta[name]
+            if meta['distributed']:
+                has_dist_outs = True
+            else:
+                has_nd_outs = True
+
+        if (has_nd_ins and has_dist_outs) or (has_dist_ins and has_nd_outs):
+            warn_deprecation(f"{self.msginfo}: It appears this component mixes "
+                             "distributed/non-distributed inputs and outputs, so it may break "
+                             "starting with OpenMDAO 3.25, where the convention "
+                             "used when passing data between distributed and non-distributed "
+                             "inputs and outputs within a matrix free component will change. "
+                             "See https://github.com/OpenMDAO/POEMs/blob/master/POEM_075.md for "
+                             "details.")
 
     def setup(self):
         """
@@ -153,7 +177,6 @@ class Component(System):
         """
         super()._setup_procs(pathname, comm, mode, prob_meta)
 
-        orig_comm = comm
         if self._num_par_fd > 1:
             if comm.size > 1:
                 comm = self._setup_par_fd_procs(comm)
@@ -170,7 +193,7 @@ class Component(System):
         self._var_rel_names = {'input': [], 'output': []}
         self._var_rel2meta = {}
         if comm.size == 1:
-            self._has_distrib_vars = False
+            self._has_distrib_vars = self._has_distrib_outputs = False
 
         for meta in self._static_var_rel2meta.values():
             # variable isn't distributed if we're only running on 1 proc
@@ -289,6 +312,10 @@ class Component(System):
         else:
             self._discrete_inputs = self._discrete_outputs = ()
 
+        self._serial_idxs = None
+        self._inconsistent_keys = set()
+
+    @collect_errors
     def _setup_var_sizes(self):
         """
         Compute the arrays of variable sizes for all variables/procs on this system.
@@ -301,7 +328,8 @@ class Component(System):
                                                    dtype=INT_DTYPE)
 
             for i, (name, metadata) in enumerate(self._var_allprocs_abs2meta[io].items()):
-                sizes[iproc, i] = metadata['size']
+                sz = metadata['size']
+                sizes[iproc, i] = 0 if sz is None else sz
                 abs2idx[name] = i
 
             if self.comm.size > 1:
@@ -349,6 +377,18 @@ class Component(System):
         """
         pass
 
+    @property
+    def checking(self):
+        """
+        Return True if check_partials or check_totals is executing.
+
+        Returns
+        -------
+        bool
+            True if we're running within check_partials or check_totals.
+        """
+        return self._problem_meta is not None and self._problem_meta['checking']
+
     def _run_root_only(self):
         """
         Return the value of the run_root_only option and check for possible errors.
@@ -381,9 +421,9 @@ class Component(System):
         info : dict
             Coloring metadata dict.
         """
-        ofs, allwrt = self._get_partials_varlists()
+        _, allwrt = self._get_partials_varlists()
         wrt_patterns = info['wrt_patterns']
-        if '*' in wrt_patterns or wrt_patterns is None:
+        if wrt_patterns is None or '*' in wrt_patterns:
             info['wrt_matches_rel'] = None
             info['wrt_matches'] = None
             return
@@ -415,16 +455,17 @@ class Component(System):
             A nested dict of the form dct[of][wrt] = (rows, cols, shape)
         """
         # sparsity uses relative names, so we need to convert to absolute
-        pathname = self.pathname
+        prefix = self.pathname + '.' if self.pathname else None
         for of, sub in sparsity.items():
-            of_abs = '.'.join((pathname, of)) if pathname else of
+            if prefix:
+                of = prefix + of
             for wrt, tup in sub.items():
-                wrt_abs = '.'.join((pathname, wrt)) if pathname else wrt
-                abs_key = (of_abs, wrt_abs)
+                if prefix:
+                    wrt = prefix + wrt
+                abs_key = (of, wrt)
                 if abs_key in self._subjacs_info:
-                    meta = self._subjacs_info[abs_key]
                     # add sparsity info to existing partial info
-                    meta['sparsity'] = tup
+                    self._subjacs_info[abs_key]['sparsity'] = tup
 
     def add_input(self, name, val=1.0, shape=None, src_indices=None, flat_src_indices=None,
                   units=None, desc='', tags=None, shape_by_conn=False, copy_shape=None,
@@ -527,7 +568,7 @@ class Component(System):
             # using ._dict below to avoid tons of deprecation warnings
             distributed = distributed or self.options._dict['distributed']['val']
 
-        metadata = _MetadataDict()
+        metadata = {}
 
         metadata.update({
             'val': val,
@@ -594,7 +635,7 @@ class Component(System):
         if tags is not None and not isinstance(tags, (str, list)):
             raise TypeError('%s: The tags argument should be a str or list' % self.msginfo)
 
-        metadata = _MetadataDict()
+        metadata = {}
 
         metadata.update({
             'val': val,
@@ -622,7 +663,7 @@ class Component(System):
         return metadata
 
     def add_output(self, name, val=1.0, shape=None, units=None, res_units=None, desc='',
-                   lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=1.0, tags=None,
+                   lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=None, tags=None,
                    shape_by_conn=False, copy_shape=None, distributed=None):
         """
         Add an output variable to the component.
@@ -728,7 +769,7 @@ class Component(System):
 
             # All refs: check the shape if necessary
             for item, item_name in zip([ref, ref0, res_ref], ['ref', 'ref0', 'res_ref']):
-                if not isscalar(item):
+                if item is not None and not isscalar(item):
                     if not isinstance(item, _allowed_types):
                         raise TypeError(f'{self.msginfo}: The {item_name} argument should be a '
                                         'float, list, tuple, ndarray or Iterable')
@@ -765,7 +806,7 @@ class Component(System):
             # using ._dict below to avoid tons of deprecation warnings
             distributed = distributed or self.options._dict['distributed']['val']
 
-        metadata = _MetadataDict()
+        metadata = {}
 
         metadata.update({
             'val': val,
@@ -778,7 +819,7 @@ class Component(System):
             'tags': make_set(tags),
             'ref': format_as_float_or_array('ref', ref, flatten=True),
             'ref0': format_as_float_or_array('ref0', ref0, flatten=True),
-            'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True),
+            'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True, val_if_none=None),
             'lower': lower,
             'upper': upper,
             'shape_by_conn': shape_by_conn,
@@ -787,6 +828,7 @@ class Component(System):
 
         # this will get reset later if comm size is 1
         self._has_distrib_vars |= metadata['distributed']
+        self._has_distrib_outputs |= metadata['distributed']
 
         # We may not know the pathname yet, so we have to use name for now, instead of abs_name.
         if self._static_mode:
@@ -835,7 +877,7 @@ class Component(System):
         if tags is not None and not isinstance(tags, (str, set, list)):
             raise TypeError('%s: The tags argument should be a str, set, or list' % self.msginfo)
 
-        metadata = _MetadataDict()
+        metadata = {}
 
         metadata.update({
             'val': val,
@@ -941,9 +983,10 @@ class Component(System):
 
                     # total sizes differ and output is distributed, so can't determine mapping
                     if offset is None:
-                        raise RuntimeError(f"{self.msginfo}: Can't determine src_indices "
-                                           f"automatically for input '{iname}'. They must be "
-                                           "supplied manually.")
+                        self._collect_error(f"{self.msginfo}: Can't determine src_indices "
+                                            f"automatically for input '{iname}'. They must be "
+                                            "supplied manually.", ident=(self.pathname, iname))
+                        continue
 
                     if dist_in and not dist_out:
                         src_shape = self._get_full_dist_shape(src, all_abs2meta_out[src]['shape'])
@@ -993,8 +1036,7 @@ class Component(System):
                                                                                  wrt_pattern))
 
             info = self._subjacs_info
-            for rel_key in product(of_matches, wrt_matches):
-                abs_key = rel_key2abs_key(self, rel_key)
+            for abs_key in abs_key_iter(self, of_matches, wrt_matches):
                 meta = info[abs_key]
                 meta['method'] = method
                 meta.update(kwargs)
@@ -1045,9 +1087,8 @@ class Component(System):
             absolute, 'rel_avg' for a size relative to the absolute value of the vector input, or
             'rel_element' for a size relative to each value in the vector input. In addition, it
             can be 'rel_legacy' for a size relative to the norm of the vector.  For backwards
-            compatibilty, it can be 'rel', which currently defaults to 'rel_legacy', but in the
-            future will default to 'rel_avg'. Defaults to None, in which case the approximation
-            method provides its default value.
+            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to None,
+            in which case the approximation method provides its default value.
         minimum_step : float
             Minimum step size allowed when using one of the relative step_calc options.
 
@@ -1237,9 +1278,8 @@ class Component(System):
             absolute, 'rel_avg' for a size relative to the absolute value of the vector input, or
             'rel_element' for a size relative to each value in the vector input. In addition, it
             can be 'rel_legacy' for a size relative to the norm of the vector.  For backwards
-            compatibilty, it can be 'rel', which currently defaults to 'rel_legacy', but in the
-            future will default to 'rel_avg'. Defaults to None, in which case the approximation
-            method provides its default value.
+            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to None,
+            in which case the approximation method provides its default value..
         minimum_step : float
             Minimum step size allowed when using one of the relative step_calc options.
         directional : bool
@@ -1289,7 +1329,7 @@ class Component(System):
         if not self._declared_partial_checks:
             return {}
         opts = {}
-        of, wrt = self._get_partials_varlists()
+        _, wrt = self._get_partials_varlists()
         invalid_wrt = []
         matrix_free = self.matrix_free
 
@@ -1398,7 +1438,7 @@ class Component(System):
                 rows = None
                 cols = None
 
-        pattern_matches = self._find_partial_matches(of, wrt)
+        pattern_matches = self._find_partial_matches(of, '*' if wrt is None else wrt)
         abs2meta_in = self._var_abs2meta['input']
         abs2meta_out = self._var_abs2meta['output']
 
@@ -1416,8 +1456,7 @@ class Component(System):
                 raise ValueError('{}: No matches were found for wrt="{}"'.format(self.msginfo,
                                                                                  wrt_pattern))
 
-            for rel_key in product(of_matches, wrt_matches):
-                abs_key = rel_key2abs_key(self, rel_key)
+            for abs_key in abs_key_iter(self, of_matches, wrt_matches):
                 if not dependent:
                     if abs_key in self._subjacs_info:
                         del self._subjacs_info[abs_key]
@@ -1441,6 +1480,7 @@ class Component(System):
                     dist_in = abs2meta_out[wrt]['distributed']
 
                 if dist_in and not dist_out and not self.matrix_free:
+                    rel_key = abs_key2rel_key(self, abs_key)
                     raise RuntimeError(f"{self.msginfo}: component has defined partial {rel_key} "
                                        "which is a non-distributed output wrt a distributed input."
                                        " This is only supported using the matrix free API.")
@@ -1476,17 +1516,17 @@ class Component(System):
                     meta['val'] = val
 
                 if rows_max >= shape[0] or cols_max >= shape[1]:
-                    of, wrt = rel_key
-                    msg = '{}: d({})/d({}): Expected {}x{} but declared at least {}x{}'
-                    raise ValueError(msg.format(self.msginfo, of, wrt, shape[0], shape[1],
-                                                rows_max + 1, cols_max + 1))
+                    of, wrt = abs_key2rel_key(self, abs_key)
+                    raise ValueError(f"{self.msginfo}: d({of})/d({wrt}): Expected {shape[0]}x"
+                                     f"{shape[1]} but declared at least {rows_max + 1}x"
+                                     f"{cols_max + 1}")
 
                 self._check_partials_meta(abs_key, meta['val'],
                                           shape if rows is None else (rows.shape[0], 1))
 
                 self._subjacs_info[abs_key] = meta
 
-    def _find_partial_matches(self, of_pattern, wrt_pattern):
+    def _find_partial_matches(self, of_pattern, wrt_pattern, use_resname=False):
         """
         Find all partial derivative matches from of and wrt.
 
@@ -1499,6 +1539,8 @@ class Component(System):
             The relative name of the variables that derivatives are taken with respect to.
             This can contain the name of any input or output variable.
             May also contain a glob pattern.
+        use_resname : bool
+            If True, use residual names for 'of' patterns.
 
         Returns
         -------
@@ -1509,7 +1551,7 @@ class Component(System):
         """
         of_list = [of_pattern] if isinstance(of_pattern, str) else of_pattern
         wrt_list = [wrt_pattern] if isinstance(wrt_pattern, str) else wrt_pattern
-        ofs, wrts = self._get_partials_varlists()
+        ofs, wrts = self._get_partials_varlists(use_resname=use_resname)
 
         of_pattern_matches = [(pattern, find_matches(pattern, ofs)) for pattern in of_list]
         wrt_pattern_matches = [(pattern, find_matches(pattern, wrts)) for pattern in wrt_list]
@@ -1628,16 +1670,102 @@ class Component(System):
                                 inds.set_src_shape(shape)
                                 self._var_prom2inds[abs2prom[tgt]] = [shape, inds, flat]
                         except Exception:
-                            exc = sys.exc_info()
-                            conditional_error(f"When accessing '{conns[tgt]}' with src_shape "
-                                              f"{shape} from '{pinfo.prom_path()}' using "
-                                              f"src_indices {inds}: {exc[1]}",
-                                              exc=exc, category=SetupWarning,
-                                              err=self._raise_connection_errors)
+                            type_exc, exc, tb = sys.exc_info()
+                            self._collect_error(f"When accessing '{conns[tgt]}' with src_shape "
+                                                f"{shape} from '{pinfo.prom_path()}' using "
+                                                f"src_indices {inds}: {exc}", exc_type=type_exc,
+                                                tback=tb, ident=(conns[tgt], tgt))
 
             elif meta['add_input_src_indices']:
                 self._var_prom2inds[abs2prom[tgt]] = [meta['shape'], meta['src_indices'],
                                                       meta['src_indices']._flat_src]
+
+    def _check_consistent_serial_dinputs(self, nz_dist_outputs):
+        """
+        Check consistency across ranks for serial d_inputs variables.
+
+        This is used primarily to test that `compute_jacvec_product` and `apply_linear` methods
+        follow the OpenMDAO convention that in reverse mode, the component should perform
+        'allreduce' sorts of operations only for derivatives of distributed outputs with-respect-to
+        serial inputs.  This should result in serial input derivatives being consistent across all
+        ranks in the Component's communicator.
+
+        Parameters
+        ----------
+        nz_dist_outputs : set or list
+            Set of distributed outputs with nonzero values for the most recent _apply_linear call.
+        """
+        if not self.checking or not self._has_distrib_outputs or self.comm.size < 2:
+            return
+
+        if self._serial_idxs is None:
+            ranges = defaultdict(list)
+            output_len = 0 if self.is_explicit() else len(self._outputs)
+            for name, offset, end, vec, slc, dist_sizes in self._jac_wrt_iter():
+                if dist_sizes is None:  # not distributed
+                    if offset != end:
+                        if vec is self._outputs:
+                            ranges[vec].append(range(offset, end))
+                        else:
+                            ranges[vec].append(range(offset - output_len, end - output_len))
+
+            self._serial_idxs = []
+            for vec, rlist in ranges.items():
+                if rlist:
+                    self._serial_idxs.append((vec, np.hstack(rlist)))
+
+        for vec, inds in self._serial_idxs:
+            # _jac_wrt_iter gives us _input and possibly _output vecs (for implicit comps), but we
+            # want to check _dinputs and _doutputs
+            v = self._dinputs if vec is self._inputs else self._doutputs
+            result = inconsistent_across_procs(self.comm, v.asarray()[inds])
+            if self.comm.rank == 0 and np.any(result):
+                bad_inds = np.arange(len(v), dtype=INT_DTYPE)[inds][result]
+                bad_mask = np.zeros(len(v), dtype=bool)
+                bad_mask[bad_inds] = True
+                for inname, slc in v.get_slice_dict().items():
+                    if np.any(bad_mask[slc]):
+                        for outname in nz_dist_outputs:
+                            key = (outname, inname)
+                            self._inconsistent_keys.add(key)
+
+    def _get_dist_nz_dresids(self):
+        """
+        Get names of distributed resids that are non-zero prior to computing derivatives.
+
+        This should only be called when 'rev' mode is active.
+
+        Returns
+        -------
+        list of str
+            List of names of distributed resids that have nonzero entries.
+        """
+        nzresids = []
+        dresids = self._dresiduals.asarray()
+        for of, start, end, _full_slice, dist_sizes in self._jac_of_iter():
+            if dist_sizes is not None:
+                if np.any(dresids[start:end]):
+                    nzresids.append(of)
+
+        full_nzresids = set()
+        if self.comm.rank == 0:
+            for nzoutlist in self.comm.gather(nzresids, root=0):
+                full_nzresids.update(nzoutlist)
+            return full_nzresids
+
+        self.comm.gather(nzresids, root=0)
+        return nzresids
+
+    def _has_fast_rel_lookup(self):
+        """
+        Return True if this System should have fast relative variable name lookup in vectors.
+
+        Returns
+        -------
+        bool
+            True if this System should have fast relative variable name lookup in vectors.
+        """
+        return True
 
 
 class _DictValues(object):

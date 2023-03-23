@@ -10,12 +10,7 @@ try:
 except ImportError:
     ipy = display = HTML = IFrame = None
 
-from openmdao.utils.general_utils import simple_warning
-
-try:
-    from tabulate import tabulate
-except ImportError:
-    tabulate = None
+from openmdao.utils.om_warnings import issue_warning
 
 colab = 'google.colab' in sys.modules
 
@@ -75,8 +70,8 @@ def get_code(reference, hide_doc_string=False):
     if ipy:
         return Code(obj, language='python')
     else:
-        simple_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
-                       "`pip install openmdao[docs]` to upgrade.")
+        issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
+                      "`pip install openmdao[docs]` to upgrade.")
 
 
 def display_source(reference, hide_doc_string=False):
@@ -118,28 +113,16 @@ def show_options_table(reference, recording_options=False):
 
     if ipy:
         if not hasattr(obj, "options"):
-            html = obj.to_table(fmt='html')
+            opt = obj
         elif not recording_options:
-            html = obj.options.to_table(fmt='html')
+            opt = obj.options
         else:
-            html = obj.recording_options.to_table(fmt='html')
+            opt = obj.recording_options
 
-        # Jupyter notebook imposes right justification, so we have to enforce what we want:
-        # - Center table headers
-        # - Left justify table columns
-        # - Limit column width so there is adequate width left for the deprecation message
-        style = '<{tag} style="text-align:{align}; max-width:{width}; overflow-wrap:break-word;">'
-
-        cols = html.count('<th>')                 # there could be 5 or 6 columns
-        width = '300px' if cols > 5 else '600px'  # limit width depending on number of columns
-
-        html = html.replace('<th>', style.format(tag='th', align='center', width=width))
-        html = html.replace('<td>', style.format(tag='td', align='left', width=width))
-
-        return display(HTML(html))
+        return display(HTML(str(opt.to_table(fmt='html', display=False))))
     else:
-        simple_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
-                       "`pip install openmdao[docs]` to upgrade.")
+        issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
+                      "`pip install openmdao[docs]` to upgrade.")
 
 
 def cite(reference):
@@ -160,16 +143,13 @@ def cite(reference):
 
 def notebook_mode():
     """
-    Check if the environment is interactive and if tabulate is installed.
+    Check if the environment is interactive.
 
     Returns
     -------
     bool
         True if the environment is an interactive notebook.
     """
-    if ipy and tabulate is None:
-        simple_warning("Tabulate is not installed. Run `pip install openmdao[notebooks]` to "
-                       "install required dependencies. Using ASCII for outputs.")
     return ipy
 
 

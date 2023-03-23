@@ -3,17 +3,17 @@
 import os
 import json
 import functools
+import pathlib
 
 import numpy as np
 
 from openmdao.core.constants import _SetupStatus, INF_BOUND
-import openmdao.utils.coloring as coloring_mod
 import openmdao.utils.hooks as hooks
-from openmdao.utils.units import convert_units
 from openmdao.utils.mpi import MPI
 from openmdao.utils.webview import webview
-from openmdao.utils.general_utils import ignore_errors, default_noraise
+from openmdao.utils.general_utils import default_noraise
 from openmdao.utils.file_utils import _load_and_exec
+from openmdao.utils.reports_system import register_report
 
 _default_scaling_filename = 'driver_scaling_report.html'
 
@@ -132,7 +132,7 @@ def _compute_jac_view_info(totals, data, dv_vals, response_vals, coloring):
             # use max of abs value here instead of norm to keep coloring consistent between
             # top level jac and subjacs
             var_matrix[i, j] = np.max(matrix[ofstart:ofend, wrtstart:wrtend])
-            if var_matrix[i, j] > 0. or (coloring and
+            if var_matrix[i, j] > 0. or (coloring is not None and
                                          np.any(mask[ofstart:ofend, wrtstart:wrtend])):
                 nonempty_submats.add((of, wrt))
 
@@ -141,7 +141,7 @@ def _compute_jac_view_info(totals, data, dv_vals, response_vals, coloring):
     for i in range(matrix.shape[0]):
         for j in range(matrix.shape[1]):
             val = matrix[i, j]
-            if coloring and not mask[i, j]:
+            if coloring is not None and not mask[i, j]:
                 val = None
             else:
                 if val == 0.:
@@ -385,25 +385,17 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
 
     if jac:
         # save old totals
-        save = driver._total_jac
-        driver._total_jac = None
-        prob = driver._problem()
-
-        coloring = driver._get_static_coloring()
-        if coloring_mod._use_total_sparsity:
-            if coloring is None and driver._coloring_info['dynamic']:
-                coloring = coloring_mod.dynamic_total_coloring(driver,
-                                                               run_model=prob._run_counter < 0)
+        coloring = driver._get_coloring()
 
         # assemble data for jacobian visualization
         data['oflabels'] = driver._get_ordered_nl_responses()
         data['wrtlabels'] = list(dv_vals)
 
-        try:
-            totals = driver._compute_totals(of=data['oflabels'], wrt=data['wrtlabels'],
-                                            return_format='array')
-        finally:
-            driver._total_jac = save
+        if driver._total_jac is None:
+            # this call updates driver._total_jac
+            driver._compute_totals(of=data['oflabels'], wrt=data['wrtlabels'],
+                                   return_format=driver._total_jac_format)
+        totals = driver._total_jac.J  # .J is always an array even if return format != 'array'
 
         data['linear'] = lindata = {}
         lindata['oflabels'] = [n for n, meta in driver._cons.items() if meta['linear']]
@@ -423,16 +415,21 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
         _compute_jac_view_info(totals, data, dv_vals, response_vals, coloring)
 
         if lindata['oflabels']:
-            # prevent reuse of nonlinear totals
-            save = driver._total_jac
-            driver._total_jac = None
+            lin_response_vals = {n: full_response_vals[n] for n in lindata['oflabels']}
 
-            try:
-                lintotals = driver._compute_totals(of=lindata['oflabels'], wrt=data['wrtlabels'],
-                                                   return_format='array')
-                lin_response_vals = {n: full_response_vals[n] for n in lindata['oflabels']}
-            finally:
-                driver._total_jac = save
+            if driver._total_jac_linear is None:
+                # prevent clobbering of nonlinear totals
+                save = driver._total_jac
+                driver._total_jac = None
+
+                try:
+                    lintotals = driver._compute_totals(of=lindata['oflabels'],
+                                                       wrt=data['wrtlabels'],
+                                                       return_format='array')
+                finally:
+                    driver._total_jac = save
+            else:
+                lintotals = driver._total_jac_linear.J
 
             _compute_jac_view_info(lintotals, lindata, dv_vals, lin_response_vals, None)
 
@@ -444,21 +441,21 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
         libs_dir = os.path.join(os.path.dirname(code_dir), 'common', 'libs')
         style_dir = os.path.join(os.path.dirname(code_dir), 'common', 'style')
 
-        with open(os.path.join(code_dir, viewer), "r") as f:
+        with open(os.path.join(code_dir, viewer), "r", encoding='utf-8') as f:
             template = f.read()
 
-        with open(os.path.join(libs_dir, 'tabulator.min.js'), "r") as f:
+        with open(os.path.join(libs_dir, 'tabulator.5.4.4.min.js'), "r", encoding='utf-8') as f:
             tabulator_src = f.read()
 
-        with open(os.path.join(style_dir, 'tabulator.min.css'), "r") as f:
+        with open(os.path.join(style_dir, 'tabulator.5.4.4.min.css'), "r", encoding='utf-8') as f:
             tabulator_style = f.read()
 
-        with open(os.path.join(libs_dir, 'd3.v6.min.js'), "r") as f:
+        with open(os.path.join(libs_dir, 'd3.v6.min.js'), "r", encoding='utf-8') as f:
             d3_src = f.read()
 
         jsontxt = json.dumps(data, default=default_noraise)
 
-        with open(outfile, 'w') as f:
+        with open(outfile, 'w', encoding='utf-8') as f:
             s = template.replace("<tabulator_src>", tabulator_src)
             s = s.replace("<tabulator_style>", tabulator_style)
             s = s.replace("<d3_src>", d3_src)
@@ -568,6 +565,26 @@ def _scaling_cmd(options, user_args):
     from openmdao.utils.reports_system import _register_cmdline_report
     # tell report system not to duplicate effort
     _register_cmdline_report('scaling')
-
-    ignore_errors(True)
     _load_and_exec(options.file[0], user_args)
+
+
+# scaling report definition
+def _run_scaling_report(driver, report_filename=_default_scaling_filename):
+
+    prob = driver._problem()
+    scaling_filepath = str(pathlib.Path(prob.get_reports_dir()).joinpath(report_filename))
+
+    try:
+        prob.driver.scaling_report(outfile=scaling_filepath, show_browser=False)
+
+    # Need to handle the coloring and scaling reports which can fail in this way
+    # because total Jacobian can't be computed
+    except RuntimeError as err:
+        if str(err) != "Can't compute total derivatives unless " \
+                       "both 'of' or 'wrt' variables have been specified.":
+            raise err
+
+
+def _scaling_report_register():
+    register_report('scaling', _run_scaling_report, 'Driver scaling report', 'Driver',
+                    '_compute_totals', 'post')

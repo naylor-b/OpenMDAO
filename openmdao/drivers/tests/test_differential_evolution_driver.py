@@ -1,4 +1,4 @@
-""" Unit tests for the DifferentialEvolutionDriver Driver."""
+""" Unit tests for DifferentialEvolutionDriver."""
 
 import unittest
 import os
@@ -9,14 +9,16 @@ import openmdao.api as om
 
 from openmdao.core.constants import INF_BOUND
 
+from openmdao.drivers.differential_evolution_driver import DifferentialEvolution
+
 from openmdao.test_suite.components.branin import Branin
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar_feature import SellarMDA
 
 from openmdao.utils.general_utils import run_driver
-from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.utils.testing_utils import use_tempdirs, set_env_vars_context
+from openmdao.utils.assert_utils import assert_near_equal, assert_warning
 from openmdao.utils.mpi import MPI
 try:
     from parameterized import parameterized
@@ -27,6 +29,11 @@ try:
     from openmdao.vectors.petsc_vector import PETScVector
 except ImportError:
     PETScVector = None
+
+try:
+    import pyDOE2
+except ImportError:
+    pyDOE2 = None
 
 extra_prints = False  # enable printing results
 
@@ -43,6 +50,30 @@ def _test_func_name(func, num, param):
     return func.__name__ + '_' + '_'.join(args)
 
 
+class TestErrors(unittest.TestCase):
+
+    @unittest.skipIf(pyDOE2, "only runs if 'pyDOE2' is not installed")
+    def test_no_pyDOE2(self):
+        with self.assertRaises(RuntimeError) as err:
+            DifferentialEvolution(lambda: 0)
+
+        self.assertEqual(str(err.exception),
+                         "DifferentialEvolution requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+        with self.assertRaises(RuntimeError) as err:
+            om.DifferentialEvolutionDriver()
+
+        self.assertEqual(str(err.exception),
+                         "DifferentialEvolutionDriver requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
@@ -194,6 +225,9 @@ class TestDifferentialEvolution(unittest.TestCase):
         prob.driver.options['max_gen'] = 75
 
         prob.setup()
+
+        prob.set_val('x', [0.3, -0.3])
+
         prob.run_driver()
 
         if extra_prints:
@@ -230,7 +264,7 @@ class TestDifferentialEvolution(unittest.TestCase):
 
         indeps = prob.model.add_subsystem('indeps', om.IndepVarComp())
         indeps.add_output('x', 3)
-        indeps.add_output('y', [4.0, -4])
+        indeps.add_output('y', [4.0, 1.0])
 
         prob.model.add_subsystem('paraboloid1',
                                  om.ExecComp('f = (x+5)**2- 3'))
@@ -277,6 +311,63 @@ class TestDifferentialEvolution(unittest.TestCase):
         msg = "Driver requires objective to be declared"
 
         self.assertEqual(exception.args[0], msg)
+
+    def test_invalid_desvar_values(self):
+
+        expected_err = ("The following design variable initial conditions are out of their specified "
+                        "bounds:"
+                        "\n  indeps.y"
+                        "\n    val: [4.  3.1]"
+                        "\n    lower: [-10.   0.]"
+                        "\n    upper: [10.  3.]"
+                        "\nSet the initial value of the design variable to a valid value or set "
+                        "the driver option['invalid_desvar_behavior'] to 'ignore'."
+                        "\nThis warning will become an error by default in OpenMDAO version 3.25.")
+
+        for option in ['warn', 'raise', 'ignore']:
+            with self.subTest(f'invalid_desvar_behavior = {option}'):
+
+                prob = om.Problem()
+
+                indeps = prob.model.add_subsystem('indeps', om.IndepVarComp())
+                indeps.add_output('x', 3)
+                indeps.add_output('y', [4.0, 3.1])
+
+                prob.model.add_subsystem('paraboloid1',
+                                         om.ExecComp('f = (x+5)**2- 3'))
+                prob.model.add_subsystem('paraboloid2',
+                                         om.ExecComp('f = (y[0]-3)**2 + (y[1]-1)**2 - 3',
+                                                     y=[0, 0]))
+                prob.model.connect('indeps.x', 'paraboloid1.x')
+                prob.model.connect('indeps.y', 'paraboloid2.y')
+
+                prob.driver = om.DifferentialEvolutionDriver(invalid_desvar_behavior=option)
+
+                prob.model.add_design_var('indeps.x', lower=-5, upper=5)
+                prob.model.add_design_var('indeps.y', lower=[-10, 0], upper=[10, 3])
+                prob.model.add_objective('paraboloid1.f')
+                prob.model.add_objective('paraboloid2.f')
+                prob.setup()
+
+                # run the optimization
+                if option == 'ignore':
+                    prob.run_driver()
+                elif option == 'raise':
+                    with self.assertRaises(ValueError) as ctx:
+                        prob.run_driver()
+                    self.assertEqual(str(ctx.exception), expected_err)
+                else:
+                    with assert_warning(om.DriverWarning, expected_err):
+                        prob.run_driver()
+
+                if option != 'raise':
+
+                    if extra_prints:
+                        print('indeps.x', prob['indeps.x'])
+                        print('indeps.y', prob['indeps.y'])
+
+                    np.testing.assert_array_almost_equal(prob['indeps.x'], -5)
+                    np.testing.assert_array_almost_equal(prob['indeps.y'], [3, 1])
 
     @parameterized.expand([
         (None, None),
@@ -343,6 +434,7 @@ class TestDifferentialEvolution(unittest.TestCase):
             self.assertLessEqual(1.0 - 1e-6, prob["x"][i])
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestDriverOptionsDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
@@ -375,6 +467,7 @@ class TestDriverOptionsDifferentialEvolution(unittest.TestCase):
         self.assertEqual(prob.driver.options['Pc'], 0.0123)
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestMultiObjectiveDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
@@ -487,6 +580,7 @@ class TestMultiObjectiveDifferentialEvolution(unittest.TestCase):
         self.assertGreater(h2, h1)  # top area does not depend on height
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestConstrainedDifferentialEvolution(unittest.TestCase):
 
     def setUp(self):
@@ -771,6 +865,7 @@ class TestConstrainedDifferentialEvolution(unittest.TestCase):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class MPITestDifferentialEvolution(unittest.TestCase):
     N_PROCS = 2
 
@@ -820,6 +915,7 @@ class MPITestDifferentialEvolution(unittest.TestCase):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class MPITestDifferentialEvolutionNoSetSeed(unittest.TestCase):
     N_PROCS = 2
 
@@ -928,6 +1024,7 @@ class Summer(om.ExplicitComponent):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 @use_tempdirs
 class MPITestDifferentialEvolution4Procs(unittest.TestCase):
     N_PROCS = 4

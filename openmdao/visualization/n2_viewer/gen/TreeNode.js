@@ -13,7 +13,6 @@ class NodeDisplayData {
         this.filtered = false; // Node is a child to be shown w/partially collapsed parent
         this.filterParent = null; // When filtered, reference to FilterNode container
         this.manuallyExpanded = false; // Node was pre-collapsed but expanded by user
-        this.boxChildren = false; // Surround children with a box in the matrix grid
 
         this.dims = new Dimensions({ x: 1e-6, y: 1e-6, width: 1, height: 1 });
         this.dims.preserve();
@@ -43,6 +42,10 @@ class TreeNode {
 
         this.parent = parent;
 
+        // All nodes connected to this one as either a source or target
+        this.connSources = new Set();
+        this.connTargets = new Set();
+
         this.sourceParentSet = new Set();
         this.targetParentSet = new Set();
 
@@ -59,8 +62,12 @@ class TreeNode {
     }
 
     _newDisplayData() {
-        if (this.isInputOrOutput()) { this.parent.draw.boxChildren = true; }
         return new NodeDisplayData();
+    }
+
+    /** In the matrix grid, draw a box around variables that share the same boxAncestor() */
+    boxAncestor() {
+        return this.isInputOrOutput()? this.parent : null;
     }
 
     // Accessor functions for this.draw.minimized - whether or not to draw children
@@ -132,11 +139,16 @@ class TreeNode {
         return !(this.draw.hidden || this.draw.filtered);
     }
 
+    /** Return true if there are no children */
+    isLeaf() {
+        return (!this.hasChildren());
+    }
+
     /** True if node is not hidden and has no visible children */
     isVisibleLeaf() {
         if (this.draw.hidden || this.draw.filtered) return false; // Any explicitly hidden node
         if (this.isInputOrOutput()) return !this.draw.filtered; // Variable
-        if (!this.hasChildren()) return true; // Group w/out children
+        if (this.isLeaf()) return true; // Group w/out children
         return this.draw.minimized; // Collapsed non-variable
     }
 
@@ -147,9 +159,12 @@ class TreeNode {
 
     /**
      * Look for the supplied node in the set of child names.
+     * @param {TreeNode} compareNode The node to look for.
+     * @param {Boolean} includeSelf If true, return true if compareNode is us.
      * @returns {Boolean} True if a match is found, otherwise false.
      */
-    hasNodeInChildren(compareNode) {
+    hasNodeInChildren(compareNode, includeSelf = false) {
+        if (includeSelf && compareNode === this) return true;
         return this.childNames.has(compareNode.path);
     }
 
@@ -158,7 +173,8 @@ class TreeNode {
      * @param {TreeNode} [parentLimit = null] Stop searching at this common parent.
      * @returns {Boolean} True if the node is found, otherwise false.
      */
-    hasParent(compareNode, parentLimit = null) {
+    hasParent(compareNode, parentLimit = null, includeSelf = false) {
+        if (includeSelf && compareNode === this) return true;
         for (let obj = this.parent; obj != null && obj !== parentLimit; obj = obj.parent) {
             if (obj === compareNode) {
                 return true;
@@ -229,13 +245,14 @@ class TreeNode {
      * @returns {String} The HTML-safe id.
      */
     static pathToId(path) {
-        return path.replace(/[\.<> :]/g, function (c) {
+        return path.replace(/[\.<> :|]/g, function (c) {
             return {
                 ' ': '__',
                 '<': '_LT',
                 '>': '_GT',
                 '.': '_',
-                ':': '-'
+                ':': '-',
+                '|': '--'
             }[c];
         })
     }
@@ -281,6 +298,8 @@ class TreeNode {
         this.draw.hidden = state.hidden;
         this.filterSelf(state.filtered);
     }
+
+    getTextName() { return this.name; }
 }
 
 /**
@@ -307,6 +326,10 @@ class FilterNode extends TreeNode {
         this.hide();
         this.minimize();
         this.suffix = suffix;
+    }
+
+    getTextName() {
+        return `Filtered ${this.suffix[0].toUpperCase() + this.suffix.slice(1)}`;
     }
 
     /**
@@ -423,8 +446,8 @@ class FilterNode extends TreeNode {
  * @property {FilterNode} filter.outputs Children that are outputs to be viewed as collapsed.
  */
 class FilterCapableNode extends TreeNode {
-    constructor(origNode, attribNames) {
-        super(origNode, attribNames);
+    constructor(origNode, attribNames, parent) {
+        super(origNode, attribNames, parent);
     }
 
     // Accessor functions for this.draw.filtered - whether a variable is shown in collapsed form
@@ -448,16 +471,28 @@ class FilterCapableNode extends TreeNode {
         }
     }
 
-    /** Add ourselves to the corrent parental filter */
+    /** Add ourselves to the correct parental filter */
     addSelfToFilter() {
         if (this.isInput()) { this.parent.filter.inputs.add(this); }
         else if (this.isOutput()) { this.parent.filter.outputs.add(this); }
     }
 
-    /** Remove ourselves from the corrent parental filter */
+    /** Remove ourselves from the correct parental filter */
     removeSelfFromFilter() {
         if (this.isInput()) { this.parent.filter.inputs.del(this); }
         else if (this.isOutput()) { this.parent.filter.outputs.del(this); }
+    }
+
+    getFilterList() { return [ this.filter.inputs, this.filter.outputs]; }
+
+    wipeFilters() {
+        this.filter.inputs.wipe();
+        this.filter.outputs.wipe();
+    }
+
+    addToFilter(node) {
+        if (node.isInput()) { this.filter.inputs.add(node); }
+        else { this.filter.outputs.add(node); }
     }
 
     /**

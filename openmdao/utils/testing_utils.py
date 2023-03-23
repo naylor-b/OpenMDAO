@@ -2,6 +2,14 @@
 import json
 import functools
 import builtins
+import os
+from contextlib import contextmanager
+from openmdao.utils.general_utils import env_truthy, env_none
+
+try:
+    from parameterized import parameterized
+except ImportError:
+    parameterized = None
 
 import numpy as np
 
@@ -70,13 +78,14 @@ def use_tempdirs(cls):
     TestCase
         The decorated TestCase class.
     """
-    if getattr(cls, 'setUp', None):
-        setattr(cls, 'original_setUp', getattr(cls, 'setUp'))
-    setattr(cls, 'setUp', _new_setup)
+    if env_truthy('USE_TEMPDIRS') or env_none('USE_TEMPDIRS'):
+        if getattr(cls, 'setUp', None):
+            setattr(cls, 'original_setUp', getattr(cls, 'setUp'))
+        setattr(cls, 'setUp', _new_setup)
 
-    if getattr(cls, 'tearDown', None):
-        setattr(cls, 'original_tearDown', getattr(cls, 'tearDown'))
-    setattr(cls, 'tearDown', _new_teardown)
+        if getattr(cls, 'tearDown', None):
+            setattr(cls, 'original_tearDown', getattr(cls, 'tearDown'))
+        setattr(cls, 'tearDown', _new_teardown)
 
     return cls
 
@@ -113,21 +122,129 @@ def require_pyoptsparse(optimizer=None):
             obj.__unittest_skip_why__ = msg
             return obj
 
-        try:
-            OPT(optimizer)
-        except Exception:
-            msg = "pyoptsparse is not providing %s" % optimizer
+        if optimizer:
+            try:
+                OPT(optimizer)
+            except Exception:
+                msg = "pyoptsparse is not providing %s" % optimizer
 
-            if not isinstance(obj, type):
-                @functools.wraps(obj)
-                def skip_wrapper(*args, **kwargs):
-                    raise unittest.SkipTest(msg)
-                obj = skip_wrapper
-            obj.__unittest_skip__ = True
-            obj.__unittest_skip_why__ = msg
+                if not isinstance(obj, type):
+                    @functools.wraps(obj)
+                    def skip_wrapper(*args, **kwargs):
+                        raise unittest.SkipTest(msg)
+                    obj = skip_wrapper
+                obj.__unittest_skip__ = True
+                obj.__unittest_skip_why__ = msg
 
         return obj
     return decorator
+
+
+if parameterized:
+    def parameterized_name(testcase_func, num, param):
+        """
+        Generate a name for a parameterized test from the parameters.
+
+        Parameters
+        ----------
+        testcase_func : str
+            the root test function name
+        num : int
+            parameter number
+        param : any
+            parameter value
+
+        Returns
+        -------
+        TestCase or TestCase.method
+            The decorated TestCase class or method.
+        """
+        return "%s_%s" % (
+            testcase_func.__name__,
+            parameterized.to_safe_name("_".join(str(x) for x in param.args)),
+        )
+else:
+    parameterized_name = None
+
+
+class set_env_vars(object):
+    """
+    Decorate a function to temporarily set some environment variables.
+
+    Parameters
+    ----------
+    **envs : dict
+        Keyword args corresponding to environment variables to set.
+
+    Attributes
+    ----------
+    envs : dict
+        Saved mapping of environment var name to value.
+    """
+
+    def __init__(self, **envs):
+        """
+        Initialize attributes.
+        """
+        self.envs = envs
+
+    def __call__(self, fnc):
+        """
+        Apply the decorator.
+
+        Parameters
+        ----------
+        fnc : function
+            The function being wrapped.
+        """
+        def wrap(*args, **kwargs):
+            saved = {}
+            try:
+                for k, v in self.envs.items():
+                    saved[k] = os.environ.get(k)
+                    os.environ[k] = v  # will raise exception if v is not a string
+
+                return fnc(*args, **kwargs)
+            finally:
+                # put environment back as it was
+                for k, v in saved.items():
+                    if v is None:
+                        del os.environ[k]
+                    else:
+                        os.environ[k] = v
+
+        return wrap
+
+
+@contextmanager
+def set_env_vars_context(**kwargs):
+    """
+    Context to temporarily set some environment variables.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword args corresponding to environment variables to set.
+
+    Yields
+    ------
+    None
+    """
+    saved = {}
+    try:
+        for k, v in kwargs.items():
+            saved[k] = os.environ.get(k)
+            os.environ[k] = v  # will raise exception if v is not a string
+
+        yield
+
+    finally:
+        # put environment back as it was
+        for k, v in saved.items():
+            if v is None:
+                del os.environ[k]
+            else:
+                os.environ[k] = v
 
 
 class _ModelViewerDataTreeEncoder(json.JSONEncoder):

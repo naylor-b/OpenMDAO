@@ -17,7 +17,11 @@ import os
 import copy
 
 import numpy as np
-from pyDOE2 import lhs
+
+try:
+    from pyDOE2 import lhs
+except ModuleNotFoundError:
+    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -50,6 +54,8 @@ class DifferentialEvolutionDriver(Driver):
         design variables.
     _ga : <DifferentialEvolution>
         Main genetic algorithm lies here.
+    _nfit : int
+         Number of successful function evaluations.
     _randomstate : int
         Seed-number which controls the random draws.
     """
@@ -58,9 +64,16 @@ class DifferentialEvolutionDriver(Driver):
         """
         Initialize the DifferentialEvolutionDriver driver.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         super().__init__(**kwargs)
 
         # What we support
+        self.supports['optimization'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
         self.supports['multiple_objectives'] = True
@@ -76,6 +89,7 @@ class DifferentialEvolutionDriver(Driver):
 
         self._desvar_idx = {}
         self._ga = None
+        self._nfit = 0
 
         # random state can be set for predictability during testing
         if 'DifferentialEvolutionDriver_seed' in os.environ:
@@ -239,6 +253,28 @@ class DifferentialEvolutionDriver(Driver):
         """
         return "DifferentialEvolution"
 
+    def get_driver_objective_calls(self):
+        """
+        Return number of objective evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of objective evaluations made during a driver run.
+        """
+        return self._nfit
+
+    def get_driver_derivative_calls(self):
+        """
+        Return number of derivative evaluations made during a driver run.
+
+        Returns
+        -------
+        int
+            Number of derivative evaluations made during a driver run.
+        """
+        return 0
+
     def run(self):
         """
         Execute the genetic algorithm.
@@ -257,6 +293,7 @@ class DifferentialEvolutionDriver(Driver):
         Pc = self.options['Pc']
 
         self._check_for_missing_objective()
+        self._check_for_invalid_desvar_values()
 
         # Size design variables.
         desvars = self._designvars
@@ -283,9 +320,9 @@ class DifferentialEvolutionDriver(Driver):
         if pop_size == 0:
             pop_size = 20 * count
 
-        desvar_new, obj, nfit = ga.execute_ga(x0, lower_bound, upper_bound,
-                                              pop_size, max_gen,
-                                              self._randomstate, F, Pc)
+        desvar_new, obj, self._nfit = ga.execute_ga(x0, lower_bound, upper_bound,
+                                                    pop_size, max_gen,
+                                                    self._randomstate, F, Pc)
 
         # Pull optimal parameters back into framework and re-run, so that
         # framework is left in the right final state
@@ -498,6 +535,12 @@ class DifferentialEvolution(object):
         """
         Initialize genetic algorithm object.
         """
+        if lhs is None:
+            raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE2' package, "
+                               "which can be installed with one of the following commands:\n"
+                               "    pip install openmdao[doe]\n"
+                               "    pip install pyDOE2")
+
         self.objfun = objfun
         self.comm = comm
 

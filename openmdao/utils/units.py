@@ -891,29 +891,27 @@ def _find_unit(unit, error=False):
                 # Remaining characters may include numbers.
                 regex = re.compile('[A-Z,a-z]{1}[A-Z,a-z,0-9]*')
 
+                unit_table = _UNIT_LIB.unit_table
+                prefixes = _UNIT_LIB.prefixes
+
                 for item in regex.findall(name):
                     item = re.sub(reg1, 'as_', item)
 
                     # check if this was a compound unit, so each
                     # substring might be a unit
                     try:
-                        eval(item, {'__builtins__': None},  # nosec: scope limited
-                             _UNIT_LIB.unit_table)
+                        eval(item, {'__builtins__': None}, unit_table)  # nosec: scope limited
 
                     except Exception:  # maybe is a prefixed unit then
                         base_unit = item[1:].rstrip('_')
 
                         # check for single letter prefix before unit
-                        if(item[0] in _UNIT_LIB.prefixes and
-                           base_unit in _UNIT_LIB.unit_table):
-                            add_unit(item, _UNIT_LIB.prefixes[item[0]] *
-                                     _UNIT_LIB.unit_table[base_unit])
+                        if (item[0] in prefixes and base_unit in unit_table):
+                            add_unit(item, prefixes[item[0]] * unit_table[base_unit])
 
                         # check for double letter prefix before unit
-                        elif(item[0:2] in _UNIT_LIB.prefixes and
-                             item[2:] in _UNIT_LIB.unit_table):
-                            add_unit(item, _UNIT_LIB.prefixes[item[0:2]] *
-                                     _UNIT_LIB.unit_table[item[2:]])
+                        elif (item[0:2] in prefixes and item[2:] in unit_table):
+                            add_unit(item, prefixes[item[0:2]] * unit_table[item[2:]])
 
                         # no prefixes found, unknown unit
                         else:
@@ -921,8 +919,7 @@ def _find_unit(unit, error=False):
                                 raise ValueError(f"The units '{name}' are invalid.")
                             return None
 
-                unit = eval(name, {'__builtins__': None},  # nosec: scope limited
-                            _UNIT_LIB.unit_table)
+                unit = eval(name, {'__builtins__': None}, unit_table)  # nosec: scope limited
 
             _UNIT_CACHE[name] = unit
     else:
@@ -1022,28 +1019,6 @@ def unit_conversion(old_units, new_units):
     return _find_unit(old_units, error=True).conversion_tuple_to(_find_unit(new_units, error=True))
 
 
-def get_conversion(old_units, new_units):
-    """
-    Return conversion factor and offset between old and new units (deprecated).
-
-    Parameters
-    ----------
-    old_units : str
-        Original units as a string.
-    new_units : str
-        New units to return the value in.
-
-    Returns
-    -------
-    (float, float)
-        Conversion factor and offset.
-    """
-    warn_deprecation("'get_conversion' has been deprecated. Use "
-                     "'unit_conversion' instead.")
-
-    return unit_conversion(old_units, new_units)
-
-
 def convert_units(val, old_units, new_units=None):
     """
     Take a given quantity and return in different units.
@@ -1095,7 +1070,10 @@ def _has_val_mismatch(units1, val1, units2, val2):
             return True
 
         # convert units
-        val1 = convert_units(val1, units1, new_units=units2)
+        try:
+            val1 = convert_units(val1, units1, new_units=units2)
+        except TypeError:
+            return True  # units are not compatible
 
     rtol = 1e-10
     val1 = np.asarray(val1)

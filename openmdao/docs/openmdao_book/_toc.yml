@@ -28,6 +28,8 @@ parts:
     - file: advanced_user_guide/analytic_derivatives/partial_derivs_explicit
     - file: advanced_user_guide/recording/advanced_case_recording
     - file: advanced_user_guide/example/euler_integration_example
+    - file: advanced_user_guide/complex_step
+    - file: advanced_user_guide/analysis_errors/analysis_error
 - caption: Reference Guide
   chapters:
   - file: theory_manual/theory_manual
@@ -75,6 +77,7 @@ parts:
     - file: other_useful_docs/building_a_tool/travis
   - file: other_useful_docs/auto_ivc_api_translation
   - file: other_useful_docs/api_translation
+  - file: other_useful_docs/environment_vars.ipynb
   - file: other_useful_docs/file_wrap.ipynb
   - file: _srcdocs/index
   - file: other_useful_docs/developer_docs/developer_docs

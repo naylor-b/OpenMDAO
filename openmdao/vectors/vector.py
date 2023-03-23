@@ -1,12 +1,12 @@
 """Define the base Vector and Transfer classes."""
 from copy import deepcopy
-import os
 import weakref
+import hashlib
 
 import numpy as np
 from numpy import ndim
 
-from openmdao.utils.name_maps import prom_name2abs_name, rel_name2abs_name
+from openmdao.utils.name_maps import prom_name2abs_name
 from openmdao.utils.indexer import Indexer, indexer
 
 
@@ -54,11 +54,7 @@ class Vector(object):
     _kind : str
         Specific kind of vector, either 'input', 'output', or 'residual'.
     _system : System
-        Pointer to the owning system.
-    _iproc : int
-        Global processor index.
-    _length : int
-        Length of flattened vector.
+        Weak ref to the owning system.
     _views : dict
         Dictionary mapping absolute variable names to the ndarray views.
     _views_flat : dict
@@ -67,6 +63,8 @@ class Vector(object):
         Set of variables that are relevant in the current context.
     _root_vector : Vector
         Pointer to the vector owned by the root system.
+    _root_offset : int
+        Offset of this vector into the root vector.
     _alloc_complex : bool
         If True, then space for the complex vector is also allocated.
     _data : ndarray
@@ -118,6 +116,7 @@ class Vector(object):
         self._root_vector = None
         self._data = None
         self._slices = None
+        self._root_offset = 0
 
         # Support for Complex Step
         self._alloc_complex = alloc_complex
@@ -259,12 +258,12 @@ class Vector(object):
         system = self._system()
 
         # try relative name first
-        abs_name = '.'.join((system.pathname, name)) if system.pathname else name
-        if abs_name in self._names:
+        abs_name = system.pathname + '.' + name if system.pathname else name
+        if abs_name in self._views:
             return abs_name
 
         abs_name = prom_name2abs_name(system, name, self._typ)
-        if abs_name in self._names:
+        if abs_name in self._views:
             return abs_name
 
     def __iter__(self):
@@ -331,7 +330,7 @@ class Vector(object):
         bool
             True or False.
         """
-        return self._name2abs_name(name) is not None
+        return self._name2abs_name(name) in self._names
 
     def _contains_abs(self, name):
         """
@@ -388,13 +387,15 @@ class Vector(object):
             variable value.
         """
         if flat:
-            val = self._views_flat[name]
-        else:
-            val = self._views[name]
+            if self._under_complex_step:
+                return self._views_flat[name]
+            else:
+                return self._views_flat[name].real
 
         if self._under_complex_step:
-            return val
-        return val.real
+            return self._views[name]
+        else:
+            return self._views[name].real
 
     def __setitem__(self, name, value):
         """
@@ -420,8 +421,8 @@ class Vector(object):
         root_vector : <Vector> or None
             the root's vector instance or None, if we are at the root.
         """
-        raise NotImplementedError('_initialize_data not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError('_initialize_data not defined for vector type '
+                                  f'{type(self).__name__}')
 
     def _initialize_views(self):
         """
@@ -429,8 +430,8 @@ class Vector(object):
 
         Must be implemented by the subclass.
         """
-        raise NotImplementedError('_initialize_views not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError('_initialize_views not defined for vector type '
+                                  f'{type(self).__name__}')
 
     def __iadd__(self, vec):
         """
@@ -443,8 +444,7 @@ class Vector(object):
         vec : <Vector>
             vector to add to self.
         """
-        raise NotImplementedError('__iadd__ not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'__iadd__ not defined for vector type {type(self).__name__}')
 
     def __isub__(self, vec):
         """
@@ -457,8 +457,7 @@ class Vector(object):
         vec : <Vector>
             vector to subtract from self.
         """
-        raise NotImplementedError('__isub__ not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'__isub__ not defined for vector type {type(self).__name__}')
 
     def __imul__(self, val):
         """
@@ -471,8 +470,7 @@ class Vector(object):
         val : int or float
             scalar to multiply self.
         """
-        raise NotImplementedError('__imul__ not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'__imul__ not defined for vector type {type(self).__name__}')
 
     def add_scal_vec(self, val, vec):
         """
@@ -487,8 +485,8 @@ class Vector(object):
         vec : <Vector>
             This vector times val is added to self.
         """
-        raise NotImplementedError('add_scale_vec not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError('add_scale_vec not defined for vector type '
+                                  f'{type(self).__name__}')
 
     def asarray(self, copy=False):
         """
@@ -506,8 +504,7 @@ class Vector(object):
         ndarray
             Array representation of this vector.
         """
-        raise NotImplementedError('asarray not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'asarray not defined for vector type {type(self).__name__}')
         return None  # silence lint warning
 
     def iscomplex(self):
@@ -521,8 +518,7 @@ class Vector(object):
         bool
             True if this vector contains complex values.
         """
-        raise NotImplementedError('iscomplex not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'iscomplex not defined for vector type {type(self).__name__}')
         return False  # silence lint warning
 
     def set_vec(self, vec):
@@ -536,8 +532,7 @@ class Vector(object):
         vec : <Vector>
             The vector whose values self is set to.
         """
-        raise NotImplementedError('set_vec not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'set_vec not defined for vector type {type(self).__name__}')
 
     def set_val(self, val, idxs=_full_slice):
         """
@@ -552,8 +547,7 @@ class Vector(object):
         idxs : int or slice or tuple of ints and/or slices
             The locations where the data array should be updated.
         """
-        raise NotImplementedError('set_arr not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'set_arr not defined for vector type {type(self).__name__}')
 
     def set_vals(self, vals):
         """
@@ -656,8 +650,7 @@ class Vector(object):
         vec : <Vector>
             The incoming vector being dotted with self.
         """
-        raise NotImplementedError('dot not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'dot not defined for vector type {type(self).__name__}')
 
     def get_norm(self):
         """
@@ -670,16 +663,15 @@ class Vector(object):
         float
             Norm of this vector.
         """
-        raise NotImplementedError('get_norm not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError(f'get_norm not defined for vector type {type(self).__name__}')
         return None  # silence lint warning about missing return value.
 
     def _in_matvec_context(self):
         """
         Return True if this vector is inside of a matvec_context.
         """
-        raise NotImplementedError('_in_matvec_context not defined for vector type %s' %
-                                  type(self).__name__)
+        raise NotImplementedError('_in_matvec_context not defined for vector type '
+                                  f'{type(self).__name__}')
 
     def set_complex_step_mode(self, active):
         """
@@ -691,3 +683,58 @@ class Vector(object):
             Complex mode flag; set to True prior to commencing complex step.
         """
         self._under_complex_step = active
+
+    def get_hash(self, alg=hashlib.sha1):
+        """
+        Return a hash string for the array contained in this Vector.
+
+        Parameters
+        ----------
+        alg : function
+            Algorithm used to generate the hash.  Default is hashlib.sha1.
+
+        Returns
+        -------
+        str
+            The hash string.
+        """
+        raise NotImplementedError(f'get_hash not defined for vector type {type(self).__name__}')
+        return ''  # silence lint warning about missing return value.
+
+    def _get_local_views(self, arr=None):
+        """
+        Return a dict of views into an array using local names.
+
+        If arr is not supplied, use our existing internal data array.
+        Note that if arr is not specified, the array used will depend upon the value of
+        _under_complex_step.
+
+        Parameters
+        ----------
+        arr : ndarray or None
+            If not None, create views into this array.
+
+        Returns
+        -------
+        dict
+            A dict of views into the data array keyed using local names.
+        """
+        if arr is None:
+            arr = self.asarray(copy=False)
+        elif len(self) != arr.size:
+            raise RuntimeError(f"{self._system().msginfo}: can't create local view dict because "
+                               f"given array is size {arr.size} but expected size is {len(self)}.")
+
+        dct = {}
+        path = self._system().pathname
+        pathlen = len(path) + 1 if path else 0
+
+        start = end = 0
+        for name, val in self._abs_item_iter(flat=False):
+            end += val.size
+            view = arr[start:end]
+            view.shape = val.shape
+            dct[name[pathlen:]] = view
+            start = end
+
+        return dct

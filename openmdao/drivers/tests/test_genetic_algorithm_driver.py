@@ -1,4 +1,4 @@
-""" Unit tests for the SimpleGADriver Driver."""
+""" Unit tests for SimpleGADriver."""
 
 import unittest
 import os
@@ -18,8 +18,8 @@ from openmdao.test_suite.components.sellar_feature import SellarMDA
 from openmdao.test_suite.components.three_bar_truss import ThreeBarTruss
 
 from openmdao.utils.general_utils import run_driver
-from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.utils.testing_utils import use_tempdirs, set_env_vars_context
+from openmdao.utils.assert_utils import assert_near_equal, assert_warning
 try:
     from parameterized import parameterized
 except ImportError:
@@ -31,6 +31,11 @@ try:
     from openmdao.vectors.petsc_vector import PETScVector
 except ImportError:
     PETScVector = None
+
+try:
+    import pyDOE2
+except ImportError:
+    pyDOE2 = None
 
 extra_prints = False  # enable printing results
 
@@ -47,6 +52,30 @@ def _test_func_name(func, num, param):
     return func.__name__ + '_' + '_'.join(args)
 
 
+class TestErrors(unittest.TestCase):
+
+    @unittest.skipIf(pyDOE2, "only runs if 'pyDOE2' is not installed")
+    def test_no_pyDOE2(self):
+        with self.assertRaises(RuntimeError) as err:
+            GeneticAlgorithm(lambda: 0)
+
+        self.assertEqual(str(err.exception),
+                         "GeneticAlgorithm requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+        with self.assertRaises(RuntimeError) as err:
+            om.SimpleGADriver()
+
+        self.assertEqual(str(err.exception),
+                         "SimpleGADriver requires the 'pyDOE2' package, "
+                         "which can be installed with one of the following commands:\n"
+                         "    pip install openmdao[doe]\n"
+                         "    pip install pyDOE2")
+
+
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestSimpleGA(unittest.TestCase):
 
     def setUp(self):
@@ -138,7 +167,7 @@ class TestSimpleGA(unittest.TestCase):
         self.assertTrue(int(prob['xI']) in [3, -3])
 
     def test_mixed_integer_branin_discrete(self):
-        prob = om.Problem()
+        prob = om.Problem(reports=('optimizer',))
         model = prob.model
 
         indep = om.IndepVarComp()
@@ -389,7 +418,7 @@ class TestSimpleGA(unittest.TestCase):
 
         indeps = prob.model.add_subsystem('indeps', om.IndepVarComp())
         indeps.add_output('x', 3)
-        indeps.add_output('y', [4.0, -4])
+        indeps.add_output('y', [4.0, 1.0])
 
         prob.model.add_subsystem('paraboloid1',
                                  om.ExecComp('f = (x+5)**2- 3'))
@@ -435,6 +464,56 @@ class TestSimpleGA(unittest.TestCase):
         msg = "Driver requires objective to be declared"
 
         self.assertEqual(exception.args[0], msg)
+
+    def test_scipy_invalid_desvar_values(self):
+
+        expected_err = ("The following design variable initial conditions are out of their specified "
+                        "bounds:"
+                        "\n  xI"
+                        "\n    val: [-6.]"
+                        "\n    lower: -5.0"
+                        "\n    upper: 10.0"
+                        "\n  xC"
+                        "\n    val: [15.1]"
+                        "\n    lower: 0.0"
+                        "\n    upper: 15.0"
+                        "\nSet the initial value of the design variable to a valid value or set "
+                        "the driver option['invalid_desvar_behavior'] to 'ignore'."
+                        "\nThis warning will become an error by default in OpenMDAO version 3.25.")
+
+        for option in ['warn', 'raise', 'ignore']:
+            with self.subTest(f'invalid_desvar_behavior = {option}'):
+
+                # build the model
+                prob = om.Problem()
+                model = prob.model
+
+                model.add_subsystem('comp', Branin(),
+                                    promotes_inputs=[('x0', 'xI'), ('x1', 'xC')])
+
+                model.add_design_var('xI', lower=-5.0, upper=10.0)
+                model.add_design_var('xC', lower=0.0, upper=15.0)
+                model.add_objective('comp.f')
+
+                prob.driver = om.SimpleGADriver(invalid_desvar_behavior=option)
+                prob.driver.options['bits'] = {'xC': 8}
+                prob.driver.options['pop_size'] = 10
+
+                prob.setup()
+
+                prob.set_val('xC', 15.1)
+                prob.set_val('xI', -6)
+
+                # run the optimization
+                if option == 'ignore':
+                    prob.run_driver()
+                elif option == 'raise':
+                    with self.assertRaises(ValueError) as ctx:
+                        prob.run_driver()
+                    self.assertEqual(str(ctx.exception), expected_err)
+                else:
+                    with assert_warning(om.DriverWarning, expected_err):
+                        prob.run_driver()
 
     @parameterized.expand([
         (None, None),
@@ -502,6 +581,7 @@ class TestSimpleGA(unittest.TestCase):
             self.assertLessEqual(1.0, prob["x"][i])
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestDriverOptionsSimpleGA(unittest.TestCase):
 
     def setUp(self):
@@ -551,6 +631,7 @@ class Box(om.ExplicitComponent):
         outputs['volume'] = length*height*width
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestMultiObjectiveSimpleGA(unittest.TestCase):
 
     def setUp(self):
@@ -682,6 +763,7 @@ class TestMultiObjectiveSimpleGA(unittest.TestCase):
         self.assertTrue(np.all(sorted_obj[:-1, 1] >= sorted_obj[1:, 1]))
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestConstrainedSimpleGA(unittest.TestCase):
 
     def setUp(self):
@@ -973,6 +1055,7 @@ class TestConstrainedSimpleGA(unittest.TestCase):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class MPITestSimpleGA(unittest.TestCase):
 
     N_PROCS = 2
@@ -1236,6 +1319,7 @@ class Summer(om.ExplicitComponent):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 @use_tempdirs
 class MPITestSimpleGA4Procs(unittest.TestCase):
 
@@ -1441,6 +1525,7 @@ class MPITestSimpleGA4Procs(unittest.TestCase):
         assert_near_equal(np.sum(prob.get_val('f_xy', get_remote=True))/3, -23.1333, 0.15)
 
 
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class TestFeatureSimpleGA(unittest.TestCase):
 
     def setUp(self):
@@ -1674,6 +1759,7 @@ class TestFeatureSimpleGA(unittest.TestCase):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
+@unittest.skipUnless(pyDOE2, "requires 'pyDOE2', install openmdao[doe]")
 class MPIFeatureTests(unittest.TestCase):
     N_PROCS = 2
 
