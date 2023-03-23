@@ -81,6 +81,9 @@ def _gen_setup(fwrapper):
 
 def _gen_setup_partials(partials):
     lines = ['    def setup_partials(self):']
+    old_nrows = None
+    oldrows = None
+    oldcols = None
     for key, (_, sparsity, diag, _) in partials.items():
         of, wrt = key
         if sparsity is None:
@@ -88,10 +91,19 @@ def _gen_setup_partials(partials):
         else:
             rows, cols = sparsity
             if diag:
-                lines.append(f"        rows = cols = np.arange({len(rows)})")
+                if len(rows) != old_nrows:
+                    lines.append(f"        rows = cols = np.arange({len(rows)})")
+                    old_nrows = len(rows)
+                    oldrows = oldcols = None
             else:
-                lines.append(f"        rows = [{','.join(rows)}")
-                lines.append(f"        cols = [{','.join(cols)}")
+                if oldrows != rows:
+                    lines.append(f"        rows = [{','.join(rows)}")
+                    oldrows = rows
+                    old_nrows = None
+                if oldcols != cols:
+                    lines.append(f"        cols = [{','.join(cols)}")
+                    oldcols = cols
+                    old_nrows = None
             lines.append(f"        self.declare_partials(of='{of}', wrt='{wrt}', rows=rows, cols=cols)")
 
     return '\n'.join(lines)
@@ -126,17 +138,18 @@ def _gen_compute_partials(inputs, partials, replacements, reduced_partials):
 def _get_sparsity(J):
     nrows, ncols = J.shape
 
-    arr = np.zeros(J.shape, dtype=bool)
     diag = True
 
+    rows = []
+    cols = []
     for r in range(nrows):
         for c in range(ncols):
             if J[r, c]:
-                arr[r, c] = True
+                rows.append(r)
+                cols.append(c)
                 if r != c:
                     diag = False
 
-    rows, cols = np.nonzero(arr)
     return rows, cols, diag
 
 
