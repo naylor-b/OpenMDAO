@@ -2,6 +2,7 @@
 
 from openmdao.core.constants import _UNDEFINED
 from openmdao.solvers.linear.linear_block_gs import LinearBlockGS
+from openmdao.utils.array_utils import has_nz
 
 
 class LinearRunOnce(LinearBlockGS):
