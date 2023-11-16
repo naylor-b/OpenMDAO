@@ -137,6 +137,7 @@ class LinearBlockGS(BlockLinearSolver):
             subsystems = list(system._solver_subsystem_iter(local_only=False))
             subsystems.reverse()
             parent_offset = system._doutputs._root_offset
+            par_derivs_active = self._problem_meta['parallel_deriv_color'] is not None
 
             for subsys in subsystems:
                 if self._rel_systems is not None and subsys.pathname not in self._rel_systems:
@@ -152,7 +153,7 @@ class LinearBlockGS(BlockLinearSolver):
                     b_vec *= -1.0
                     b_vec += self._rhs_vec[off:off + len(b_vec)]
 
-                    if has_nz(b_vec.asarray(), subsys.comm):
+                    if par_derivs_active or has_nz(b_vec.asarray(), subsys.comm):
                         scope_out, scope_in = system._get_matvec_scope(subsys)
                         scope_out = self._vars_union(self._scope_out, scope_out)
                         scope_in = self._vars_union(self._scope_in, scope_in)
