@@ -20,7 +20,6 @@ else:
 
     from openmdao.vectors.default_transfer import DefaultTransfer, _merge
     from openmdao.core.constants import INT_DTYPE
-    from openmdao.utils.array_utils import has_nz
 
     class PETScTransfer(DefaultTransfer):
         """
@@ -149,7 +148,7 @@ else:
                             # The part of src on iproc
                             on_iproc = np.logical_and(start <= src_indices, src_indices < end)
 
-                            if has_nz(on_iproc):
+                            if np.any(on_iproc):
                                 # This converts from iproc-then-ivar to ivar-then-iproc ordering
                                 # Subtract off part of previous procs
                                 # Then add all variables on previous procs

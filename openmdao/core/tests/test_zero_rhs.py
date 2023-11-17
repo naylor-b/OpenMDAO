@@ -22,11 +22,9 @@ class Combiner(om.ExplicitComponent):
     def setup(self):
         for i in range(self.size):
             self.add_input(f'x{i+1}', shape=1)
-            # self.declare_partials('y', f'x{i}', rows=[i], cols=[i], val=[1.0])
 
         self.declare_partials('*', '*')
         self.add_output('y', shape=self.size)
-
 
     def compute(self, inputs, outputs):
         for i in range(self.size):
@@ -46,7 +44,7 @@ class TestRHSZero(unittest.TestCase):
         model = p.model
 
         model.add_subsystem('indep', om.IndepVarComp('x', np.ones(size)))
-        G = model.add_subsystem('G', om.Group())
+        G = model.add_subsystem('G', om.ParallelGroup())
         for i in range(size):
             sub = G.add_subsystem(f'sub{i+1}', om.Group())
             sub.linear_solver = linsolver()
@@ -89,3 +87,15 @@ class TestRHSZero(unittest.TestCase):
 
         assert_check_totals(p.check_totals(method='cs', show_only_incorrect=True),
                             atol=1e-6, rtol=1e-6)
+
+
+class TestRHSZeroMPI3(TestRHSZero):
+
+    N_PROCS = 3
+
+
+class TestRHSZeroMPI5(TestRHSZero):
+
+    N_PROCS = 5
+
+
