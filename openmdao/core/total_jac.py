@@ -1233,14 +1233,14 @@ class _TotalJacInfo(object):
         all_rel_systems = set()
         vec_names = set()
 
-        dist = self.comm.size > 1
-
         for i in inds:
-            if not dist or self.in_loc_idxs[mode][i] >= 0:
+            if self.in_loc_idxs[mode][i] >= 0:
                 rel_systems, vnames, _ = self.single_input_setter(i, imeta, mode)
-                all_rel_systems = _update_rel_systems(all_rel_systems, rel_systems)
                 if vnames is not None:
                     vec_names.add(vnames[0])
+            else:
+                _, rel_systems, _, _ = self.in_idx_map[mode][i]
+            all_rel_systems = _update_rel_systems(all_rel_systems, rel_systems)
 
         if vec_names:
             return all_rel_systems, sorted(vec_names), (inds[0], mode)
