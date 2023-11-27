@@ -5,6 +5,7 @@ import numpy as np
 
 from openmdao.core.constants import _UNDEFINED
 from openmdao.solvers.solver import BlockLinearSolver
+from openmdao.utils.array_utils import has_nz
 
 
 class LinearBlockGS(BlockLinearSolver):
@@ -110,6 +111,7 @@ class LinearBlockGS(BlockLinearSolver):
                     continue
 
                 b_vec = subsys._dresiduals
+                off = b_vec._root_offset - parent_offset
 
                 scope_out, scope_in = system._get_matvec_scope(subsys)
                 # we use _vars_union to combine relevant variables from the current solve
@@ -121,7 +123,6 @@ class LinearBlockGS(BlockLinearSolver):
                 # of those groups are doing block linear solves).
                 scope_out = self._vars_union(self._scope_out, scope_out)
                 scope_in = self._vars_union(self._scope_in, scope_in)
-                off = b_vec._root_offset - parent_offset
 
                 if subsys._iter_call_apply_linear():
                     subsys._apply_linear(None, self._rel_systems, mode, scope_out, scope_in)
@@ -147,20 +148,21 @@ class LinearBlockGS(BlockLinearSolver):
 
                     system._transfer('linear', mode, subsys.name)
 
-                    b_vec *= -1.0
                     off = b_vec._root_offset - parent_offset
+                    b_vec *= -1.0
                     b_vec += self._rhs_vec[off:off + len(b_vec)]
 
-                    scope_out, scope_in = system._get_matvec_scope(subsys)
-                    scope_out = self._vars_union(self._scope_out, scope_out)
-                    scope_in = self._vars_union(self._scope_in, scope_in)
+                    if has_nz(b_vec.asarray(), subsys.comm):
+                        scope_out, scope_in = system._get_matvec_scope(subsys)
+                        scope_out = self._vars_union(self._scope_out, scope_out)
+                        scope_in = self._vars_union(self._scope_in, scope_in)
 
-                    subsys._solve_linear(mode, self._rel_systems, scope_out, scope_in)
+                        subsys._solve_linear(mode, self._rel_systems, scope_out, scope_in)
 
-                    if subsys._iter_call_apply_linear():
-                        subsys._apply_linear(None, self._rel_systems, mode, scope_out, scope_in)
-                    else:
-                        b_vec.set_val(0.0)
+                        if subsys._iter_call_apply_linear():
+                            subsys._apply_linear(None, self._rel_systems, mode, scope_out, scope_in)
+                        else:
+                            b_vec.set_val(0.0)
                 else:   # subsys not local
                     system._transfer('linear', mode, subsys.name)
 

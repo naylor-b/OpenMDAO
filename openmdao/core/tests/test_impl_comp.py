@@ -1298,13 +1298,17 @@ class ImplicitCompReadOnlyTestCase(unittest.TestCase):
 
         prob = om.Problem()
         prob.model.add_subsystem('bad', BadComp())
-        prob.setup()
+        prob.model.add_design_var('bad.a')
+        prob.model.add_constraint('bad.x')
+        prob.setup(mode='rev')
         prob.run_model()
-        prob.model.run_linearize()
 
         # check input vector
         with self.assertRaises(ValueError) as cm:
-            prob.model.run_solve_linear('rev')
+            # this was changed to compute_totals so that a seed would be set
+            # and the RHS would be nonzero. Otherwise the 'bad' solve_linear
+            # would not be called because RHS would be zero.
+            prob.compute_totals()
 
         self.assertEqual(str(cm.exception),
                          "'bad' <class BadComp>: Attempt to set value of 'x' in output vector "

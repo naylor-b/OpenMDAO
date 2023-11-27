@@ -12,6 +12,42 @@ from scipy.sparse import coo_matrix
 from openmdao.core.constants import INT_DTYPE
 
 
+try:
+    import numba as nb
+except ImportError:
+    _has_nz = np.any
+else:
+    # short-circuiting replacement for np.any()
+    @nb.jit(nopython=True)
+    def _has_nz(array):
+        for x in array.flat:
+            if x:
+                return True
+        return False
+
+
+def has_nz(array, comm=None):
+    """
+    Return True if the given array has any nonzero entries.
+
+    Parameters
+    ----------
+    array : ndarray
+        Array to be checked.
+    comm : MPI communicator or None
+        If not None, the communicator used to determine if any rank has nonzero entries.
+
+    Returns
+    -------
+    bool
+        True if the array has any nonzero entries.
+    """
+    if comm is None or comm.size == 1:
+        return _has_nz(array)
+    else:
+        return comm.allreduce(1 if _has_nz(array) else 0) > 0
+
+
 if sys.version_info >= (3, 8):
     from math import prod
 

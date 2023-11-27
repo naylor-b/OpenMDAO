@@ -9,7 +9,7 @@ from scipy.sparse import csc_matrix
 
 from openmdao.solvers.solver import LinearSolver
 from openmdao.matrices.dense_matrix import DenseMatrix
-from openmdao.utils.array_utils import identity_column_iter
+from openmdao.utils.array_utils import identity_column_iter, has_nz
 
 
 def index_to_varname(system, loc):
@@ -343,7 +343,6 @@ class DirectSolver(LinearSolver):
             Inverse Jacobian.
         """
         system = self._system()
-        iproc = system.comm.rank
         nproc = system.comm.size
 
         if self._assembled_jac is not None:
@@ -435,6 +434,9 @@ class DirectSolver(LinearSolver):
             b_vec = d_outputs.asarray()
             trans_lu = 1
             trans_splu = 'T'
+
+        if not has_nz(b_vec):
+            return
 
         # AssembledJacobians are unscaled.
         if self._assembled_jac is not None:
