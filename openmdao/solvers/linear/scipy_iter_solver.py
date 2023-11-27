@@ -6,6 +6,7 @@ import scipy
 from scipy.sparse.linalg import LinearOperator, gmres
 
 from openmdao.solvers.solver import LinearSolver
+from openmdao.utils.array_utils import has_nz
 
 _SOLVER_TYPES = {
     # 'bicg': bicg,
@@ -187,10 +188,20 @@ class ScipyKrylov(LinearSolver):
         rel_systems : set of str
             Names of systems relevant to the current solve.
         """
+        system = self._system()
+        if mode == 'fwd':
+            x_vec = system._doutputs
+            b_vec = system._dresiduals
+        else:  # rev
+            x_vec = system._dresiduals
+            b_vec = system._doutputs
+
+        if not has_nz(b_vec.asarray(), system.comm):
+            return
+
         self._rel_systems = rel_systems
         self._mode = mode
 
-        system = self._system()
         solver = _SOLVER_TYPES[self.options['solver']]
         if solver is gmres:
             restart = self.options['restart']
@@ -200,12 +211,6 @@ class ScipyKrylov(LinearSolver):
 
         fail = False
 
-        if mode == 'fwd':
-            x_vec = system._doutputs
-            b_vec = system._dresiduals
-        else:  # rev
-            x_vec = system._dresiduals
-            b_vec = system._doutputs
 
         x_vec_combined = x_vec.asarray()
         size = x_vec_combined.size

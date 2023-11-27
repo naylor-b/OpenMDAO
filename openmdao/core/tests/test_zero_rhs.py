@@ -1,4 +1,6 @@
 import unittest
+import itertools
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -7,6 +9,11 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.core.constants import _UNDEFINED
 
 from openmdao.utils.mpi import MPI
+
+try:
+    from parameterized import parameterized
+except ImportError:
+    from openmdao.utils.assert_utils import SkipParameterized as parameterized
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
@@ -37,9 +44,25 @@ class Combiner(om.ExplicitComponent):
             partials[f'y', f'x{i+1}'] = v
 
 
+def _test_func_name(func, num, param):
+    args = []
+    for p in param.args:
+        if isinstance(p, str):
+            p = [p]
+        elif not isinstance(p, Iterable):
+            p = [p]
+        for item in p:
+            try:
+                arg = item.__name__
+            except:
+                arg = str(item)
+            args.append(arg)
+    return func.__name__ + '_' + '_'.join(args)
+
+
 class TestRHSZero(unittest.TestCase):
 
-    def setup_model(self, size, linsolver, mode):
+    def setup_model(self, size, mode, linsolver):
         p = om.Problem()
         model = p.model
 
@@ -64,26 +87,12 @@ class TestRHSZero(unittest.TestCase):
 
         return p
 
-    def test_direct_rev(self):
-        p = self.setup_model(3, om.DirectSolver, 'rev')
-
-        assert_check_totals(p.check_totals(method='cs', show_only_incorrect=True),
-                            atol=1e-6, rtol=1e-6)
-
-    def test_direct_fwd(self):
-        p = self.setup_model(3, om.DirectSolver, 'fwd')
-
-        assert_check_totals(p.check_totals(method='cs', show_only_incorrect=True),
-                            atol=1e-6, rtol=1e-6)
-
-    def test_blockGS_rev(self):
-        p = self.setup_model(3, om.LinearBlockGS, 'rev')
-
-        assert_check_totals(p.check_totals(method='cs', show_only_incorrect=True),
-                            atol=1e-6, rtol=1e-6)
-
-    def test_blockGS_fwd(self):
-        p = self.setup_model(3, om.LinearBlockGS, 'fwd')
+    @parameterized.expand(itertools.product(['fwd', 'rev'],
+                                            [om.DirectSolver, om.LinearBlockGS,
+                                             om.ScipyKrylov, om.PETScKrylov]),
+                          name_func=_test_func_name)
+    def test_zero_rhs(self, mode, linsolver):
+        p = self.setup_model(3, mode, linsolver)
 
         assert_check_totals(p.check_totals(method='cs', show_only_incorrect=True),
                             atol=1e-6, rtol=1e-6)

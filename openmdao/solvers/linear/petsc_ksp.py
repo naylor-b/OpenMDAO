@@ -1,11 +1,10 @@
 """LinearSolver that uses PetSC KSP to solve for a system's derivatives."""
 
 import numpy as np
-import os
-import sys
 
 from openmdao.solvers.solver import LinearSolver
 from openmdao.utils.mpi import check_mpi_env
+from openmdao.utils.array_utils import has_nz
 
 use_mpi = check_mpi_env()
 if use_mpi is not False:
@@ -359,6 +358,10 @@ class PETScKrylov(LinearSolver):
         else:  # rev
             x_vec = system._dresiduals
             b_vec = system._doutputs
+
+        if not has_nz(b_vec.asarray(), system.comm):
+            # nothing to solve
+            return
 
         # create numpy arrays to interface with PETSc
         sol_array = x_vec.asarray(copy=True)
