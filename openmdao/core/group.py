@@ -5281,3 +5281,19 @@ class Group(System):
                 of_dict[self._get_prom_name(wrt)] = jac[of][wrt]
 
         return new_jac
+
+    def show_sys_graph(self):
+        # import matplotlib as mpl
+        import matplotlib.pyplot as plt
+
+        G = self.compute_sys_graph()
+        # pos = nx.spring_layout(G, seed=3113794652)
+        # nx.draw_networkx_nodes(G, pos)  # many options... nodelist=[...]
+        # nx.draw_networkx_edges(G, pos)  # many options... edgelist=[...]
+        # edge_labels = {}
+        # edge_labels[a, b] = "xxx"
+        # ...
+        # nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=22, font_color="whitesmoke")
+        nx.draw(G, with_labels=True)
+        plt.axis("off")
+        plt.show()
