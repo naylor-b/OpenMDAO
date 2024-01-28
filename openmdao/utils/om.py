@@ -524,6 +524,48 @@ def _comm_info_cmd(options, user_args):
     _load_and_exec(options.file[0], user_args)
 
 
+def _graph_setup_parser(parser):
+    """
+    Set up the openmdao subparser for the 'openmdao graph' command.
+
+    Parameters
+    ----------
+    parser : argparse subparser
+        The parser we're adding options to.
+    """
+    parser.add_argument('file', nargs=1, help='Python file containing the model.')
+    # parser.add_argument('-o', default=None, action='store', dest='outfile',
+    #                     help='Name of output file.  By default, output goes to stdout.')
+    parser.add_argument('-p', '--problem', action='store', dest='problem', help='Problem name')
+    parser.add_argument('-g', '--group', action='store', dest='group_name', default='',
+                        help='Dotted pathname of group.')
+
+
+def _graph_cmd(options, user_args):
+    """
+    Return the post_setup hook function for 'openmdao graph'.
+
+    Parameters
+    ----------
+    options : argparse Namespace
+        Command line options.
+    user_args : list of str
+        Args to be passed to the user script.
+    """
+    def _graph_viz(prob):
+        grp = prob.model._get_subsystem(options.group_name)
+        if grp is None:
+            print("Group '{}' not found.".format(options.group_name))
+            exit()
+
+        grp.show_sys_graph()
+
+    hooks._register_hook('setup', class_name='Problem', inst_id=options.problem, post=_graph_viz,
+                         exit=True)
+
+    _load_and_exec(options.file[0], user_args)
+
+
 # this dict should contain names mapped to tuples of the form:
 #   (setup_parser_func, executor, description)
 _command_map = {
@@ -541,6 +583,8 @@ _command_map = {
                    'Display connection information for variables across multiple MPI processes.'),
     'find_plugins': (_find_plugins_setup_parser, _find_plugins_exec,
                      'Find openmdao plugins on github.'),
+    'graph': (_graph_setup_parser, _graph_cmd,
+                  'Display the system graph for the group.'),
     'iprof': (_iprof_setup_parser, _iprof_exec,
               'Profile calls to particular object instances.'),
     'iprof_totals': (_iprof_totals_setup_parser, _iprof_totals_exec,

@@ -5287,13 +5287,14 @@ class Group(System):
         import matplotlib.pyplot as plt
 
         G = self.compute_sys_graph()
-        # pos = nx.spring_layout(G, seed=3113794652)
+        # pos = nx.spring_layout(G, seed=3113794652, k=.01)
+        pos = nx.nx_pydot.graphviz_layout(G)
         # nx.draw_networkx_nodes(G, pos)  # many options... nodelist=[...]
-        # nx.draw_networkx_edges(G, pos)  # many options... edgelist=[...]
+        nx.draw_networkx(G, pos=pos, with_labels=True)
         # edge_labels = {}
         # edge_labels[a, b] = "xxx"
         # ...
         # nx.draw_networkx_edge_labels(G, pos, edge_labels, font_size=22, font_color="whitesmoke")
-        nx.draw(G, with_labels=True)
+        # nx.draw(G, with_labels=True)
         plt.axis("off")
         plt.show()
