@@ -272,8 +272,10 @@ class ScipyKrylov(LinearSolver):
 
         # call the preconditioner
         self._solver_info.append_precon()
-        self.precon.solve(mode)
-        self._solver_info.pop()
+        try:
+            self.precon.solve(mode)
+        finally:
+            self._solver_info.pop()
 
         # return resulting value of x vector
         return x_vec.asarray(copy=True)

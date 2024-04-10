@@ -324,10 +324,11 @@ class BroydenSolver(NonlinearSolver):
         with Recording('Broyden', 0, self) as rec:
             self._solver_info.append_solver()
 
-            # should call the subsystems solve before computing the first residual
-            self._gs_iter()
-
-            self._solver_info.pop()
+            try:
+                # should call the subsystems solve before computing the first residual
+                self._gs_iter()
+            finally:
+                self._solver_info.pop()
 
             self._run_apply()
             norm = self._iter_get_norm()
@@ -387,12 +388,13 @@ class BroydenSolver(NonlinearSolver):
         if self.linesearch:
             self._solver_info.append_subsolver()
 
-            self.set_states(self.xm)
-            self.set_linear_vector(delta_xm)
-            self.linesearch.solve()
-            xm = self.get_vector(system._outputs)
-
-            self._solver_info.pop()
+            try:
+                self.set_states(self.xm)
+                self.set_linear_vector(delta_xm)
+                self.linesearch.solve()
+                xm = self.get_vector(system._outputs)
+            finally:
+                self._solver_info.pop()
 
         else:
             # Update the new states in the model.
@@ -401,8 +403,10 @@ class BroydenSolver(NonlinearSolver):
 
         # Run the model.
         self._solver_info.append_solver()
-        self._gs_iter()
-        self._solver_info.pop()
+        try:
+            self._gs_iter()
+        finally:
+            self._solver_info.pop()
 
         self._run_apply()
 

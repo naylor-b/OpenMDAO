@@ -23,8 +23,6 @@ class SolverInfo(object):
 
     Attributes
     ----------
-    prefix : str
-        Prefix to prepend during this iprint.
     stack : list
         List of strings; strings are popped and appended as needed.
     """
@@ -33,69 +31,49 @@ class SolverInfo(object):
         """
         Initialize.
         """
-        self.prefix = ""
         self.stack = []
+
+    @property
+    def prefix(self):
+        """
+        Return the prefix string.
+        """
+        return ''.join(self.stack)
 
     def clear(self):
         """
         Clear out the iprint stack, in case something is left over from a handled exception.
         """
-        self.prefix = ""
         self.stack = []
 
     def pop(self):
         """
         Remove one level of solver depth in the printing.
+
+        Returns
+        -------
+        str
+            The removed string.
         """
-        last_string = self.stack.pop()
-        nchar = len(last_string)
-        self.prefix = self.prefix[:-nchar]
+        return self.stack.pop()
 
     def append_solver(self):
         """
         Add a new level for the main solver in a group.
         """
-        new_str = '+  '
-        self.prefix += new_str
-        self.stack.append(new_str)
+        self.stack.append('+  ')
 
     def append_subsolver(self):
         """
         Add a new level for any sub-solver for your solver.
         """
-        new_str = '|  '
-        self.prefix += new_str
-        self.stack.append(new_str)
+        self.stack.append('|  ')
 
     def append_precon(self):
         """
         Add a new level for any preconditioner to a linear solver.
         """
-        new_str = '| precon:'
-        self.prefix += new_str
-        self.stack.append(new_str)
-
-    def save_cache(self):
-        """
-        Save prefix and stack so that they can be restored later in event of an exception recovery.
-
-        Returns
-        -------
-        tuple(str, list)
-            Cache of current stack.
-        """
-        return (self.prefix, self.stack)
-
-    def restore_cache(self, cache):
-        """
-        Restore previously saved iprint stack names.
-
-        Parameters
-        ----------
-        cache : tuple(str, list)
-            Cache of current stack.
-        """
-        self.prefix, self.stack = cache
+        self.stack.append('| precon:')
 
 
 class Solver(object):

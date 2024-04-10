@@ -139,8 +139,10 @@ class NonlinearBlockGS(NonlinearSolver):
                 outputs_n = outputs.asarray(copy=True)
 
         self._solver_info.append_subsolver()
-        self._gs_iter()
-        self._solver_info.pop()
+        try:
+            self._gs_iter()
+        finally:
+            self._solver_info.pop()
 
         if use_aitken:
             # compute the change in the outputs after the NLBGS iteration
@@ -235,11 +237,13 @@ class NonlinearBlockGS(NonlinearSolver):
                 outputs_n = outputs.asarray(copy=True)
 
             self._solver_info.append_subsolver()
-            for subsys in system._relevance.filter(system._all_subsystem_iter()):
-                system._transfer('nonlinear', 'fwd', subsys.name)
-                if subsys._is_local:
-                    subsys._solve_nonlinear()
+            try:
+                for subsys in system._relevance.filter(system._all_subsystem_iter()):
+                    system._transfer('nonlinear', 'fwd', subsys.name)
+                    if subsys._is_local:
+                        subsys._solve_nonlinear()
+            finally:
+                self._solver_info.pop()
 
-            self._solver_info.pop()
             with system._unscaled_context(residuals=[residuals], outputs=[outputs]):
                 residuals.set_val(outputs.asarray() - outputs_n)

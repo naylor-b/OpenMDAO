@@ -310,14 +310,10 @@ class ArmijoGoldsteinLS(LinesearchSolver):
         self._enforce_bounds(step=du, alpha=alpha)
 
         try:
-            cache = self._solver_info.save_cache()
-
             self._run_apply()
             phi = self._line_search_objective()
 
         except AnalysisError as err:
-            self._solver_info.restore_cache(cache)
-
             if self.options['retry_on_analysis_error']:
                 self._analysis_error_raised = True
             else:
@@ -355,13 +351,10 @@ class ArmijoGoldsteinLS(LinesearchSolver):
             self._solver_info.append_solver()
 
             try:
-                cache = self._solver_info.save_cache()
                 self._gs_iter()
                 self._run_apply()
 
             except AnalysisError as err:
-                self._solver_info.restore_cache(cache)
-
                 if self.options['retry_on_analysis_error']:
                     self._analysis_error_raised = True
 
@@ -442,7 +435,6 @@ class ArmijoGoldsteinLS(LinesearchSolver):
                     self._update_step_length_parameter(rho)
                     # Moving on the line search with the difference of the old and new step length.
                     u.add_scal_vec(self.alpha - alpha_old, du)
-                cache = self._solver_info.save_cache()
 
                 try:
                     self._single_iteration()
@@ -455,7 +447,6 @@ class ArmijoGoldsteinLS(LinesearchSolver):
                     rec.rel = phi / phi0
 
                 except AnalysisError as err:
-                    self._solver_info.restore_cache(cache)
                     self._iter_count += 1
 
                     if self.options['retry_on_analysis_error']:

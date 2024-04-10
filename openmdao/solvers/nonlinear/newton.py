@@ -192,10 +192,11 @@ class NewtonSolver(NonlinearSolver):
 
                 self._solver_info.append_solver()
 
-                # should call the subsystems solve before computing the first residual
-                self._gs_iter()
-
-                self._solver_info.pop()
+                try:
+                    # should call the subsystems solve before computing the first residual
+                    self._gs_iter()
+                finally:
+                    self._solver_info.pop()
 
             self._run_apply()
             norm = self._iter_get_norm()
@@ -225,29 +226,32 @@ class NewtonSolver(NonlinearSolver):
             system._dresiduals *= -1.0
             my_asm_jac = self.linear_solver._assembled_jac
 
-            system._linearize(my_asm_jac, sub_do_ln=do_sub_ln)
-            if (my_asm_jac is not None and
-                    system.linear_solver._assembled_jac is not my_asm_jac):
-                my_asm_jac._update(system)
+            try:
+                system._linearize(my_asm_jac, sub_do_ln=do_sub_ln)
+                if (my_asm_jac is not None and
+                        system.linear_solver._assembled_jac is not my_asm_jac):
+                    my_asm_jac._update(system)
 
-            self._linearize()
+                self._linearize()
 
-            self.linear_solver.solve('fwd')
+                self.linear_solver.solve('fwd')
 
-            if self.linesearch and not system.under_complex_step:
-                self.linesearch._do_subsolve = do_subsolve
-                self.linesearch.solve()
-            else:
-                system._outputs += system._doutputs
-
-            self._solver_info.pop()
+                if self.linesearch and not system.under_complex_step:
+                    self.linesearch._do_subsolve = do_subsolve
+                    self.linesearch.solve()
+                else:
+                    system._outputs += system._doutputs
+            finally:
+                self._solver_info.pop()
 
             # Hybrid newton support.
             if do_subsolve:
                 with Recording('Newton_subsolve', 0, self):
                     self._solver_info.append_solver()
-                    self._gs_iter()
-                    self._solver_info.pop()
+                    try:
+                        self._gs_iter()
+                    finally:
+                        self._solver_info.pop()
         finally:
             # Enable local fd
             system._owns_approx_jac = approx_status

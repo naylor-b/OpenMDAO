@@ -428,8 +428,10 @@ class PETScKrylov(LinearSolver):
 
             # call the preconditioner
             self._solver_info.append_precon()
-            self.precon.solve(mode)
-            self._solver_info.pop()
+            try:
+                self.precon.solve(mode)
+            finally:
+                self._solver_info.pop()
 
             # stuff resulting value of x vector into result for KSP
             result.array[:] = x_vec.asarray()
