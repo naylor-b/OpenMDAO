@@ -5,7 +5,8 @@ import openmdao.api as om
 from openmdao.utils.mpi import MPI
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, \
      assert_check_totals
-from openmdao.test_suite.groups.parallel_groups import FanIn, FanOut
+from openmdao.test_suite.groups.parallel_groups import FanInGrouped, FanOutGrouped
+from openmdao.test_suite.components.distributed_components import DistribCompDerivs
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
@@ -440,14 +441,65 @@ class TestSubmodelCompMPI(unittest.TestCase):
 
         par = model.add_subsystem('par', om.ParallelGroup())
 
-        par.add_subsystem('subprob1', om.SubmodelComp(problem=om.Problem(model=FanOut()),
+        par.add_subsystem('subprob1', om.SubmodelComp(problem=om.Problem(model=FanOutGrouped()),
                                                       inputs=['p.x'], outputs=['comp2.y', 'comp3.y']))
-        par.add_subsystem('subprob2', om.SubmodelComp(problem=om.Problem(model=FanIn()),
+        par.add_subsystem('subprob2', om.SubmodelComp(problem=om.Problem(model=FanInGrouped()),
                                                       inputs=['p1.x1', 'p2.x2'], outputs=['comp3.y']))
 
         p.setup(force_alloc_complex=True)
         p.run_model()
         assert_check_partials(p.check_partials(method='cs', out_stream=None))
+
+    def test_submodel_with_parallel_group(self):
+        p = om.Problem()
+
+        model = p.model
+
+        G = model.add_subsystem('G', om.Group())
+
+        psub = om.Problem()
+        par = psub.model.add_subsystem('par', om.ParallelGroup())
+        par.add_subsystem('fanout1', FanOutGrouped())
+        par.add_subsystem('fanout2', FanOutGrouped())
+        G.add_subsystem('subprob1', om.SubmodelComp(problem=psub, inputs=['*'], outputs=['*'],
+                                                    do_coloring=False))
+
+        p.setup(force_alloc_complex=True)
+        p.run_model()
+
+        assert_near_equal(psub.get_val('par.fanout1.c2.y', get_remote=True), -6.0)
+        assert_near_equal(psub.get_val('par.fanout2.c2.y', get_remote=True), -6.0)
+        assert_near_equal(psub.get_val('par.fanout1.c3.y', get_remote=True), 15.0)
+        assert_near_equal(psub.get_val('par.fanout2.c3.y', get_remote=True), 15.0)
+
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
+
+    def test_submodel_dist(self):
+        p = om.Problem()
+
+        model = p.model
+
+        G = model.add_subsystem('G', om.Group())
+
+        psub = om.Problem()
+        ivc = psub.model.add_subsystem('ivc', om.IndepVarComp('x', 5. * np.ones(3)))
+        ivc.add_output('y', 2.5 * np.ones(3))
+
+        psub.model.add_subsystem('distcomp1', DistribCompDerivs(size=3))
+        psub.model.add_subsystem('distcomp2', DistribCompDerivs(size=3))
+        psub.model.connect('ivc.x', 'distcomp1.invec')
+        psub.model.connect('ivc.y', 'distcomp2.invec')
+        G.add_subsystem('subprob1', om.SubmodelComp(problem=psub, inputs=['*'], outputs=['*'],
+                                                    do_coloring=False))
+
+        p.setup(force_alloc_complex=True)
+        p.run_model()
+
+        assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=True), -6.0)
+        assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=True), -6.0)
+
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
+        assert_check_partials(psub.check_partials(method='cs', out_stream=None))
 
 
 class IncompleteRelevanceGroup(om.Group):
@@ -621,8 +673,11 @@ def build_submodel(compute_x=False):
     submodel1 = subprob1.model.add_subsystem('submodel1', om.Group(), promotes=['*'])
 
     if compute_x:
-        submodel1.add_subsystem('x', om.ExecComp('x = diameter * 2 * r * theta'), promotes=['*', ('diameter', 'aircraft:fuselage:diameter')])
-    submodel1.add_subsystem('y', om.ExecComp('y = mass * donkey_kong'), promotes=['*', ('mass', 'dynamic:mission:mass'), ('donkey_kong', 'aircraft:engine:donkey_kong')])
+        submodel1.add_subsystem('x', om.ExecComp('x = diameter * 2 * r * theta'),
+                                promotes=['*', ('diameter', 'aircraft:fuselage:diameter')])
+    submodel1.add_subsystem('y', om.ExecComp('y = mass * donkey_kong'),
+                            promotes=['*', ('mass', 'dynamic:mission:mass'),
+                                      ('donkey_kong', 'aircraft:engine:donkey_kong')])
 
 
     p.model.add_subsystem('supModel', supmodel, promotes_inputs=['*'],

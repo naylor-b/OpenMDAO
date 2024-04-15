@@ -281,10 +281,11 @@ class Vector(object):
             iterator over the variable names.
         """
         system = self._system()
-        path = system.pathname
-        idx = len(path) + 1 if path else 0
+        if system.pathname:
+            idx = len(system.pathname) + 1
+            return (n[idx:] for n in system._var_abs2meta[self._typ] if n in self._names)
 
-        return (n[idx:] for n in system._var_abs2meta[self._typ] if n in self._names)
+        return (n for n in system._var_abs2meta[self._typ] if n in self._names)
 
     def _abs_item_iter(self, flat=True):
         """
