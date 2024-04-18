@@ -279,7 +279,7 @@ class TestGroupFiniteDifference(unittest.TestCase):
         model.add_design_var('p2.x2')
         model.add_constraint('comp.y1')
         model.add_constraint('comp.y2')
-        
+
         prob.setup()
         prob.run_model()
         model.run_linearize(driver=prob.driver)
@@ -1083,7 +1083,7 @@ class TestGroupComplexStep(unittest.TestCase):
         model.add_design_var('p2.x2')
         model.add_constraint('comp.y1')
         model.add_constraint('comp.y2')
-        
+
         prob.setup()
         prob.run_model()
         model.run_linearize(driver=prob.driver)
@@ -2388,7 +2388,7 @@ class TestFDRelative(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             prob.check_partials()
 
-        msg = "<model> <class Group>: Option 'directional' is not supported when 'step_calc' is set to 'rel_element.'"
+        msg = "'comp' <class FDComp>: Option 'directional' is not supported when 'step_calc' is set to 'rel_element.'"
         self.assertEqual(cm.exception.args[0], msg)
 
     def test_check_settings_on_comp(self):

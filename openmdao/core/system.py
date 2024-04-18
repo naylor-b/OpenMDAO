@@ -701,15 +701,6 @@ class System(object):
         """
         pass
 
-    def _have_output_solver_options_been_applied(self):
-        """
-        Check to see if the cached output solver options were applied.
-        """
-        for subsys in self.system_iter(include_self=True, recurse=True):
-            if subsys._output_solver_options:  # If options dict not empty, has not been applied
-                return False  # No need to look for more
-        return True
-
     def set_output_solver_options(self, name, lower=_UNDEFINED, upper=_UNDEFINED,
                                   ref=_UNDEFINED, ref0=_UNDEFINED, res_ref=_UNDEFINED):
         """
@@ -4757,7 +4748,7 @@ class System(object):
             if self._assembled_jac:
                 self._assembled_jac.set_complex_step_mode(active)
 
-        for sub in self.system_iter(include_self=False, recurse=True):
+        for sub in self._subsystems_myproc:
             sub._set_complex_step_mode(active)
 
     def cleanup(self):

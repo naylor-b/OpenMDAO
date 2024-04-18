@@ -454,13 +454,13 @@ class TestSubmodelCompMPI(unittest.TestCase):
         par = model.add_subsystem('par', om.ParallelGroup())
 
         par.add_subsystem('subprob1', om.SubmodelComp(problem=om.Problem(model=FanOutGrouped()),
-                                                      inputs=['p.x'], outputs=['comp2.y', 'comp3.y']))
+                                                      inputs=['iv.x'], outputs=['c2.y', 'c3.y']))
         par.add_subsystem('subprob2', om.SubmodelComp(problem=om.Problem(model=FanInGrouped()),
-                                                      inputs=['p1.x1', 'p2.x2'], outputs=['comp3.y']))
+                                                      inputs=['*'], outputs=['c3.y']))
 
         p.setup(force_alloc_complex=True)
         p.run_model()
-        assert_check_partials(p.check_partials(method='cs', out_stream=None))
+        assert_check_partials(p.check_partials(method='fd', out_stream=None))
 
     def test_submodel_with_parallel_group(self):
         p = om.Problem()

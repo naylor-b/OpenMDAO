@@ -1,4 +1,5 @@
 """Define the base Vector and Transfer classes."""
+import sys
 from copy import deepcopy
 import weakref
 import hashlib
@@ -762,3 +763,18 @@ class Vector(object):
             start = end
 
         return dct
+
+    def dump(self, out_stream=None):
+        """
+        Dump the vector contents to stdout.
+
+        Parameters
+        ----------
+        out_stream : file-like object or None
+            Where to send human readable output. Defaults to sys.stdout.
+        """
+        if out_stream is None:
+            out_stream = sys.stdout
+        print(f"{self._system().pathname}: {self._name} {self._kind} vector:", file=out_stream)
+        for name, val in self.items():
+            print("   ", name, val, file=out_stream)
