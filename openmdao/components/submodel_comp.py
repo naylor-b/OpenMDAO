@@ -1,5 +1,7 @@
 """Define the SubmodelComp class for evaluating OpenMDAO systems within components."""
 
+import numpy as np
+
 from openmdao.core.constants import _SetupStatus
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.total_jac import _TotalJacInfo
@@ -111,6 +113,9 @@ class SubmodelComp(ExplicitComponent):
         self._ins2sub_outs_idxs = None
         self._sub_outs_idxs = None
         self._zero_partials = set()
+        self._non_dist_idxs = None
+        self._dist_outs_idxs = None
+        self._dist_sub_outs_idxs = None
 
         self._static_submodel_inputs = {
             name: (outer_name, {}) for name, outer_name in _io_namecheck_iter(inputs, 'input')
@@ -437,7 +442,7 @@ class SubmodelComp(ExplicitComponent):
 
         # save the _TotJacInfo object so we can use it in future calls to compute_partials
         self._totjacinfo = _TotalJacInfo(p, of=self._submodel_outputs, wrt=self._submodel_inputs,
-                                         return_format='flat_dict',
+                                         return_format='flat_dict',  # get_remote=False,
                                          approx=p.model._owns_approx_jac,
                                          coloring_info=coloring_info,
                                          driver=False)
@@ -523,12 +528,16 @@ class SubmodelComp(ExplicitComponent):
                               idxs=self._outs_idxs())
 
         if self.comm.size > 1:
-            self._outputs.set_val(self.comm.allreduce(self._outputs.asarray(), op=MPI.SUM))
             if self._dist_outs_idxs is not None:
                 # update with distrib var values at the end after the allreduce since dist
                 # vars should not be combined across procs
+                ndist_outs = self._outputs.asarray()[self._non_dist_idxs]
+                ndist_outs = self.comm.allreduce(ndist_outs, op=MPI.SUM)
+                self._outputs.set_val(ndist_outs, idxs=self._non_dist_idxs)
                 self._outputs.set_val(self._outputs.asarray()[self._dist_sub_outs_idxs()],
                                       idxs=self._dist_outs_idxs())
+            else:
+                self._outputs.set_val(self.comm.allreduce(self._outputs.asarray(), op=MPI.SUM))
 
     def compute_partials(self, inputs, partials):
         """
@@ -593,12 +602,16 @@ class SubmodelComp(ExplicitComponent):
         out_ranges = []
         dist_sub_out_ranges = []
         dist_out_ranges = []
+        dist_mask = None
         for inner_prom, outer_name in self._submodel_outputs.items():
             sub_src = prom2abs[inner_prom][0]
             if submod._owned_size(sub_src) > 0:
                 sub_slc = sub_slices[sub_src]
                 slc = slices[prefix + outer_name]
                 if self.comm.size > 1 and abs2meta[sub_src]['distributed']:
+                    if dist_mask is None:
+                        dist_mask = np.ones(len(self._outputs), dtype=bool)
+                    dist_mask[slc] = False
                     dist_out_ranges.append((slc.start, slc.stop))
                     dist_sub_out_ranges.append((sub_slc.start, sub_slc.stop))
                 else:
@@ -611,5 +624,6 @@ class SubmodelComp(ExplicitComponent):
             self._dist_outs_idxs = ranges2indexer(dist_out_ranges, src_shape=(len(self._outputs),))
             self._dist_sub_outs_idxs = ranges2indexer(dist_sub_out_ranges,
                                                       src_shape=(len(submod._outputs),))
+            self._non_dist_idxs = np.where(dist_mask)[0]
         else:
-            self._dist_outs_idxs = self._dist_sub_outs_idxs = None
+            self._dist_outs_idxs = self._dist_sub_outs_idxs = self._non_dist_idxs = None

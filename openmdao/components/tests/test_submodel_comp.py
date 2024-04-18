@@ -493,12 +493,16 @@ class TestSubmodelCompMPI(unittest.TestCase):
 
         G = model.add_subsystem('G', om.Group())
 
-        psub = om.Problem()
-        ivc = psub.model.add_subsystem('ivc', om.IndepVarComp('x', 5. * np.ones(3)))
-        ivc.add_output('y', 2.5 * np.ones(3))
+        size = 3
+        xstart = (np.arange(size) + 1.0) * 5.0
+        ystart = (np.arange(size) + 1.0) * 3.0
 
-        psub.model.add_subsystem('distcomp1', DistribCompDerivs(size=3))
-        psub.model.add_subsystem('distcomp2', DistribCompDerivs(size=3))
+        psub = om.Problem()
+        ivc = psub.model.add_subsystem('ivc', om.IndepVarComp('x', xstart))
+        ivc.add_output('y', ystart)
+
+        psub.model.add_subsystem('distcomp1', DistribCompDerivs(size=size))
+        psub.model.add_subsystem('distcomp2', DistribCompDerivs(size=size))
         psub.model.connect('ivc.x', 'distcomp1.invec')
         psub.model.connect('ivc.y', 'distcomp2.invec')
         G.add_subsystem('subprob1', om.SubmodelComp(problem=psub, inputs=['*'], outputs=['*'],
@@ -507,8 +511,8 @@ class TestSubmodelCompMPI(unittest.TestCase):
         p.setup(force_alloc_complex=True)
         p.run_model()
 
-        assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=True), -6.0)
-        assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=True), -6.0)
+        assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=True), [10.0, 20.0, -45.0])
+        assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=True), [6.0, 12.0, -27.0])
 
         assert_check_partials(p.check_partials(method='cs', out_stream=None))
         assert_check_partials(psub.check_partials(method='cs', out_stream=None))
