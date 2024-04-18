@@ -678,7 +678,7 @@ class TestSubmodelOpt(unittest.TestCase):
 
 
 
-def build_submodel(compute_x=False):
+def build_submodel(subsystem_name):
     p = om.Problem()
     supmodel = om.Group()
     supmodel.add_subsystem('supComp', om.ExecComp('diameter = r * theta'),
@@ -688,19 +688,17 @@ def build_submodel(compute_x=False):
     subprob1 = om.Problem()
     submodel1 = subprob1.model.add_subsystem('submodel1', om.Group(), promotes=['*'])
 
-    if compute_x:
-        submodel1.add_subsystem('x', om.ExecComp('x = diameter * 2 * r * theta'),
-                                promotes=['*', ('diameter', 'aircraft:fuselage:diameter')])
-    submodel1.add_subsystem('y', om.ExecComp('y = mass * donkey_kong'),
+    submodel1.add_subsystem(subsystem_name, om.ExecComp('x = diameter * 2 * r * theta'),
+                            promotes=['*', ('diameter', 'aircraft:fuselage:diameter')])
+    submodel1.add_subsystem('b', om.ExecComp('y = mass * donkey_kong'),
                             promotes=['*', ('mass', 'dynamic:mission:mass'),
                                       ('donkey_kong', 'aircraft:engine:donkey_kong')])
-
 
     p.model.add_subsystem('supModel', supmodel, promotes_inputs=['*'],
                             promotes_outputs=['*'])
 
 
-    submodel = om.SubmodelComp(problem=subprob1, inputs=['*'], outputs=['*'], do_coloring=False)
+    submodel = om.SubmodelComp(problem=subprob1, inputs=['*'], outputs=['*'])
     p.model.add_subsystem('sub1', submodel,
                             promotes_inputs=['*'],
                             promotes_outputs=['*'])
@@ -719,23 +717,24 @@ def build_submodel(compute_x=False):
     return p
 
 
-
 class TestSubModelBug(unittest.TestCase):
 
-    def test_submodel_bug(self):
-        p = build_submodel(compute_x=False)
+    def test_submodel_bug1(self):
+        p = build_submodel(subsystem_name='a')
 
         p.run_model()
 
         assert_near_equal(p.get_val('y'), 2.0 * 3.0)
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
 
 
-    def test_submodel_bug_fails(self):
-        p = build_submodel(compute_x=True)
+    def test_submodel_bug2(self):
+        p = build_submodel(subsystem_name='c')
 
         p.run_model()
 
         assert_near_equal(p.get_val('y'), 2.0 * 3.0)
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
 
 
 if __name__ == '__main__':
