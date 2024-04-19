@@ -460,7 +460,7 @@ class TestSubmodelCompMPI(unittest.TestCase):
 
         p.setup(force_alloc_complex=True)
         p.run_model()
-        assert_check_partials(p.check_partials(method='fd', out_stream=None))
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
 
     def test_submodel_with_parallel_group(self):
         p = om.Problem()
@@ -486,7 +486,7 @@ class TestSubmodelCompMPI(unittest.TestCase):
 
         assert_check_partials(p.check_partials(method='cs', out_stream=None))
 
-    def test_submodel_dist(self):
+    def test_submodel_distrib(self):
         p = om.Problem()
 
         model = p.model
@@ -514,8 +514,9 @@ class TestSubmodelCompMPI(unittest.TestCase):
         assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=True), [10.0, 20.0, -45.0])
         assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=True), [6.0, 12.0, -27.0])
 
-        assert_check_partials(p.check_partials(method='cs', out_stream=None))
         assert_check_partials(psub.check_partials(method='cs', out_stream=None))
+        
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
 
 
 class IncompleteRelevanceGroup(om.Group):
@@ -674,8 +675,6 @@ class TestSubmodelOpt(unittest.TestCase):
         self.assertEqual(cm.exception.args[0],
                          "'submodel' <class SubmodelComp>: Error calling compute_partials(), Can't compute partial "
                          "derivatives of a SubmodelComp with an internal optimizer.")
-
-
 
 
 def build_submodel(subsystem_name):

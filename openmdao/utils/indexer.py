@@ -170,6 +170,22 @@ class Indexer(object):
         """
         return f"{self.__class__.__name__}: {str(self)}"
 
+    def __add__(self, other):
+        """
+        Apply another index to this index.
+
+        Parameters
+        ----------
+        other : IntIndexer or Integral
+            The index to add.
+
+        Returns
+        -------
+        IntIndexer
+            The new offset indexer.
+        """
+        raise NotImplementedError(f"Can't add {type(other).__name__} to a {type(self).__name__}")
+
     def copy(self, *args):
         """
         Copy this Indexer.
@@ -238,6 +254,18 @@ class Indexer(object):
         """
         return shape_to_len(self.indexed_src_shape)
 
+    @property
+    def size(self):
+        """
+        Return the size of the index.
+
+        Returns
+        -------
+        int
+            Size of the index.
+        """
+        return self.indexed_src_size
+
     def flat(self, copy=False):
         """
         Return index array or slice into a flat array.
@@ -259,8 +287,9 @@ class Indexer(object):
         -------
         Indexer
             The 'shaped' Indexer type.  'shaped' Indexers know the extent of the array that
-            they are indexing into, or they don't care what the extent is because they don't
-            contain negative indices, negative start or stop, ':', or '...'.
+            they are indexing into, or they don't care what the extent is because they know
+            their source is flat and they don't contain negative indices, negative start or
+            stop, ':', or '...'.
         """
         return self
 
@@ -406,23 +435,32 @@ class ShapedIntIndexer(Indexer):
         """
         return f"{self._idx}"
 
-    def apply_offset(self, offset, flat=True):
+    def __add__(self, other):
         """
-        Apply an offset to this index.
+        Apply another index to this index.
 
         Parameters
         ----------
-        offset : int
-            The offset to apply.
-        flat : bool
-            If True, return a flat index.
+        other : Integral or IntIndexer
+            The index to add.
 
         Returns
         -------
-        int
-            The offset index.
+        IntIndexer
+            The new offset indexer.
         """
-        return self._idx + offset
+        if isinstance(other, ShapedIntIndexer):
+            other = other()
+
+        if isinstance(other, Integral):
+            if self._idx >= 0:
+                idx = self._idx + other
+                if idx >= 0:
+                    return type(self)(idx, flat_src=self._flat_src)
+
+            raise ValueError(f"Can't add an offset to a negative unshaped indexer {self._idx}.")
+
+        raise TypeError(f"Can't add {type(other).__name__} to an IntIndexer.")
 
     def copy(self):
         """
@@ -598,6 +636,37 @@ class ShapedSliceIndexer(Indexer):
             String representation.
         """
         return f"{self._slice}"
+
+    def __add__(self, other):
+        """
+        Apply another index to this index.
+
+        Parameters
+        ----------
+        other : Indexer or Integral
+            The index to add.
+
+        Returns
+        -------
+        IntIndexer
+            The new offset indexer.
+        """
+        if isinstance(other, ShapedIntIndexer):
+            other = other()
+
+        if isinstance(other, Integral):
+            slc = self._slice
+            start = slc.start
+            stop = slc.stop
+            if start is not None and start >= 0 and stop is not None and stop >= 0:
+                newstart = start + other
+                newstop = stop + other
+                if newstart >= 0 and newstop >= 0:
+                    return type(self)(slice(newstart, newstop, slc.step), flat_src=self._flat_src)
+
+            raise ValueError(f"Can't update a slice indexer resulting in negative start or stop.")
+
+        raise TypeError(f"Can't add {type(other).__name__} to a SliceIndexer.")
 
     def apply_offset(self, offset, flat=True):
         """
@@ -848,6 +917,32 @@ class ShapedArrayIndexer(Indexer):
             String representation.
         """
         return _truncate(f"{self._arr}".replace('\n', ''))
+
+    def __add__(self, other):
+        """
+        Apply another index to this index.
+
+        Parameters
+        ----------
+        other : IntIndexer or Integral
+            The index to add.
+
+        Returns
+        -------
+        IntIndexer
+            The new offset indexer.
+        """
+        if isinstance(other, ShapedIntIndexer):
+            other = other()
+
+        if isinstance(other, Integral):
+            newarr = self._arr + other
+            if np.all(newarr >= 0):
+                return type(self)(newarr, flat_src=self._flat_src)
+
+            raise ValueError(f"Can't update an array indexer resulting in negative entries.")
+
+        raise TypeError(f"Can't add {type(other).__name__} to an ArrayIndexer.")
 
     def apply_offset(self, offset, flat=True):
         """
@@ -1462,9 +1557,17 @@ class IndexMaker(object):
         if idx is ...:
             idxer = EllipsisIndexer((idx,), flat_src=flat_src)
         elif isinstance(idx, int):
-            idxer = IntIndexer(idx, flat_src=flat_src)
+            if idx < 0 or not flat_src:
+                idxer = IntIndexer(idx, flat_src=flat_src)
+            else:
+                idxer = ShapedIntIndexer(idx, flat_src=flat_src)
         elif isinstance(idx, slice):
-            idxer = SliceIndexer(idx, flat_src=flat_src)
+            if (idx.start is not None and idx.start < 0) or idx.stop is None or idx.stop < 0:
+                idxer = SliceIndexer(idx, flat_src=flat_src)
+            elif flat_src:
+                idxer = ShapedSliceIndexer(idx, flat_src=flat_src)
+            else:
+                idxer = SliceIndexer(idx, flat_src=flat_src)
 
         elif isinstance(idx, tuple):
             multi = len(idx) > 1

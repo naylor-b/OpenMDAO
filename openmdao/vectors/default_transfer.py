@@ -10,17 +10,21 @@ from openmdao.utils.array_utils import _global2local_offsets
 from openmdao.utils.mpi import MPI
 
 
-def _fill(arr, indices_iter):
+def _combine_indices(indices_iter, arr=None):
     """
-    Fill the given array with the given list of indices.
+    Combine the given list of indices into a single index array.
 
     Parameters
     ----------
-    arr : ndarray
-        Array to be filled.
     indices_iter : iterator of int ndarrays or ranges
         Iterator of ranges/indices to be placed into arr.
+    arr : ndarray or None
+        Array to be filled. If None, a new array will be allocated and returned.
     """
+    if arr is None:
+        tot_size = sum(len(inds) for inds in indices_iter)
+        arr = np.empty(tot_size, dtype=INT_DTYPE)
+
     start = end = 0
     for inds in indices_iter:
         end += len(inds)
@@ -54,7 +58,7 @@ def _setup_index_views(tot_size, in_xfers, out_xfers):
             rstart = rend
 
         end += rend - start
-        _fill(full_out[start:end], out_xfers[sname])
+        _combine_indices(out_xfers[sname], full_out[start:end])
 
         # change subsystem transfer entries to be views of the full transfer arrays
         in_xfers[sname] = full_in[start:end]

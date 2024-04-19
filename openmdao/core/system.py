@@ -3600,7 +3600,7 @@ class System(object):
             key = src_name
 
         meta['source'] = src_name
-        meta['distributed'] = \
+        meta['distributed'] = dist = \
             src_name in abs2meta_out and abs2meta_out[src_name]['distributed']
 
         if get_size:
@@ -3617,7 +3617,10 @@ class System(object):
                     indices = indices.shaped_instance()
                     meta['size'] = meta['global_size'] = indices.indexed_src_size
                 else:
-                    meta['size'] = sizes[owning_rank[src_name], abs2idx[src_name]]
+                    if dist:
+                        meta['size'] = sizes[self.comm.rank, abs2idx[src_name]]
+                    else:
+                        meta['size'] = sizes[owning_rank[src_name], abs2idx[src_name]]
                     meta['global_size'] = out_meta['global_size']
             else:
                 meta['size'] = meta['global_size'] = 0  # discrete var, don't know size
@@ -6262,3 +6265,126 @@ class System(object):
             Array of sizes of the variable on all procs.
         """
         return self._var_sizes[io][:, self._var_allprocs_abs2idx[name]]
+
+    def var_meta_iter(self, varnames, io, get_remote=False):
+        """
+        Yield metadata for all variables in this system.
+
+        Parameters
+        ----------
+        varnames : iter of str
+            Names of the variables.
+        io : str
+            Either 'input' or 'output'.
+        get_remote : bool
+            If True, return metadata for remote variables.
+
+        Yields
+        ------
+        tuple
+            A tuple of the form (abs_name, meta).
+        """
+        if get_remote and self.comm.size > 1:
+            abs2meta = self._var_allprocs_abs2meta[io]
+        else:
+            abs2meta = self._var_abs2meta[io]
+        for name in varnames:
+            yield name, abs2meta[name]
+
+    def _get_var_offsets(self):
+        """
+        Compute global offsets for variables.
+
+        Returns
+        -------
+        dict
+            Arrays of global offsets keyed by vec_name and deriv direction.
+        """
+        if self._var_offsets is None:
+            offsets = self._var_offsets = {}
+            for io in ['input', 'output']:
+                vsizes = self._var_sizes[io]
+                if vsizes.size > 0:
+                    csum = np.empty(vsizes.size, dtype=INT_DTYPE)
+                    csum[0] = 0
+                    csum[1:] = np.cumsum(vsizes)[:-1]
+                    offsets[io] = csum.reshape(vsizes.shape)
+                else:
+                    offsets[io] = np.zeros(0, dtype=INT_DTYPE).reshape((1, 0))
+
+        return self._var_offsets
+
+    def _get_allprocs_var_range(self, abs_name, io):
+        """
+        Get the range of indices for a variable.
+
+        Parameters
+        ----------
+        abs_name : str
+            Absolute name of the variable.
+        io : str
+            Either 'input' or 'output'.
+
+        Returns
+        -------
+        tuple
+            Start and end indices for the variable.
+        """
+        offsets = self._get_var_offsets()[io]
+        sizes = self._var_sizes[io]
+        idx = self._var_allprocs_abs2idx[abs_name]
+        offset = offsets[self.comm.rank, idx]
+        return offset, offset + sizes[self.comm.rank, idx]
+
+    def _get_src_xfer_inds(self, abs_out, dist_in=False, src_indices=None):
+        if self.comm.size > 1:
+            dist_out = self._var_allprocs_abs2meta['output'][abs_out]['distributed']
+
+            if abs_out in self._var_abs2meta['output']:
+                rank = self.comm.rank
+            else:
+                rank = self._owning_rank[abs_out]
+
+            out_idx = self._var_allprocs_abs2idx[abs_out]
+            offsets = self._get_var_offsets()['output'][:, out_idx]
+            sizes = self._var_sizes['output'][:, out_idx]
+
+            # NOTE: src_indices are relative to a single, possibly distributed variable,
+            # while the output_inds that we compute are relative to the full distributed
+            # array that contains all local variables from each rank stacked in rank order.
+            if src_indices is None:
+                offset = offsets[rank]
+                output_inds = range(offset, offset + sizes[rank])
+            else:
+                if not dist_out and not dist_in:  # convert from local to distributed src_indices
+                    off = np.sum(sizes[:rank])
+                    if off > 0.:  # adjust for local offsets
+                        # don't do += to avoid modifying stored value
+                        src_indices = src_indices + off
+
+                output_inds = np.empty(src_indices.size, INT_DTYPE)
+                start = end = 0
+                for iproc in range(self.comm.size):
+                    end += sizes[iproc]
+                    if start == end:
+                        continue
+
+                    # The part of src on iproc
+                    on_iproc = np.logical_and(start <= src_indices, src_indices < end)
+
+                    if np.any(on_iproc):
+                        # This converts from global to variable specific ordering
+                        output_inds[on_iproc] = src_indices[on_iproc] + (offsets[iproc] - start)
+
+                    start = end
+        else:
+            offset, end = self._get_allprocs_var_range(abs_out, 'output')
+            if src_indices is None:
+                output_inds = range(offset, end)
+            else:
+                output_inds = src_indices + offset
+
+        return output_inds
+
+    def _get_input_xfer_inds(self, abs_name):
+        return range(*self._get_allprocs_var_range(abs_name, 'input'))

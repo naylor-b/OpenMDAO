@@ -10,7 +10,6 @@ from openmdao.utils.reports_system import clear_reports
 from openmdao.utils.mpi import MPI, FakeComm
 from openmdao.utils.coloring import compute_total_coloring, ColoringMeta
 from openmdao.utils.indexer import ranges2indexer
-from openmdao.utils.iter_utils import size2range_iter, meta2item_iter
 from openmdao.utils.relevance import get_relevance
 
 
@@ -442,7 +441,7 @@ class SubmodelComp(ExplicitComponent):
 
         # save the _TotJacInfo object so we can use it in future calls to compute_partials
         self._totjacinfo = _TotalJacInfo(p, of=self._submodel_outputs, wrt=self._submodel_inputs,
-                                         return_format='flat_dict',  # get_remote=False,
+                                         return_format='flat_dict', get_remote=True,
                                          approx=p.model._owns_approx_jac,
                                          coloring_info=coloring_info,
                                          driver=False)

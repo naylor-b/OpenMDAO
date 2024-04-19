@@ -902,29 +902,6 @@ class Group(System):
 
         return responses
 
-    def _get_var_offsets(self):
-        """
-        Compute global offsets for variables.
-
-        Returns
-        -------
-        dict
-            Arrays of global offsets keyed by vec_name and deriv direction.
-        """
-        if self._var_offsets is None:
-            offsets = self._var_offsets = {}
-            for type_ in ['input', 'output']:
-                vsizes = self._var_sizes[type_]
-                if vsizes.size > 0:
-                    csum = np.empty(vsizes.size, dtype=INT_DTYPE)
-                    csum[0] = 0
-                    csum[1:] = np.cumsum(vsizes)[:-1]
-                    offsets[type_] = csum.reshape(vsizes.shape)
-                else:
-                    offsets[type_] = np.zeros(0, dtype=INT_DTYPE).reshape((1, 0))
-
-        return self._var_offsets
-
     def _get_jac_col_scatter(self):
         """
         Return source and target indices for a scatter from output vector to total jacobian column.
