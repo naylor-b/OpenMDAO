@@ -48,9 +48,9 @@ def array2slice(arr):
             return slice(0, 0)
 
 
-def _truncate(s):
-    if len(s) > 40:
-        return s[:20] + ' ... ' + s[-20:]
+def _truncate(s, width=40):
+    if len(s) > width:
+        return s[:width // 2] + ' ... ' + s[-width // 2:]
     return s
 
 
@@ -74,8 +74,12 @@ def combine_ranges(ranges):
     if not ranges:
         return rnglist
 
-    cstart, cend = ranges[0]
-    for start, end in ranges[1:]:
+    for i, (start, end) in enumerate(ranges):
+        if i == 0:
+            cstart = start
+            cend = end
+            continue
+
         if start == cend:
             cend = end
         else:
@@ -435,6 +439,28 @@ class ShapedIntIndexer(Indexer):
         """
         return f"{self._idx}"
 
+    def __len__(self):
+        """
+        Return the length of the index.
+
+        Returns
+        -------
+        int
+            The length of the index if it were expressed as an array.
+        """
+        return 1
+
+    def __iter__(self):
+        """
+        Return an iterator over the index.
+
+        Returns
+        -------
+        iterator
+            Iterator over the index.
+        """
+        return iter([self._idx])
+
     def __add__(self, other):
         """
         Apply another index to this index.
@@ -604,6 +630,8 @@ class ShapedSliceIndexer(Indexer):
     ----------
     _slice : slice
         The wrapped slice object.
+    _range : range or None
+        If the shape is known, this will be the range that the slice represents.
     """
 
     def __init__(self, slc, flat_src=None):
@@ -614,6 +642,10 @@ class ShapedSliceIndexer(Indexer):
         if slc.step is None:
             slc = slice(slc.start, slc.stop, 1)
         self._slice = slc
+        self._range = None
+        if slc.start is not None and slc.stop is not None:
+            if slc.start >= 0 and slc.stop >= 0:
+                self._range = range(slc.start, slc.stop, slc.step)
 
     def __call__(self):
         """
@@ -636,6 +668,35 @@ class ShapedSliceIndexer(Indexer):
             String representation.
         """
         return f"{self._slice}"
+
+    def __len__(self):
+        """
+        Return the length of the index if it were expressed as an array.
+
+        Returns
+        -------
+        int
+            The length of the index if it were expressed as an array.
+        """
+        if self._range is None:
+            raise ValueError(f"Can't get length of a slice indexer that contains negative or None "
+                             "start or stop values and no source shape.")
+        return len(range(self._slice.start or 0, self._slice.stop or sys.maxsize,
+                         self._slice.step or 1))
+
+    def __iter__(self):
+        """
+        Return an iterator over the range represented by this slice.
+
+        Returns
+        -------
+        iterator
+            Iterator over the range.
+        """
+        if self._range is None:
+            raise ValueError(f"Can't iterate over a slice indexer that contains negative or None "
+                             "start or stop values and no source shape.")
+        return iter(self._range)
 
     def __add__(self, other):
         """
@@ -917,6 +978,28 @@ class ShapedArrayIndexer(Indexer):
             String representation.
         """
         return _truncate(f"{self._arr}".replace('\n', ''))
+
+    def __len__(self):
+        """
+        Return the length of the index.
+
+        Returns
+        -------
+        int
+            The length of the index.
+        """
+        return self._arr.size
+
+    def __iter__(self):
+        """
+        Return an iterator over the index.
+
+        Returns
+        -------
+        iterator
+            Iterator over the index.
+        """
+        return iter(self._arr)
 
     def __add__(self, other):
         """

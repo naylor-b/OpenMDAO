@@ -511,12 +511,19 @@ class TestSubmodelCompMPI(unittest.TestCase):
         p.setup(force_alloc_complex=True)
         p.run_model()
 
+        if p.comm.rank == 0:
+            assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=False), [10.0, 20.0])
+            assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=False), [6.0, 12.0])
+        else:
+            assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=False), [-45.0])
+            assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=False), [-27.0])
+
         assert_near_equal(psub.get_val('distcomp1.outvec', get_remote=True), [10.0, 20.0, -45.0])
         assert_near_equal(psub.get_val('distcomp2.outvec', get_remote=True), [6.0, 12.0, -27.0])
 
-        assert_check_partials(psub.check_partials(method='cs', out_stream=None))
-        
-        assert_check_partials(p.check_partials(method='cs', out_stream=None))
+        assert_check_partials(psub.check_partials(method='cs', show_only_incorrect=True)) #, out_stream=None))
+
+        assert_check_partials(p.check_partials(method='cs', show_only_incorrect=True)) #, out_stream=None))
 
 
 class IncompleteRelevanceGroup(om.Group):

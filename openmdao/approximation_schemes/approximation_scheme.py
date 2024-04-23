@@ -133,8 +133,9 @@ class ApproximationScheme(object):
         raise NotImplementedError("add_approximation has not been implemented")
 
     def _init_colored_approximations(self, system):
+        from openmdao.core.group import Group
         is_total = system.pathname == ''
-        is_semi = _is_group(system) and not is_total
+        is_semi = isinstance(system, Group) and not is_total
         self._colored_approx_groups = []
         wrt_ranges = []
 
@@ -350,8 +351,9 @@ class ApproximationScheme(object):
         ndarray
             solution array corresponding to the jacobian column at the given column index
         """
+        from openmdao.core.group import Group
         total = system.pathname == ''
-        total_or_semi = total or _is_group(system)
+        total_or_semi = total or isinstance(system, Group)
 
         if total:
             tot_result = np.zeros(sum([end - start for _, start, end, _, _
@@ -478,13 +480,14 @@ class ApproximationScheme(object):
         ndarray
             solution array corresponding to the jacobian column at the given column index
         """
+        from openmdao.core.group import Group
         total = system.pathname == ''
         if total:
             for _, _, end, _, _ in system._jac_of_iter():
                 pass
             tot_result = np.zeros(end)
 
-        total_or_semi = total or _is_group(system)
+        total_or_semi = total or isinstance(system, Group)
 
         # Clean vector for results (copy of the outputs or resids)
         results_array = system._outputs.asarray(copy=True) if total_or_semi \
@@ -639,16 +642,3 @@ class ApproximationScheme(object):
             totarr[tinds] = outarr[sinds]
 
         return totarr
-
-
-def _is_group(obj):
-    """
-    Return True if the given object is Group.
-
-    Parameters
-    ----------
-    obj : object
-        Object to be checked.
-    """
-    from openmdao.core.group import Group
-    return isinstance(obj, Group)

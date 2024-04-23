@@ -91,7 +91,7 @@ class _TotalJacInfo(object):
 
     def __init__(self, problem, of, wrt, return_format, approx=False,
                  debug_print=False, driver_scaling=True, get_remote=True, directional=False,
-                 coloring_info=None, driver=None):
+                 coloring_info=None, driver=None, is_submodel=False):
         """
         Initialize object.
 
@@ -123,6 +123,9 @@ class _TotalJacInfo(object):
         driver : <Driver>, None, or False
             The driver that owns the total jacobian.  If None, use the driver from the problem.
             If False, this total jacobian will be computed directly by the problem.
+        is_submodel : bool
+            If True, this total jacobian is being computed for a submodel, which means that
+            get_remote should be True, *except* for distributed variables.
         """
         if driver is None:
             driver = problem.driver
@@ -140,6 +143,7 @@ class _TotalJacInfo(object):
         self.initialize = True
         self.approx = approx
         self.coloring_info = coloring_info
+        self.is_submodel = is_submodel
 
         orig_of = of
         orig_wrt = wrt
@@ -150,8 +154,21 @@ class _TotalJacInfo(object):
 
         of_metadata, wrt_metadata, has_custom_derivs = model._get_totals_metadata(driver, of, wrt)
 
-        ofsize = sum(meta['global_size'] for meta in of_metadata.values())
-        wrtsize = sum(meta['global_size'] for meta in wrt_metadata.values())
+        ofsize = 0
+        for meta in of_metadata.values():
+            if self.get_remote and not self.is_submodel:
+                ofsize += meta['global_size']
+            else:
+                ofsize += meta['size']
+
+        wrtsize = 0
+        for meta in wrt_metadata.values():
+            if self.get_remote and not self.is_submodel:
+                wrtsize += meta['global_size']
+            else:
+                wrtsize += meta['size']
+        # ofsize = sum(meta['global_size'] for meta in of_metadata.values())
+        # wrtsize = sum(meta['global_size'] for meta in wrt_metadata.values())
 
         for meta in of_metadata.values():
             if 'linear' in meta and meta['linear']:
@@ -226,7 +243,7 @@ class _TotalJacInfo(object):
             self.seeds = {}
             self.nondist_loc_map = {}
             self.loc_jac_idxs = {}
-            self.dist_idx_map = {m: None for m in modes}
+            # self.dist_idx_map = {m: None for m in modes}
 
         self.modes = modes
 
@@ -240,20 +257,18 @@ class _TotalJacInfo(object):
 
         # if we have distributed 'wrt' variables in fwd mode we have to broadcast the jac
         # columns from the owner of a given range of dist indices to everyone else.
-        if self.get_remote and self.has_wrt_dist and self.comm.size > 1:
+        if self.get_remote and not self.is_submodel and self.has_wrt_dist and self.comm.size > 1:
             abs2idx = model._var_allprocs_abs2idx
             sizes = model._var_sizes['output']
             # map which indices belong to dist vars and to which rank
             self.dist_input_range_map['fwd'] = dist_map = []
             start = end = 0
             for meta in self.input_meta['fwd'].values():
-                src = meta['source']
                 slc = meta['jac_slice']
                 end += (slc.stop - slc.start)
                 if meta['distributed']:
                     # get owning rank for each part of the distrib var
-                    varidx = abs2idx[src]
-                    distsz = sizes[:, varidx]
+                    distsz = sizes[:, abs2idx[meta['source']]]
                     dstart = dend = start
                     for rank, sz in enumerate(distsz):
                         dend += sz
@@ -293,11 +308,12 @@ class _TotalJacInfo(object):
 
                 start = end = 0
                 has_dist = False
-                for name, meta in wrt_metadata.items():
+                for meta in wrt_metadata.values():
                     end += meta['size']
                     dist = meta['distributed']
                     has_dist |= dist
-                    if not dist and model._owning_rank[meta['source']] != model.comm.rank:
+                    if (((dist and self.is_submodel) or not dist) and
+                            model._owning_rank[meta['source']] != model.comm.rank):
                         self.rev_allreduce_mask[start:end] = False
                     start = end
 
@@ -326,7 +342,7 @@ class _TotalJacInfo(object):
             if 'rev' in modes:
                 self.jac_scatters['rev'] = self._compute_jac_scatters('rev', J.shape[1], get_remote)
 
-        if not self.get_remote:
+        if not self.get_remote or self.is_submodel:
             for mode in modes:
                 # If we're running with only a local total jacobian, then we need to keep
                 # track of which rows/cols actually exist in our local jac and what the
@@ -336,16 +352,16 @@ class _TotalJacInfo(object):
                 arr[locs] = range(locs.size)
                 self.loc_jac_idxs[mode] = arr
 
-                # a mapping of which indices correspond to distrib vars so
-                # we can exclude them from jac scatters or allreduces
-                self.dist_idx_map[mode] = dist_map = np.zeros(arr.size, dtype=bool)
-                start = end = 0
-                for meta in self.output_meta[mode].values():
-                    name = meta['source']
-                    end += all_abs2meta_out[name]['size']
-                    if all_abs2meta_out[name]['distributed']:
-                        dist_map[start:end] = True
-                    start = end
+        #         # a mapping of which indices correspond to distrib vars so
+        #         # we can exclude them from jac scatters or allreduces
+        #         self.dist_idx_map[mode] = dist_map = np.zeros(arr.size, dtype=bool)
+        #         start = end = 0
+        #         for meta in self.output_meta[mode].values():
+        #             name = meta['source']
+        #             end += all_abs2meta_out[name]['size']
+        #             if all_abs2meta_out[name]['distributed']:
+        #                 dist_map[start:end] = True
+        #             start = end
 
         # for dict type return formats, map var names to views of the Jacobian array.
         if return_format == 'array':
@@ -862,22 +878,19 @@ class _TotalJacInfo(object):
         """
         start = 0
         end = 0
-        get_remote = self.get_remote
         has_dist = False
 
         for meta in vois.values():
-            if not get_remote and meta['remote']:
+            if not self.get_remote and meta['remote']:
                 continue
 
-            src = meta['source']
-
             # this 'size'/'global_size' already takes indices into account
-            if get_remote and meta['distributed']:
+            if self.get_remote and meta['distributed'] and not self.is_submodel:
                 size = meta['global_size']
             else:
                 size = meta['size']
 
-            has_dist |= abs2meta_out[src]['distributed']
+            has_dist |= abs2meta_out[meta['source']]['distributed']
 
             end += size
 
@@ -1155,7 +1168,7 @@ class _TotalJacInfo(object):
         deriv_idxs, jac_idxs, _ = self.sol2jac_map[mode]
         deriv_val = self.output_vec[mode].asarray()
 
-        if not self.get_remote:
+        if not self.get_remote or self.is_submodel:
             loc_idx = self.loc_jac_idxs[mode][i]
             if loc_idx >= 0:
                 i = loc_idx
@@ -1178,8 +1191,8 @@ class _TotalJacInfo(object):
         mode : str
             Direction of derivative solution.
         """
-        if mode == 'fwd':
-            if self.get_remote:
+        if self.get_remote and not self.is_submodel:
+            if mode == 'fwd':
                 if self.jac_scatters[mode] is not None:
                     self.src_petsc[mode].array = self.J[:, i]
                     self.tgt_petsc[mode].array[:] = self.J[:, i]
@@ -1187,12 +1200,12 @@ class _TotalJacInfo(object):
                                                     addv=False, mode=False)
                     self.J[:, i] = self.tgt_petsc[mode].array
 
-        else:  # rev
-            if self.get_remote and self.rev_allreduce_mask is not None:
-                scratch = self.jac_scratch['rev'][0]
-                scratch[:] = 0.0
-                scratch[self.rev_allreduce_mask] = self.J[i][self.rev_allreduce_mask]
-                self.comm.Allreduce(scratch, self.J[i], op=MPI.SUM)
+            else:  # rev
+                if self.rev_allreduce_mask is not None:
+                    scratch = self.jac_scratch['rev'][0]
+                    scratch[:] = 0.0
+                    scratch[self.rev_allreduce_mask] = self.J[i][self.rev_allreduce_mask]
+                    self.comm.Allreduce(scratch, self.J[i], op=MPI.SUM)
 
     def single_jac_setter(self, i, mode, meta):
         """
@@ -1453,7 +1466,7 @@ class _TotalJacInfo(object):
 
                 # if some of the wrt vars are distributed in fwd mode, we bcast from the rank
                 # where each part of the distrib var exists
-                if self.get_remote and mode == 'fwd' and self.has_wrt_dist:
+                if self.get_remote and not self.is_submodel and mode == 'fwd' and self.has_wrt_dist:
                     for start, stop, rank in self.dist_input_range_map[mode]:
                         contig = self.J[:, start:stop].copy()
                         model.comm.Bcast(contig, root=rank)
@@ -1577,7 +1590,7 @@ class _TotalJacInfo(object):
             Index array of zero entries.
         """
         inds = meta['indices']   # these must be indices into the flattened var
-        shname = 'global_shape' if self.get_remote else 'shape'
+        shname = 'global_shape' if self.get_remote and not self.is_submodel else 'shape'
         shape = self.model._var_allprocs_abs2meta['output'][meta['source']][shname]
         vslice = jac_arr[meta['jac_slice']]
 

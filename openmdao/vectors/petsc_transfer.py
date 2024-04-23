@@ -92,30 +92,24 @@ else:
             total_len = 0
 
             # Loop through all connections owned by this system
-            for abs_in, abs_out in group._conn_abs_in2out.items():
+            # for abs_in, abs_out in group._conn_abs_in2out.items():
+            for abs_out, output_inds, abs_in, input_inds in \
+                    group._transfer_inds_iter(group._conn_abs_in2out, abs2meta_in, remote=True):
                 sub_in = abs_in[mypathlen:].partition('.')[0]
 
                 # Only continue if the input exists on this processor
-                if abs_in in abs2meta_in:
-                    src_indices = abs2meta_in[abs_in]['src_indices']
-                    if src_indices is not None:
-                        src_indices = src_indices.shaped_array()
-                    _check_dist_out_nondist_in(group, abs_out, abs_in, src_indices)
-                    output_inds = group._get_src_xfer_inds(abs_out,
-                                                           abs2meta_in[abs_in]['distributed'],
-                                                           src_indices)
-
-                    input_inds = group._get_input_xfer_inds(abs_in)
+                if input_inds is None:
+                    # not a local input but still need entries in the transfer dicts to
+                    # avoid hangs
+                    xfer_in[sub_in]  # defaultdict will create an empty list there
+                    xfer_out[sub_in]
+                else:
+                    _check_dist_out_nondist_in(group, abs_out, abs_in)
 
                     total_len += len(input_inds)
 
                     xfer_in[sub_in].append(input_inds)
                     xfer_out[sub_in].append(output_inds)
-                else:
-                    # not a local input but still need entries in the transfer dicts to
-                    # avoid hangs
-                    xfer_in[sub_in]  # defaultdict will create an empty list there
-                    xfer_out[sub_in]
 
             if xfer_in:
                 full_xfer_in, full_xfer_out = _setup_index_views(total_len, xfer_in, xfer_out)
@@ -187,23 +181,26 @@ else:
             total_size = total_size_nocolor = 0
 
             # Loop through all connections owned by this system
-            for abs_in, abs_out in group._conn_abs_in2out.items():
+            # for abs_in, abs_out in group._conn_abs_in2out.items():
+            for abs_out, output_inds, abs_in, input_inds in \
+                    group._transfer_inds_iter(group._conn_abs_in2out, abs2meta_in, remote=True):
                 sub_out = abs_out[mypathlen:].partition('.')[0]
+                if input_inds is None:  # input doesn't exist on this proc
+                    # still need entries in the transfer dicts to avoid hangs
+                    xfer_in[sub_out]
+                    xfer_out[sub_out]
+                    if has_par_coloring:
+                        xfer_in_nocolor[sub_out]
+                        xfer_out_nocolor[sub_out]
+                else:
 
-                # Only continue if the input exists on this processor
-                if abs_in in abs2meta_in:
                     meta_in = abs2meta_in[abs_in]
                     idx_out = allprocs_abs2idx[abs_out]
                     src_indices = meta_in['src_indices']
                     if src_indices is not None:
                         src_indices = src_indices.shaped_array()
 
-                    _check_dist_out_nondist_in(group, abs_out, abs_in, src_indices)
-                    output_inds = group._get_src_xfer_inds(abs_out, meta_in['distributed'],
-                                                           src_indices)
-
-                    # 2. Compute the input indices
-                    input_inds = group._get_input_xfer_inds(abs_in)
+                    _check_dist_out_nondist_in(group, abs_out, abs_in)
 
                     # Now the indices are ready - input_inds, output_inds
                     inp_is_dup, inp_missing, distrib_in = group.get_var_dup_info(abs_in, 'input')
@@ -226,8 +223,8 @@ else:
                         iidxlist_nc = []
                         size = size_nc = 0
                         for rnk, osize, isize in zip(range(group.comm.size),
-                                                     group.get_var_sizes(abs_out, 'output'),
-                                                     group.get_var_sizes(abs_in, 'input')):
+                                                     group.get_allprocs_var_sizes(abs_out),
+                                                     group.get_allprocs_var_sizes(abs_in)):
                             if rnk == myrank:  # transfer to output on same rank
                                 oidxlist.append(output_inds)
                                 iidxlist.append(input_inds)
@@ -290,13 +287,6 @@ else:
 
                         xfer_in[sub_out].append(input_inds)
                         xfer_out[sub_out].append(output_inds)
-                else:
-                    # remote input but still need entries in the transfer dicts to avoid hangs
-                    xfer_in[sub_out]
-                    xfer_out[sub_out]
-                    if has_par_coloring:
-                        xfer_in_nocolor[sub_out]
-                        xfer_out_nocolor[sub_out]
 
             full_xfer_in, full_xfer_out = _setup_index_views(total_size, xfer_in, xfer_out)
 
@@ -386,8 +376,8 @@ else:
                     data[:] = in_petsc.array
 
 
-def _check_dist_out_nondist_in(group, abs_out, abs_in, src_indices):
-    if src_indices is None:
+def _check_dist_out_nondist_in(group, abs_out, abs_in):
+    if group._var_abs2meta['input'][abs_in]['src_indices'] is None:
         if group._var_allprocs_abs2meta['output'][abs_out]['distributed']:
             if not group._var_allprocs_abs2meta['input'][abs_in]['distributed']:
                 # dist output to non-distributed input conns w/o src_indices are not allowed.

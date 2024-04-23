@@ -6248,23 +6248,25 @@ class System(object):
 
         return nz > 1, self._var_sizes[io].shape[0] - nz, False
 
-    def get_var_sizes(self, name, io):
+    def get_allprocs_var_sizes(self, abs_name):
         """
         Return the sizes of the given variable on all procs.
 
         Parameters
         ----------
-        name : str
-            Name of the variable.
-        io : str
-            Either 'input' or 'output'.
+        abs_name : str
+            Absolute name of the variable.
 
         Returns
         -------
         ndarray
             Array of sizes of the variable on all procs.
         """
-        return self._var_sizes[io][:, self._var_allprocs_abs2idx[name]]
+        if abs_name in self._var_allprocs_abs2meta['output']:
+            io = 'output'
+        else:
+            io = 'input'
+        return self._var_sizes[io][:, self._var_allprocs_abs2idx[abs_name]]
 
     def var_meta_iter(self, varnames, io, get_remote=False):
         """
@@ -6316,7 +6318,7 @@ class System(object):
 
     def _get_allprocs_var_range(self, abs_name, io):
         """
-        Get the range of indices for a variable.
+        Get the range of indices for a variable into the full distriuted allvars array.
 
         Parameters
         ----------
@@ -6330,22 +6332,38 @@ class System(object):
         tuple
             Start and end indices for the variable.
         """
-        offsets = self._get_var_offsets()[io]
-        sizes = self._var_sizes[io]
         idx = self._var_allprocs_abs2idx[abs_name]
-        offset = offsets[self.comm.rank, idx]
-        return offset, offset + sizes[self.comm.rank, idx]
+        offset = self._get_var_offsets()[io][self.comm.rank, idx]
+        return offset, offset + self._var_sizes[io][self.comm.rank, idx]
 
-    def _get_src_xfer_inds(self, abs_out, dist_in=False, src_indices=None):
+    def _get_src_xfer_inds(self, abs_src, dist_tgt=False, src_indices=None):
+        """
+        For a given source variable, return distributed indices into the distributed allvars array.
+
+        Parameters
+        ----------
+        abs_src : str
+            Absolute name of the source variable.
+        dist_tgt : bool
+            If True, the target variable is distributed across processes.
+        src_indices : ndarray or None
+            Indices indicating which part of the source variable is connected to the target.
+            If None, the full source variable is connected to the target.
+
+        Returns
+        -------
+        ndarray
+            Distributed indices into the allvars array.
+        """
         if self.comm.size > 1:
-            dist_out = self._var_allprocs_abs2meta['output'][abs_out]['distributed']
+            dist_out = self._var_allprocs_abs2meta['output'][abs_src]['distributed']
 
-            if abs_out in self._var_abs2meta['output']:
+            if abs_src in self._var_abs2meta['output']:
                 rank = self.comm.rank
             else:
-                rank = self._owning_rank[abs_out]
+                rank = self._owning_rank[abs_src]
 
-            out_idx = self._var_allprocs_abs2idx[abs_out]
+            out_idx = self._var_allprocs_abs2idx[abs_src]
             offsets = self._get_var_offsets()['output'][:, out_idx]
             sizes = self._var_sizes['output'][:, out_idx]
 
@@ -6356,7 +6374,7 @@ class System(object):
                 offset = offsets[rank]
                 output_inds = range(offset, offset + sizes[rank])
             else:
-                if not dist_out and not dist_in:  # convert from local to distributed src_indices
+                if not dist_out and not dist_tgt:  # convert from local to distributed src_indices
                     off = np.sum(sizes[:rank])
                     if off > 0.:  # adjust for local offsets
                         # don't do += to avoid modifying stored value
@@ -6378,7 +6396,7 @@ class System(object):
 
                     start = end
         else:
-            offset, end = self._get_allprocs_var_range(abs_out, 'output')
+            offset, end = self._get_allprocs_var_range(abs_src, 'output')
             if src_indices is None:
                 output_inds = range(offset, end)
             else:
@@ -6388,3 +6406,38 @@ class System(object):
 
     def _get_input_xfer_inds(self, abs_name):
         return range(*self._get_allprocs_var_range(abs_name, 'input'))
+
+    def _transfer_inds_iter(self, name_map, tgt_meta, remote=False):
+        """
+        Compute the indices for data transfer, yielding them one pair at a time.
+
+        Indices corresponding to pairs where the target is not local will yield src and tgt
+        indices of None if remote is True. Otherwise those pairs will not be yielded.
+
+        Parameters
+        ----------
+        name_map : dict
+            Dictionary of the form {abs_target_name: abs_source_name}.
+        tgt_meta : dict
+            Metadata for the local target variables.
+
+        Yields
+        -------
+        tuple
+            Tuple of the form (abs_src, src_inds, abs_tgt, tgt_inds).
+        """
+        for abs_tgt, abs_src in name_map.items():
+            if abs_tgt in tgt_meta:  # target is local to this proc
+                meta = tgt_meta[abs_tgt]
+                src_indices = meta['src_indices']
+                if src_indices is not None:
+                    # TODO: fix so we can leave this as an indexer
+                    src_indices = src_indices.shaped_array()
+
+                src_inds = self._get_src_xfer_inds(abs_src, meta['distributed'], src_indices)
+
+                tgt_inds = self._get_input_xfer_inds(abs_tgt)
+
+                yield abs_src, src_inds, abs_tgt, tgt_inds
+            elif remote:  # only return src and tgt names for remote targets if remote is True
+                yield abs_src, None, abs_tgt, None

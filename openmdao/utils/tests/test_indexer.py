@@ -18,12 +18,16 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind()], 4)
         assert_equal(src[ind.as_array()], np.array([4]))
         assert_equal(src[ind.flat()], np.array([4]))
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [4])
 
         ind.set_src_shape(src.shape)
         assert_equal(src[ind.shaped_array()], np.array([4]))
         assert_equal(ind.shaped_array(), np.array([4]))
         assert_equal(ind.indexed_src_shape, (1,))
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [4])
 
     def test_neg_int(self):
         ind = indexer[-4]
@@ -36,6 +40,8 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind()], 6)
         assert_equal(src[ind.as_array()], np.array([6]))
         assert_equal(src[ind.flat()], np.array([6]))
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [-4])
 
         ind.set_src_shape(src.shape)
         assert_equal(ind.indexed_src_shape, (1,))
@@ -44,6 +50,8 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(ind.shaped_array(), np.array([6]))
         assert_equal(src[ind.shaped_array()], np.array([6]))
         assert_equal(ind.shaped_instance()(), 6)
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [-4])
 
     def test_int_nonflat(self):
         ind = indexer[1]
@@ -56,12 +64,16 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind()], np.array([3,4,5]))
         assert_equal(src[ind.as_array()], np.array([[3,4,5]]))
         assert_equal(src[ind.flat()], np.array([[3,4,5]]))
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [1])
 
         ind.set_src_shape(src.shape)
         assert_equal(src[ind.shaped_array()], np.array([[3,4,5]]))
         assert_equal(ind.shaped_array(), np.array([1]))
         assert_equal(ind.indexed_src_shape, (3,))
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 1)
+        assert_equal(list(ind), [1])
 
     def test_simple_noncontig_arr(self):
         ind = indexer[[5, 3, 7, 1]]
@@ -76,12 +88,16 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind.flat()], np.array([5,3,7,1]))
 
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 4)
+        assert_equal(list(ind), [5, 3, 7, 1])
 
         ind.set_src_shape(src.shape)
         assert_equal(ind.indexed_src_shape, (4,))
         assert_equal(ind.shaped_instance()(), np.array([5,3,7,1]))
         assert_equal(ind.shaped_array(), np.array([5,3,7,1]))
         assert_equal(src[ind.shaped_array()], np.array([5,3,7,1]))
+        assert_equal(len(ind), 4)
+        assert_equal(list(ind), [5, 3, 7, 1])
 
     def test_contiguous_arr(self):
         ind = indexer[[3, 4, 5]]
@@ -96,30 +112,16 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind.flat()], np.array([3, 4, 5]))
 
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 3)
+        assert_equal(list(ind), [3, 4, 5])
 
         ind.set_src_shape(src.shape)
         assert_equal(ind.indexed_src_shape, (3,))
         assert_equal(ind.shaped_instance()(), [3, 4, 5])
         assert_equal(src[ind.shaped_array()], np.array([3, 4, 5]))
         assert_equal(ind.shaped_array(), np.array([3, 4, 5]))
-
-    def test_arr_to_slice_step2(self):
-        ind = indexer[[1,3,5,7,9]]
-        src = np.arange(10)
-
-        assert_equal(ind(), [1,3,5,7,9])
-        assert_equal(ind.flat(), [1,3,5,7,9])
-        assert_equal(ind.as_array(), np.array([1,3,5,7,9]))
-
-        assert_equal(src[ind()], np.array([1,3,5,7,9]))
-        assert_equal(src[ind.as_array()], np.array([1,3,5,7,9]))
-        assert_equal(src[ind.flat()], np.array([1,3,5,7,9]))
-
-        ind.set_src_shape(src.shape)
-        assert_equal(src[ind.shaped_array()], np.array([1,3,5,7,9]))
-        assert_equal(ind.shaped_array(), np.array([1,3,5,7,9]))
-        assert_equal(ind.indexed_src_shape, (5,))
-        assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 3)
+        assert_equal(list(ind), [3, 4, 5])
 
     def test_neg_arr(self):
         ind = indexer[[5, 3, 7, -1]]
@@ -135,6 +137,8 @@ class IndexerTestCase(unittest.TestCase):
 
         assert_equal(ind.indexed_src_shape, (4,))
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 4)
+        assert_equal(list(ind), [5, 3, 7, -1])
 
         try:
             ind.shaped_array()
@@ -147,8 +151,10 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(ind.shaped_array(), np.array([5,3,7,9]))
         assert_equal(src[ind.shaped_array()], np.array([5,3,7,9]))
         assert_equal(ind.shaped_instance()(), np.array([5,3,7,9]))
+        assert_equal(len(ind), 4)
+        assert_equal(list(ind), [5, 3, 7, -1])
 
-    def test_neg_arr(self):
+    def test_neg_arr2(self):
         ind = indexer[[-1, -3, -5]]
         src = np.arange(10)
 
@@ -161,6 +167,8 @@ class IndexerTestCase(unittest.TestCase):
         assert_equal(src[ind.flat()], np.array([9, 7, 5]))
 
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(ind), 3)
+        assert_equal(list(ind), [-1, -3, -5])
 
         try:
             ind.shaped_array()
@@ -176,6 +184,8 @@ class IndexerTestCase(unittest.TestCase):
 
         assert_equal(ind.shaped_instance()(), np.array([9, 7, 5]))
         assert_equal(ind.shaped_array(), np.array([9, 7, 5]))
+        assert_equal(len(ind), 3)
+        assert_equal(list(ind), [-1, -3, -5])
 
     def test_full_slice(self):
         ind = indexer[:]
@@ -195,13 +205,22 @@ class IndexerTestCase(unittest.TestCase):
         with self.assertRaises(Exception) as cm:
             ind.as_array()
         self.assertEqual(cm.exception.args[0], "Can't get shaped array of slice(None, None, 1) because it has no source shape.")
+        with self.assertRaises(Exception) as cm:
+            len(ind)
+        self.assertEqual(cm.exception.args[0], "Can't get length of a slice indexer that contains negative or None start or stop values and no source shape.")
+        with self.assertRaises(Exception) as cm:
+            list(ind)
+        self.assertEqual(cm.exception.args[0], "Can't iterate over a slice indexer that contains negative or None start or stop values and no source shape.")
 
         ind.set_src_shape(src.shape)
 
-        assert_equal(ind.shaped_instance()(), slice(0, 10, 1))
+        shaped = ind.shaped_instance()
+        assert_equal(shaped(), slice(0, 10, 1))
         assert_equal(ind.as_array(), np.arange(10, dtype=int))
         assert_equal(ind.indexed_src_shape, (10,))
         assert_equal(ind.min_src_dim, 1)
+        assert_equal(len(shaped), 10)
+        assert_equal(list(shaped), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 
     def test_neg_start_slice(self):
         ind = indexer[-3:-6:-1]

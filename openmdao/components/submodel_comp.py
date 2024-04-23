@@ -444,7 +444,7 @@ class SubmodelComp(ExplicitComponent):
                                          return_format='flat_dict', get_remote=True,
                                          approx=p.model._owns_approx_jac,
                                          coloring_info=coloring_info,
-                                         driver=False)
+                                         driver=False, is_submodel=True)
 
         coloring = coloring_info.coloring
 
