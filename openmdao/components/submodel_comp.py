@@ -93,6 +93,16 @@ class SubmodelComp(ExplicitComponent):
         Index array that maps parts of the output array of the submodel into our output array.
     _zero_partials : set
         Set of (output, input) pairs that should have zero partials.
+    _non_dist_idxs : ndarray
+        Index array of non-distributed output variables.
+    _dist_outs_idxs : ndarray
+        Index array that maps parts of the output array of the submodel into the outer output array.
+    _dist_sub_outs_idxs : ndarray
+        Index array that maps parts of the output array of the submodel into the outer output array.
+    _totjacinfo : _TotalJacInfo or None
+        Object that computes the total jacobian for the submodel.
+    _do_opt : bool
+        True if the submodel has an optimizer.
     """
 
     def __init__(self, problem, inputs=None, outputs=None, reports=False, **kwargs):
@@ -128,7 +138,7 @@ class SubmodelComp(ExplicitComponent):
         Declare options.
         """
         super()._declare_options()
-        self.options.declare('do_coloring', types=bool, default=True,
+        self.options.declare('do_coloring', types=bool, default=False,
                              desc='If True, attempt to compute a total coloring for the submodel.')
 
     def _add_static_input(self, inner_prom_name_or_pattern, outer_name=None, **kwargs):
@@ -274,7 +284,10 @@ class SubmodelComp(ExplicitComponent):
 
         p.final_setup()
 
-        abs2meta = p.model._var_allprocs_abs2meta['output']
+        nproc = p.comm.size
+
+        abs2meta_out = p.model._var_allprocs_abs2meta['output']
+        abs2meta_in = p.model._var_allprocs_abs2meta['input']
         abs2meta_local = p.model._var_abs2meta['output']
         prom2abs_in = p.model._var_allprocs_prom2abs_list['input']
         prom2abs_out = p.model._var_allprocs_prom2abs_list['output']
@@ -286,7 +299,7 @@ class SubmodelComp(ExplicitComponent):
         # in the submodel are dependent on other outputs and would be overwritten when the
         # submodel runs, erasing any values set by the SubmodelComp.
         self.indep_vars = indep_vars = {}
-        for src, meta in abs2meta.items():
+        for src, meta in abs2meta_out.items():
             if src.startswith('_auto_ivc.'):
                 continue
             prom = abs2prom_out[src]
@@ -303,7 +316,7 @@ class SubmodelComp(ExplicitComponent):
                 if src in abs2meta_local:
                     meta = abs2meta_local[src]  # get local metadata if we have it
                 else:
-                    meta = abs2meta[src]
+                    meta = abs2meta_out[src]
                 indep_vars[prom] = (src, meta)
 
         submodel_inputs = {}
@@ -375,17 +388,19 @@ class SubmodelComp(ExplicitComponent):
         dict
             Updated kwargs.
         """
-        prom2abs_out = self._subprob.model._var_allprocs_prom2abs_list['output']
+        prom2abs = self._subprob.model._var_allprocs_prom2abs_list['output']
 
         try:
             # look for local metadata first, in case it sets 'val'
-            meta = self._subprob.model._var_abs2meta['output'][prom2abs_out[prom][0]]
+            meta = self._subprob.model._var_abs2meta['output'][prom2abs[prom][0]]
         except KeyError:
             try:
                 # just use global metadata
-                meta = self._subprob.model._var_allprocs_abs2meta['output'][prom2abs_out[prom][0]]
+                meta = self._subprob.model._var_allprocs_abs2meta['output'][prom2abs[prom][0]]
             except KeyError:
                 raise KeyError(f"Output '{prom}' not found in model")
+
+        self._check_var_allowed(prom2abs[prom], meta)
 
         final_kwargs = {n: v for n, v in meta.items() if n in _allowed_add_output_args}
         final_kwargs.update(kwargs)
@@ -407,10 +422,31 @@ class SubmodelComp(ExplicitComponent):
         dict
             Updated kwargs.
         """
-        _, meta = self.indep_vars[prom]
+        src, meta = self.indep_vars[prom]
+        self._check_var_allowed(src, meta)
         final_kwargs = {n: v for n, v in meta.items() if n in _allowed_add_input_args}
         final_kwargs.update(kwargs)
         return final_kwargs
+
+    def _check_var_allowed(self, abs_name, meta):
+        """
+        Raise an exception if the variable is not allowed in a SubmodelComp.
+
+        Parameters
+        ----------
+        abs_name : str
+            Absolute name of the variable.
+        meta : dict
+            Metadata for the variable.
+        """
+        if self._subprob.comm.size > 1:
+            if meta['distributed']:
+                raise RuntimeError(f"Variable '{abs_name}' is distributed, and  distributed "
+                                   "variables are not currently supported in SubmodelComp.")
+
+            if self._subprob.model._is_remote_somewhere(abs_name, 'output'):
+                raise RuntimeError(f"Variable '{abs_name}' is under a ParallelGroup and this is "
+                                   "currently not supported in SubmodelComp.")
 
     def setup_partials(self):
         """

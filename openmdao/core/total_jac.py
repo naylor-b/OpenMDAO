@@ -266,7 +266,7 @@ class _TotalJacInfo(object):
             for meta in self.input_meta['fwd'].values():
                 slc = meta['jac_slice']
                 end += (slc.stop - slc.start)
-                if meta['distributed']:
+                if meta['distributed'] and not self.is_submodel:
                     # get owning rank for each part of the distrib var
                     distsz = sizes[:, abs2idx[meta['source']]]
                     dstart = dend = start
@@ -449,7 +449,7 @@ class _TotalJacInfo(object):
                 if name not in abs2idx:
                     continue
 
-                is_dist = abs2meta_out[name]['distributed']
+                is_dist = abs2meta_out[name]['distributed'] and not self.is_submodel
 
                 if name in loc_abs2meta:
                     end += abs2meta_out[name]['size']
@@ -595,7 +595,7 @@ class _TotalJacInfo(object):
             in_var_meta = all_abs2meta_out[source]
             dist = in_var_meta['distributed']
 
-            if dist:
+            if dist and not self.is_submodel:
                 end += meta['global_size']
             else:
                 end += meta['size']
@@ -804,14 +804,16 @@ class _TotalJacInfo(object):
             indices = vmeta['indices']
 
             meta = allprocs_abs2meta_out[src]
-            sz = vmeta['global_size'] if self.get_remote else vmeta['size']
+            dist = meta['distributed']
+            sz = vmeta['global_size'] if self.get_remote and not (self.is_submodel and dist) else \
+                vmeta['size']
 
             if (src in abs2idx and src in slices and (self.get_remote or not vmeta['remote'])):
                 var_idx = abs2idx[src]
                 slc = slices[src]
                 slcsize = slc.stop - slc.start
 
-                if MPI and meta['distributed'] and self.get_remote:
+                if MPI and dist and self.get_remote:
                     if indices is not None:
                         local_idx, sizes_idx, _ = self._dist_driver_vars[name]
 

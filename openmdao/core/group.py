@@ -5206,3 +5206,25 @@ class Group(System):
         # inside of the group or its children.
         meta['base'] = 'Group'
         return meta
+
+    def _is_remote_somewhere(self, abs_name, io):
+        """
+        Return True if the named variable is remote on any rank.
+
+        Distributed variables are NOT considered remote.
+
+        Parameters
+        ----------
+        abs_name : str
+            Absolute name of the variable.
+        io : str
+            Either 'input' or 'output'.
+
+        Returns
+        -------
+        bool
+            True if the variable is remote on any rank.
+        """
+        if self.comm.size > 1:
+            return 0 in self._var_sizes[io][:, self._var_allprocs_abs2idx[abs_name]]
+        return False

@@ -6356,7 +6356,7 @@ class System(object):
             Distributed indices into the allvars array.
         """
         if self.comm.size > 1:
-            dist_out = self._var_allprocs_abs2meta['output'][abs_src]['distributed']
+            dist_src = self._var_allprocs_abs2meta['output'][abs_src]['distributed']
 
             if abs_src in self._var_abs2meta['output']:
                 rank = self.comm.rank
@@ -6374,25 +6374,33 @@ class System(object):
                 offset = offsets[rank]
                 output_inds = range(offset, offset + sizes[rank])
             else:
-                if not dist_out and not dist_tgt:  # convert from local to distributed src_indices
+                if src_indices.size == 0:
+                    return np.zeros(0, dtype=INT_DTYPE)
+
+                output_inds = np.empty(src_indices.size, INT_DTYPE)
+
+                if not dist_src and not dist_tgt:  # convert from local to distributed src_indices
                     off = np.sum(sizes[:rank])
                     if off > 0.:  # adjust for local offsets
                         # don't do += to avoid modifying stored value
                         src_indices = src_indices + off
 
-                output_inds = np.empty(src_indices.size, INT_DTYPE)
                 start = end = 0
+                minind = np.min(src_indices)
+                maxind = np.max(src_indices)
+
                 for iproc in range(self.comm.size):
                     end += sizes[iproc]
                     if start == end:
                         continue
 
-                    # The part of src on iproc
-                    on_iproc = np.logical_and(start <= src_indices, src_indices < end)
+                    if end > minind and start <= maxind:
+                        # The part of src on iproc
+                        on_iproc = np.logical_and(start <= src_indices, src_indices < end)
 
-                    if np.any(on_iproc):
-                        # This converts from global to variable specific ordering
-                        output_inds[on_iproc] = src_indices[on_iproc] + (offsets[iproc] - start)
+                        if np.any(on_iproc):
+                            # This converts from global to variable specific ordering
+                            output_inds[on_iproc] = src_indices[on_iproc] + (offsets[iproc] - start)
 
                     start = end
         else:
@@ -6420,9 +6428,11 @@ class System(object):
             Dictionary of the form {abs_target_name: abs_source_name}.
         tgt_meta : dict
             Metadata for the local target variables.
+        remote : bool
+            If True, return src and tgt names for remote targets.
 
         Yields
-        -------
+        ------
         tuple
             Tuple of the form (abs_src, src_inds, abs_tgt, tgt_inds).
         """
@@ -6441,3 +6451,30 @@ class System(object):
                 yield abs_src, src_inds, abs_tgt, tgt_inds
             elif remote:  # only return src and tgt names for remote targets if remote is True
                 yield abs_src, None, abs_tgt, None
+
+    def _indexing_info(self, abs_name, io):
+        """
+        Return information that can be used to compute transfer indices for a variable.
+
+        Parameters
+        ----------
+        abs_name : str
+            Absolute name of the variable.
+        io : str
+            Either 'input' or 'output'.
+
+        Returns
+        -------
+        bool
+            True if the given variable is owned by this rank. Distributed variables are not owned.
+        bool
+            True if the given variable is remote on at least one proc. Distributed variables are
+            not considered remote.
+        bool
+            True if the given variable is distributed.
+        """
+        idx = self._var_allprocs_abs2idx[abs_name]
+        dist = self._var_allprocs_abs2meta[io][abs_name]['distributed']
+        dist_sizes = self._var_sizes[io][:, idx]
+        return not dist and self._owning_rank[abs_name] == self.comm.rank, \
+            not dist and not np.all(dist_sizes), dist, dist_sizes

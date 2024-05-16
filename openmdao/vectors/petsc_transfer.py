@@ -356,7 +356,8 @@ else:
                 out_petsc_imag.array = out_vec._data.imag
                 self._scatter(out_petsc_imag, in_petsc_imag, addv=flag, mode=flag)
 
-                in_vec._data[:] = in_petsc.array + in_petsc_imag.array * 1j
+                in_vec._data.real[:] = in_petsc.array
+                in_vec._data.imag[:] = in_petsc_imag.array
 
             else:
 
