@@ -76,7 +76,7 @@ class DistribExecComp(om.ExecComp):
             v, _ = self._parse_for_names(expr)
             allvars.update(v)
 
-        sizes, _ = evenly_distrib_idxs(comm.size, self.arr_size)
+        sizes, offsets = evenly_distrib_idxs(comm.size, self.arr_size)
 
         for name in outs:
             if name not in kwargs or not isinstance(kwargs[name], dict):

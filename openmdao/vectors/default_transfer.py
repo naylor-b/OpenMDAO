@@ -16,8 +16,8 @@ def _combine_indices(indices_iter, arr=None):
 
     Parameters
     ----------
-    indices_iter : iterator of int ndarrays or ranges
-        Iterator of ranges/indices to be placed into arr.
+    indices_iter : iterable of int ndarrays or ranges
+        Iterable of ranges/indices to be placed into arr.
     arr : ndarray or None
         Array to be filled. If None, a new array will be allocated and returned.
     """

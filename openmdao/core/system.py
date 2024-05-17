@@ -6517,7 +6517,7 @@ class System(object):
 
     def var_meta_iter(self, varnames, io, get_remote=False):
         """
-        Yield metadata for all variables in this system.
+        Yield metadata for the specified variables.
 
         Parameters
         ----------

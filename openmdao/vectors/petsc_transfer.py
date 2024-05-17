@@ -181,7 +181,6 @@ else:
             total_size = total_size_nocolor = 0
 
             # Loop through all connections owned by this system
-            # for abs_in, abs_out in group._conn_abs_in2out.items():
             for abs_out, output_inds, abs_in, input_inds in \
                     group._transfer_inds_iter(group._conn_abs_in2out, abs2meta_in, remote=True):
                 sub_out = abs_out[mypathlen:].partition('.')[0]

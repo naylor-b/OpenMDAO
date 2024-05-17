@@ -3,7 +3,7 @@ from collections import namedtuple
 
 import numpy as np
 
-from openmdao.approximation_schemes.approximation_scheme import ApproximationScheme
+from openmdao.approximation_schemes.approximation_scheme import ApproximationScheme, _is_group
 
 
 DEFAULT_ORDER = {
@@ -234,12 +234,10 @@ class FiniteDifference(ApproximationScheme):
         if not self._wrt_meta:
             return
 
-        from openmdao.core.group import Group
-
         self._starting_outs = system._outputs.asarray(copy=True)
         self._starting_resids = system._residuals.asarray(copy=True)
         self._starting_ins = system._inputs.asarray(copy=True)
-        if isinstance(system, Group):  # totals/semitotals
+        if _is_group(system):  # totals/semitotals
             self._results_tmp = self._starting_outs.copy()
         else:
             self._results_tmp = self._starting_resids.copy()
