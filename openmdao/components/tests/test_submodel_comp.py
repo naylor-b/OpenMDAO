@@ -13,34 +13,38 @@ except ImportError:
     PETScVector = None
 
 
-def build_submodelcomp1(promote=True, **kwargs):
+def build_submodelcomp1(promote=True, units=None, **kwargs):
     subprob1 = om.Problem()
     submodel1 = subprob1.model.add_subsystem('submodel1', om.Group())
-    submodel1.add_subsystem('sub1_ivc_r', om.IndepVarComp('r', 1.),
+    ivc1 = submodel1.add_subsystem('sub1_ivc_r', om.IndepVarComp(),
                             promotes_outputs=['r'])
+    ivc1.add_output('r', 1.0, units=units)
     submodel1.add_subsystem('sub1_ivc_theta', om.IndepVarComp('theta', np.pi),
                             promotes_outputs=['theta'])
     if promote:
         promotes = ['*']
     else:
         promotes = ()
-    submodel1.add_subsystem('subComp1', om.ExecComp('x = r*cos(theta)'), promotes=promotes)
+    submodel1.add_subsystem('subComp1', om.ExecComp('x = r*cos(theta)', r={'units': units}, x={'units': units}),
+                            promotes=promotes)
     subprob1.model.promotes('submodel1', any=['*'])
     return om.SubmodelComp(problem=subprob1, **kwargs)
 
 
-def build_submodelcomp2(promote=True, **kwargs):
+def build_submodelcomp2(promote=True, units=None, **kwargs):
     subprob2 = om.Problem()
     submodel2 = subprob2.model.add_subsystem('submodel2', om.Group())
-    submodel2.add_subsystem('sub2_ivc_r', om.IndepVarComp('r', 2),
+    ivc1 = submodel2.add_subsystem('sub2_ivc_r', om.IndepVarComp(),
                             promotes_outputs=['r'])
+    ivc1.add_output('r', 2, units=units)
     submodel2.add_subsystem('sub2_ivc_theta', om.IndepVarComp('theta', np.pi/2),
                             promotes_outputs=['theta'])
     if promote:
         promotes = ['*']
     else:
         promotes = ()
-    submodel2.add_subsystem('subComp2', om.ExecComp('y = r*sin(theta)'), promotes=promotes)
+    submodel2.add_subsystem('subComp2', om.ExecComp('y = r*sin(theta)', y={'units': units}, r={'units': units,}),
+                            promotes=promotes)
     subprob2.model.promotes('submodel2', any=['*'])
     return om.SubmodelComp(problem=subprob2, **kwargs)
 
@@ -441,6 +445,33 @@ class TestSubmodelComp(unittest.TestCase):
 
         with self.assertRaises(AttributeError): # make sure it cannot be assigned
             submodel.problem = om.Problem()
+
+    def test_unit_conversion(self):
+        # test when outer units are different from inner units
+        p = om.Problem()
+        model = p.model
+        ivc = model.add_subsystem('ivc', om.IndepVarComp())
+        ivc.add_output('x', 1.0, units='m')
+
+        psub = om.Problem()
+        submodel = psub.model
+        subivc = submodel.add_subsystem('ivc', om.IndepVarComp())
+        subivc.add_output('x', 1.0, units='cm')
+        submodel.add_subsystem('comp', om.ExecComp('y = x', y={'units': 'cm'}, x={'units': 'cm'}))
+        submodel.connect('ivc.x', 'comp.x')
+        model.add_subsystem('submodel', om.SubmodelComp(problem=psub, outputs=[('comp.y', 'y')], inputs=[('comp.x', 'x')]))
+
+        model.add_subsystem('comp2', om.ExecComp('y = x', y={'units': 'km'}, x={'units': 'km'}))
+
+        model.connect('ivc.x', 'submodel.x')
+        model.connect('submodel.y', 'comp2.x')
+        p.setup(force_alloc_complex=True)
+
+        p.run_model()
+        assert_check_partials(p.check_partials(method='cs', out_stream=None))
+        assert_check_totals(p.check_totals(of=['comp2.y'], wrt=['ivc.x'], method='cs', out_stream=None))
+
+        assert_near_equal(p.get_val('comp2.y'), 1.0/1000)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")

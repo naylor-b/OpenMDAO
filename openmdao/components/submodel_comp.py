@@ -296,11 +296,11 @@ class SubmodelComp(ExplicitComponent):
                     meta = abs2meta_local[src]  # get local metadata if we have it
                 indep_vars[prom] = (src, meta)
 
-        # add any inputs connected to auto_ivc vars as indep vars.  Their name will be the
+        # add any inputs connected to indep vars as indep vars.  Their name will be the
         # promoted name of the input that connects to the actual indep var.
         for prom in prom2abs_in:
             src = p.model.get_source(prom)
-            if src.startswith('_auto_ivc.'):
+            if src.startswith('_auto_ivc.') or src in indep_vars:
                 if src in abs2meta_local:
                     meta = abs2meta_local[src]  # get local metadata if we have it
                 else:
