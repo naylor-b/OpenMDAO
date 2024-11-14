@@ -257,6 +257,8 @@ class Driver(object, metaclass=DriverMetaclass):
         DriverResult object containing information for use in the optimization report.
     _has_scaling : bool
         If True, scaling has been set for this driver.
+    _filtered_vars_to_record : dict
+        Dict of variables to record based on recording options.
     """
 
     def __init__(self, **kwargs):
@@ -354,6 +356,11 @@ class Driver(object, metaclass=DriverMetaclass):
         self.options.update(kwargs)
         self.result = DriverResult(self)
         self._has_scaling = False
+        self._filtered_vars_to_record = {
+            'input': [],
+            'output': [],
+            'residual': []
+        }
 
     def _get_inst_id(self):
         if self._problem is None:

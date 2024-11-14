@@ -211,7 +211,7 @@ class SqliteCaseReader(BaseCaseReader):
                 else:
                     metadata_filename = filename
 
-        con.close()
+        con.close()  # the 'connect' context manager does NOT close the connection when finished!
 
         # collect metadata from database
         with sqlite3.connect(metadata_filename) as con:
@@ -347,6 +347,8 @@ class SqliteCaseReader(BaseCaseReader):
                 self._abs2prom = _safer_unpickle(abs2prom.encode(), 'abs2prom dictionary')
                 self._prom2abs = _safer_unpickle(prom2abs.encode(), 'prom2abs dictionary')
                 self._abs2meta = _safer_unpickle(abs2meta.encode(), 'abs2meta dictionary')
+
+        #self._resolver = Resolver(self._abs2prom, self._prom2abs, self._abs2meta, self._conns)
 
         self.problem_metadata['abs2prom'] = self._abs2prom
 

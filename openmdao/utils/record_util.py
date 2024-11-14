@@ -194,8 +194,7 @@ def deserialize(json_data, abs2meta, prom2abs, conns):
     """
     Deserialize recorded data from a JSON formatted string.
 
-    If all data values are arrays then a numpy structured array will be returned,
-    otherwise a dictionary mapping variable names to values will be returned.
+    A dictionary mapping variable names to values will be returned.
 
     Parameters
     ----------
@@ -218,8 +217,6 @@ def deserialize(json_data, abs2meta, prom2abs, conns):
     if not values:
         return None
 
-    all_array = True
-
     for name, value in values.items():
         try:
             has_shape = 'shape' in abs2meta[name]
@@ -230,13 +227,8 @@ def deserialize(json_data, abs2meta, prom2abs, conns):
 
         if isinstance(value, list) and has_shape:
             values[name] = np.asarray(value)  # array will be proper shape based on list structure
-        else:
-            all_array = False
 
-    if all_array:
-        return dict_to_structured_array(values)
-    else:
-        return values
+    return values
 
 
 def dict_to_structured_array(values):

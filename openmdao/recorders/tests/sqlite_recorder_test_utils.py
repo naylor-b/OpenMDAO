@@ -108,12 +108,17 @@ def assertProblemDataRecorded(test, filepath, expected, tolerance):
                     if f_version in (1, 2):
                         test.assertEqual(actual, np.array(None, dtype=object))
                 else:
-                    actual = actual[0]
+                    if not isinstance(actual, dict):
+                        actual = actual[0]
+                        names = actual.dtype.names
+                    else:
+                        names = list(actual)
+
                     # Check to see if the number of values in actual and expected match
                     test.assertEqual(len(actual), len(expected))
                     for key, value in expected.items():
                         # Check to see if the keys in the actual and expected match
-                        test.assertTrue(key in actual.dtype.names,
+                        test.assertTrue(key in names,
                                         '{} variable not found in actual data'
                                         ' from recorder'.format(key))
                         # Check to see if the values in actual and expected match
@@ -169,7 +174,12 @@ def assertDriverIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                     if f_version in (1, 2):
                         test.assertEqual(actual, np.array(None, dtype=object))
                 else:
-                    actual = actual[0]
+                    if not isinstance(actual, dict):
+                        actual = actual[0]
+                        names = actual.dtype.names
+                    else:
+                        names = list(actual)
+
                     # Check to see if the number of values in actual and expected match
                     test.assertEqual(len(actual), len(expected))
                     for key, value in expected.items():
@@ -185,7 +195,7 @@ def assertDriverIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                                 src_key = key
 
                         # Check to see if the keys in the actual and expected match
-                        test.assertTrue(src_key in actual.dtype.names,
+                        test.assertTrue(src_key in names,
                                         '{} variable not found in actual data'
                                         ' from recorder'.format(key))
                         # Check to see if the values in actual and expected match
@@ -348,15 +358,22 @@ def assertSystemIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                     if f_version in (1, 2):
                         test.assertEqual(actual, np.array(None, dtype=object))
                 else:
+                    if isinstance(actual, dict):
+                        data = actual
+                        names = list(actual)
+                    else:
+                        data = actual[0]
+                        names = actual.dtype.names
+
                     # Check to see if the number of values in actual and expected match
-                    test.assertEqual(len(actual[0]), len(expected))
+                    test.assertEqual(len(data), len(expected))
                     for key, value in expected.items():
                         # Check to see if the keys in the actual and expected match
-                        test.assertTrue(key in actual[0].dtype.names,
+                        test.assertTrue(key in names,
                                         '{} variable not found in actual data '
                                         'from recorder'.format(key))
                         # Check to see if the values in actual and expected match
-                        assert_near_equal(actual[0][key], expected[key], tolerance)
+                        assert_near_equal(data[key], value, tolerance)
 
 
 def assertSolverIterDataRecorded(test, filepath, expected, tolerance, prefix=None):
@@ -414,15 +431,22 @@ def assertSolverIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                     if f_version in (1, 2):
                         test.assertEqual(actual, np.array(None, dtype=object))
                 else:
+                    if isinstance(actual, dict):
+                        data = actual
+                        names = list(actual)
+                    else:
+                        data = actual[0]
+                        names = actual.dtype.names
+
                     # Check to see if the number of values in actual and expected match
-                    test.assertEqual(len(actual[0]), len(expected))
+                    test.assertEqual(len(data), len(expected))
                     for key, value in expected.items():
                         # Check to see if the keys in the actual and expected match
-                        test.assertTrue(key in actual[0].dtype.names,
+                        test.assertTrue(key in names,
                                         '{} variable not found in actual data '
                                         'from recorder'.format(key))
                         # Check to see if the values in actual and expected match
-                        assert_near_equal(actual[0][key], expected[key], tolerance)
+                        assert_near_equal(data[key], expected[key], tolerance)
 
 
 def assertMetadataRecorded(test, filepath, expected_prom2abs, expected_abs2prom):

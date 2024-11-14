@@ -283,17 +283,16 @@ class Case(object):
 
         if units is not None:
             base_units = self._get_units(name)
-            simp_units = simplify_unit(units)
 
             if base_units is None:
                 msg = "Can't express variable '{}' with units of 'None' in units of '{}'."
-                raise TypeError(msg.format(name, simp_units))
+                raise TypeError(msg.format(name, simplify_unit(units)))
 
             try:
-                scale, offset = unit_conversion(base_units, simp_units)
+                scale, offset = unit_conversion(base_units, simplify_unit(units))
             except TypeError:
                 msg = "Can't express variable '{}' with units of '{}' in units of '{}'."
-                raise TypeError(msg.format(name, base_units, simp_units))
+                raise TypeError(msg.format(name, base_units, simplify_unit(units)))
 
             val = (val + offset) * scale
 
@@ -1203,6 +1202,30 @@ class Case(object):
                            var_info=self._var_info)
 
 
+class Resolver(object):
+    def __init__(self, abs2prom, prom2abs, abs2meta, conns):
+        self._abs2prom = abs2prom
+        self._prom2abs = prom2abs
+        self._abs2meta = abs2meta
+        self._conns = conns
+        self._auto_ivc_map = {
+            src: tgt for tgt, src in conns.items() if src.startswith('_auto_ivc.')
+        }
+
+    def get_meta(self, name, io=None):
+        pass
+
+    def get_source(self, name):
+        pass
+
+    def get_abs(self, name, io=None):
+        pass
+
+    def get_prom(self, name, io=None):
+        pass
+
+
+
 class PromAbsDict(dict):
     """
     A dictionary that enables accessing values via absolute or promoted variable names.
@@ -1273,10 +1296,11 @@ class PromAbsDict(dict):
                     in_key = auto_ivc_map[key]
                     super().__setitem__(in_key, values[key])
                 elif key in abs2prom:
-                    # key is absolute name
                     self._values[key] = values[key]
-                    prom_key = abs2prom[key]
-                    super().__setitem__(prom_key, values[key])
+                    if in_prom2abs is None:  # this is an abs input
+                        super().__setitem__(key, values[key])
+                    else:
+                        super().__setitem__(abs2prom[key], values[key])
                 elif key in prom2abs:
                     # key is promoted name
                     for abs_key in prom2abs[key]:
