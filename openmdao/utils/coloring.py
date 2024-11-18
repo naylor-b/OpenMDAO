@@ -550,7 +550,7 @@ class Partial_ColoringMeta(ColoringMeta):
             return
 
         self.wrt_matches = set(rel_name2abs_name(system, n) for n in
-                               pattern_filter(self.wrt_patterns, system._promoted_wrt_iter()))
+                               pattern_filter(system._promoted_wrt_iter(), self.wrt_patterns))
 
         # error if nothing matched
         if not self.wrt_matches:

@@ -190,7 +190,7 @@ def has_match(pattern, names):
     return False
 
 
-def deserialize(json_data, abs2meta, prom2abs, conns):
+def deserialize(json_data, resolver):
     """
     Deserialize recorded data from a JSON formatted string.
 
@@ -218,14 +218,8 @@ def deserialize(json_data, abs2meta, prom2abs, conns):
         return None
 
     for name, value in values.items():
-        try:
-            has_shape = 'shape' in abs2meta[name]
-        except KeyError:
-            abs_name = prom2abs['input'][name]
-            src_name = conns[abs_name[0]]
-            has_shape = 'shape' in abs2meta[src_name]
 
-        if isinstance(value, list) and has_shape:
+        if isinstance(value, list) and 'shape' in resolver.get_meta(name):
             values[name] = np.asarray(value)  # array will be proper shape based on list structure
 
     return values

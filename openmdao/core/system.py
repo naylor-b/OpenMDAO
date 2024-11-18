@@ -633,7 +633,7 @@ class System(object, metaclass=SystemMetaclass):
     def _get_inst_id(self):
         return self.pathname if self.pathname is not None else ''
 
-    def abs_name_iter(self, iotype, local=True, cont=True, discrete=False):
+    def abs_iter(self, iotype, local=True, cont=True, discrete=False):
         """
         Iterate over absolute variable names for this System.
 
@@ -2069,7 +2069,7 @@ class System(object, metaclass=SystemMetaclass):
                     issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
                                   "recording_options['excludes'].")
             for pattern in incl:
-                if not has_match(pattern, match_names):
+                if pattern != '*' and not has_match(pattern, match_names):
                     issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
                                   "recording_options['includes'].")
 
@@ -5926,11 +5926,11 @@ class System(object, metaclass=SystemMetaclass):
                         elif n[offset:] in discrete_vec:
                             vdict[n] = discrete_vec[n[offset:]]['val']
                         else:
-                            ivc_path = conns[prom2abs_in[n][0]]
-                            if vec._contains_abs(ivc_path):
-                                vdict[ivc_path] = srcget(ivc_path, False)
-                            elif ivc_path[offset:] in discrete_vec:
-                                vdict[ivc_path] = discrete_vec[ivc_path[offset:]]['val']
+                            src_path = conns[prom2abs_in[n][0]]
+                            if vec._contains_abs(src_path):
+                                vdict[src_path] = srcget(src_path, False)
+                            elif src_path[offset:] in discrete_vec:
+                                vdict[src_path] = discrete_vec[src_path[offset:]]['val']
                 else:
                     for name in variables:
                         if name in self._responses and self._responses[name]['alias'] is not None:
@@ -5938,8 +5938,8 @@ class System(object, metaclass=SystemMetaclass):
                         if vec._contains_abs(name):
                             vdict[name] = get(name, False)
                         else:
-                            ivc_path = conns[prom2abs_in[name][0]]
-                            vdict[ivc_path] = srcget(ivc_path, False)
+                            src_path = conns[prom2abs_in[name][0]]
+                            vdict[src_path] = srcget(src_path, False)
             elif local:
                 get = self._abs_get_val
                 vdict = {}
@@ -5958,8 +5958,8 @@ class System(object, metaclass=SystemMetaclass):
                             vdict[name] = get(name, get_remote=True, rank=0,
                                               vec_name=vec_name, kind=kind)
                         elif name in prom2abs_in:
-                            ivc_path = conns[prom2abs_in[name][0]]
-                            vdict[name] = get(ivc_path, get_remote=True, rank=0,
+                            src_path = conns[prom2abs_in[name][0]]
+                            vdict[name] = get(src_path, get_remote=True, rank=0,
                                               vec_name=vec_name, kind='output')
             else:
                 for name in variables:

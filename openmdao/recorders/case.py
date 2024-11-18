@@ -97,8 +97,7 @@ class Case(object):
         A version number specifying the format of array data, if not numpy arrays.
     """
 
-    def __init__(self, source, data, prom2abs, abs2prom, abs2meta, conns, auto_ivc_map, var_info,
-                 data_format=-1):
+    def __init__(self, source, data, resolver, var_info, data_format=-1):
         """
         Initialize.
         """
@@ -145,21 +144,9 @@ class Case(object):
         self.residuals = None
         self.derivatives = None
 
-        if 'inputs' in data.keys():
-            if data_format >= 3:
-                inputs = deserialize(data['inputs'], abs2meta, prom2abs, conns)
-            elif data_format in (1, 2):
-                inputs = blob_to_array(data['inputs'])
-                if type(inputs) is np.ndarray and not inputs.shape:
-                    inputs = None
-            else:
-                inputs = data['inputs']
-            if inputs is not None:
-                self.inputs = PromAbsDict(inputs, prom2abs['input'], abs2prom['input'])
-
         if 'outputs' in data.keys():
             if data_format >= 3:
-                outputs = deserialize(data['outputs'], abs2meta, prom2abs, conns)
+                outputs = deserialize(data['outputs'], resolver)
             elif self._format_version in (1, 2):
                 outputs = blob_to_array(data['outputs'])
                 if type(outputs) is np.ndarray and not outputs.shape:
@@ -167,13 +154,27 @@ class Case(object):
             else:
                 outputs = data['outputs']
             if outputs is not None:
-                self.outputs = PromAbsDict(outputs, prom2abs['output'], abs2prom['output'],
-                                           in_prom2abs=prom2abs['input'],
-                                           auto_ivc_map=auto_ivc_map)
+                self.outputs = PromAbsDict({'output': outputs}, 'output', resolver)
+
+        if 'inputs' in data.keys():
+            if data_format >= 3:
+                inputs = deserialize(data['inputs'], resolver)
+            elif data_format in (1, 2):
+                inputs = blob_to_array(data['inputs'])
+                if type(inputs) is np.ndarray and not inputs.shape:
+                    inputs = None
+            else:
+                inputs = data['inputs']
+            if inputs is not None:
+                if self.outputs is not None:
+                    self.inputs = PromAbsDict({'input': inputs, 'output': outputs},
+                                              'input', resolver)
+                else:
+                    self.inputs = PromAbsDict({'input': inputs}, inputs, 'input', resolver)
 
         if 'residuals' in data.keys():
             if data_format >= 3:
-                residuals = deserialize(data['residuals'], abs2meta, prom2abs, conns)
+                residuals = deserialize(data['residuals'], resolver)
             elif data_format in (1, 2):
                 residuals = blob_to_array(data['residuals'])
                 if type(residuals) is np.ndarray and not residuals.shape:
@@ -181,9 +182,7 @@ class Case(object):
             else:
                 residuals = data['residuals']
             if residuals is not None:
-                self.residuals = PromAbsDict(residuals, prom2abs['output'], abs2prom['output'],
-                                             in_prom2abs=prom2abs['input'],
-                                             auto_ivc_map=auto_ivc_map)
+                self.residuals = PromAbsDict({'residual': residuals}, 'residual', resolver)
 
         if 'jacobian' in data.keys():
             if data_format >= 2:
@@ -193,17 +192,9 @@ class Case(object):
             else:
                 jacobian = data['jacobian']
             if jacobian is not None:
-                self.derivatives = PromAbsDict(jacobian, prom2abs['output'], abs2prom['output'],
-                                               in_prom2abs=prom2abs['input'],
-                                               auto_ivc_map=auto_ivc_map,
-                                               var_info=var_info)
+                self.derivatives = PromAbsDict({'jacobian': jacobian}, 'jacobian', resolver)
 
-        # save var name & meta dict references for use by self._get_variables_of_type()
-        self._prom2abs = prom2abs
-        self._abs2prom = abs2prom
-        self._abs2meta = abs2meta
-        self._conns = conns
-        self._auto_ivc_map = auto_ivc_map
+        self._resolver = resolver
 
     def __str__(self):
         """
@@ -230,31 +221,40 @@ class Case(object):
         float or ndarray or any python object
             the requested output/input variable.
         """
-        if self.outputs is not None:
-            try:
-                return self.outputs[name]
-            except KeyError:
-                if name in self._auto_ivc_map:
-                    try:
-                        return self.inputs[self._auto_ivc_map[name]]
-                    except KeyError:
-                        pass  # keep original name passed in
-
-            if name in self._prom2abs['input'] and name not in self._abs2prom['input']:
-                absin = self._prom2abs['input'][name][0]
-                absout = self._conns[absin]
-                try:
-                    return self.outputs[self._abs2prom['output'][absout]]
-                except KeyError:
-                    pass
-
         if self.inputs is not None:
-            try:
-                return self.inputs[name]
-            except KeyError:
-                pass
+            valdict = self.inputs._valdict
+        elif self.outputs is not None:
+            valdict = self.outputs._valdict
+        elif self.residuals is not None:
+            valdict = self.residuals.valdict
 
-        raise KeyError('Variable name "%s" not found.' % name)
+        return self._resolver.get(name, None, valdict)
+
+        #if self.outputs is not None:
+            #try:
+                #return self.outputs[name]
+            #except KeyError:
+                #if name in self._auto_ivc_map:
+                    #try:
+                        #return self.inputs[self._auto_ivc_map[name]]
+                    #except KeyError:
+                        #pass  # keep original name passed in
+
+            #if name in self._prom2abs['input'] and name not in self._abs2prom['input']:
+                #absin = self._prom2abs['input'][name][0]
+                #absout = self._conns[absin]
+                #try:
+                    #return self.outputs[self._abs2prom['output'][absout]]
+                #except KeyError:
+                    #pass
+
+        #if self.inputs is not None:
+            #try:
+                #return self.inputs[name]
+            #except KeyError:
+                #pass
+
+        #raise KeyError(f'Variable name "{name}" not found.')
 
     def get_val(self, name, units=None, indices=None):
         """
@@ -312,22 +312,19 @@ class Case(object):
         str
             Unit string.
         """
-        meta = self._abs2meta
+        return self._resolver.get_meta(name)['units']
 
-        if name in meta:
-            return meta[name]['units']
+        #prom2abs = self._prom2abs
 
-        prom2abs = self._prom2abs
+        #if name in prom2abs['output']:
+            #abs_name = prom2abs['output'][name][0]
+            #return meta[abs_name]['units']
 
-        if name in prom2abs['output']:
-            abs_name = prom2abs['output'][name][0]
-            return meta[abs_name]['units']
+        #elif name in prom2abs['input']:
+            #abs_name = prom2abs['input'][name][0]
+            #return meta[self._conns[abs_name]]['units']
 
-        elif name in prom2abs['input']:
-            abs_name = prom2abs['input'][name][0]
-            return meta[self._conns[abs_name]]['units']
-
-        raise KeyError('Variable name "{}" not found.'.format(name))
+        #raise KeyError('Variable name "{}" not found.'.format(name))
 
     def get_design_vars(self, scaled=True, use_indices=True):
         """
@@ -457,14 +454,10 @@ class Case(object):
             if diff:
                 raise RuntimeError(f"Case: {sorted(diff)} are not valid metadata entry names.")
 
-        abs2meta = self._abs2meta
-        abs2prom = self._abs2prom
-
         result = {}
 
         if is_design_var is not None:
             des_vars = self.get_design_vars()
-            auto_ivc_map = self._auto_ivc_map
 
         for iotype in iotypes:
             data = getattr(self, f'{iotype}s')
@@ -474,12 +467,12 @@ class Case(object):
                 continue
 
             for abs_name in data.absolute_names():
-                prom = abs2prom[iotype][abs_name]
+                prom = self._resolver.get_prom(abs_name)
 
                 if not match_prom_or_abs(abs_name, prom, includes, excludes):
                     continue
 
-                meta = abs2meta[abs_name] if abs_name in abs2meta else None
+                meta = self._resolver.get_meta(prom)
 
                 if meta is None:
                     continue
@@ -496,13 +489,13 @@ class Case(object):
 
                 # handle is_indep_var
                 if is_indep_var is not None:
-                    if iotype == 'output':
-                        out_meta = meta
-                    else:
-                        src_name = self._conns[abs_name]
-                        out_meta = abs2meta[src_name]
+                    #if iotype == 'output':
+                        #out_meta = meta
+                    #else:
+                        #src_name = self._conns[abs_name]
+                        #out_meta = abs2meta[src_name]
 
-                    src_tags = out_meta['tags'] if 'tags' in out_meta else {}
+                    src_tags = meta['tags'] if 'tags' in meta else {}
                     if is_indep_var:
                         if 'openmdao:indep_var' not in src_tags:
                             continue
@@ -515,11 +508,12 @@ class Case(object):
                         out_name = abs_name
                     else:
                         # input, get connected output
-                        src_name = self._conns[abs_name]
-                        out_name = abs2prom['output'][src_name]
+                        src_name = self._resolver.get_abs(prom)
+                        #src_name = self._conns[abs_name]
+                        out_name = self._resolver.get_prom(src_name) # abs2prom['output'][src_name]
 
-                    if out_name.startswith('_auto_ivc.'):
-                        out_name = auto_ivc_map[out_name]
+                    #if out_name.startswith('_auto_ivc.'):
+                        #out_name = auto_ivc_map[out_name]
 
                     if is_design_var:
                         if out_name not in des_vars:
@@ -541,7 +535,7 @@ class Case(object):
 
                 ret_meta['io'] = iotype
 
-                ret_meta['discrete'] = 'discrete' in abs2meta[abs_name]
+                ret_meta['discrete'] = 'discrete' in meta
                 ret_meta['prom_name'] = prom
 
                 if iotype == 'output':
@@ -1163,11 +1157,7 @@ class Case(object):
             Map of variables to their values.
         """
         if self.outputs is None:
-            return PromAbsDict({}, self._prom2abs, self._abs2prom)
-
-        abs2meta = self._abs2meta
-        prom2abs_in = self._prom2abs['input']
-        auto_ivc_map = self._auto_ivc_map
+            return PromAbsDict({}, self._resolver)
 
         ret_vars = {}
 
@@ -1182,7 +1172,7 @@ class Case(object):
 
             src = meta['source']
 
-            if var_type in abs2meta[src]['type']:
+            if var_type in self._resolver.get_meta(src)['type']:
                 try:
                     val = self.outputs[src].copy()
                 except KeyError:
@@ -1195,35 +1185,122 @@ class Case(object):
                         val += meta['total_adder']
                     if meta['total_scaler'] is not None:
                         val *= meta['total_scaler']
-                ret_vars[name] = val
+                ret_vars[src] = val
 
-        return PromAbsDict(ret_vars, self._prom2abs['output'], self._abs2prom['output'],
-                           in_prom2abs=prom2abs_in, auto_ivc_map=auto_ivc_map,
-                           var_info=self._var_info)
+        return PromAbsDict({'output': ret_vars}, 'output', self._resolver)
 
 
 class Resolver(object):
     def __init__(self, abs2prom, prom2abs, abs2meta, conns):
-        self._abs2prom = abs2prom
+        if abs2prom is None:
+            self._abs2prom = abs2prom = {'input': {}, 'output': {}}
+            for io in ('input', 'output'):
+                a2promio = abs2prom[io]
+                for prom, abslist in prom2abs[io].items():
+                    for absname in abslist:
+                        a2promio[absname] = prom
+        else:
+            self._abs2prom = abs2prom
         self._prom2abs = prom2abs
         self._abs2meta = abs2meta
         self._conns = conns
+        if conns is None:
+            conns = {}
+        abs2prom_in = self._abs2prom['input']
         self._auto_ivc_map = {
-            src: tgt for tgt, src in conns.items() if src.startswith('_auto_ivc.')
+            src: abs2prom_in[tgt] for tgt, src in conns.items()
+            if tgt in abs2prom_in and src.startswith('_auto_ivc.')
         }
+        self._rev_auto_ivc_map = {v: k for k, v in self._auto_ivc_map.items()}
+
+    def get(self, name, kind, valdict):
+        iotype = _kind2iotype[kind]
+        absname = self.get_abs(name, iotype)
+        if 'output' in valdict and absname in valdict['output']:
+            return valdict['output'][absname]
+        elif kind in valdict:
+            myvals = valdict[kind]
+            if absname in myvals:
+                return myvals[absname]
+        elif iotype is None:
+            for io in ('output', 'input'):
+                if io in valdict:
+                    myvals = valdict[io]
+                    if absname in valdict[io]:
+                        return valdict[io][absname]
+
+        raise KeyError(f'Variable name "{name}" not found.')
 
     def get_meta(self, name, io=None):
-        pass
-
-    def get_source(self, name):
-        pass
+        abs_name = self.get_abs(name, io)
+        if abs_name is None:
+            raise KeyError(f'Variable name "{name}" not found.')
+        return self._abs2meta[abs_name]
 
     def get_abs(self, name, io=None):
-        pass
+        if io is None:
+            if name in self._abs2prom['input'] or name in self._abs2prom['output']:
+                return name
+            elif name in self._prom2abs['output']:
+                return self._prom2abs['output'][name][0]
+            elif name in self._prom2abs['input']:
+                # special case for inputs. If a promoted input name is used, return the absolute
+                # name of the connected output.
+                return self._conns[self._prom2abs['input'][name][0]]
+        else:
+            if name in self._abs2prom[io]:
+                return name
+            elif name in self._prom2abs[io]:
+                if io == 'output':
+                    return self._prom2abs[io][name][0]
+                else:
+                    return self._conns[self._prom2abs[io][name][0]]
+            elif io == 'output':
+                if name in self._prom2abs['input']:
+                    return self._conns[self._prom2abs['input'][name][0]]
 
-    def get_prom(self, name, io=None):
-        pass
+    def get_prom(self, abs_name, io=None):
+        if abs_name in self._auto_ivc_map:
+            return self._auto_ivc_map[abs_name]
+        if io is None:
+            if abs_name in self._abs2prom['output']:
+                return self._abs2prom['output'][abs_name]
+            elif abs_name in self._abs2prom['input']:
+                return self._abs2prom['input'][abs_name]
+        else:
+            a2p = self._abs2prom[io]
+            if abs_name in a2p:
+                return a2p[abs_name]
 
+        raise KeyError(f'Variable name "{abs_name}" not found.')
+
+
+class VOIDict(object):
+    def __init__(self, vois, resolver):
+        self._vois = vois
+        self._resolver = resolver
+
+    def get_type(self, name):
+        return self._resolver.get_meta(name)['type']
+
+    def __getitem__(self, name):
+        if name in self._vois:
+            return self._vois[name]
+        raise KeyError(f'Variable name "{name}" not found.')
+
+    def __len__(self):
+        return len(self._vois)
+
+    def keys(self):
+        return self._vois.keys()
+
+
+_kind2iotype = {
+    'residual': 'output',
+    'input': 'input',
+    'output': 'output',
+    None: None,
+}
 
 
 class PromAbsDict(dict):
@@ -1262,88 +1339,33 @@ class PromAbsDict(dict):
     _auto_ivc_map : dict
         Dictionary that maps all auto_ivc sources to either an absolute input name for single
         connections or a promoted input name for multiple connections. This is for output display.
-    _var_info : dict
-        Dictionary of variable metadata. Needed when there are constraint aliases.
     _DERIV_KEY_SEP : str
         Separator character for derivative keys.
     """
 
-    def __init__(self, values, prom2abs, abs2prom, data_format=current_version,
-                 in_prom2abs=None, auto_ivc_map=None, var_info=None):
+    def __init__(self, valdict, kind, resolver, data_format=current_version):
         """
         Initialize.
         """
         super().__init__()
 
-        self._prom2abs = prom2abs
-        self._abs2prom = abs2prom
-        auto_ivc_map = auto_ivc_map if auto_ivc_map is not None else {}
-        self._var_info = var_info
-        self._auto_ivc_map = auto_ivc_map
+        self._valdict = valdict
+        self._values = values = valdict[kind]
+        self._resolver = resolver
+        self._kind = kind
+        self._iotype = _kind2iotype[kind]
 
-        if data_format <= 8:
-            DERIV_KEY_SEP = self._DERIV_KEY_SEP = ','
-        else:
-            DERIV_KEY_SEP = self._DERIV_KEY_SEP = '!'
+        # if data_format <= 8:
+        #     DERIV_KEY_SEP = self._DERIV_KEY_SEP = ','
+        # else:
+        #     DERIV_KEY_SEP = self._DERIV_KEY_SEP = '!'
 
         if isinstance(values, dict):
-            # dict of values, keyed on either absolute or promoted names
-            self._values = {}
-            for key in values.keys():
-                if key in auto_ivc_map:
-                    # key is auto_ivc, so translate to a readable input name.
-                    self._values[key] = values[key]
-                    in_key = auto_ivc_map[key]
-                    super().__setitem__(in_key, values[key])
-                elif key in abs2prom:
-                    self._values[key] = values[key]
-                    if in_prom2abs is None:  # this is an abs input
-                        super().__setitem__(key, values[key])
-                    else:
-                        super().__setitem__(abs2prom[key], values[key])
-                elif key in prom2abs:
-                    # key is promoted name
-                    for abs_key in prom2abs[key]:
-                        self._values[abs_key] = values[key]
-                    super().__setitem__(key, values[key])
-                elif isinstance(key, tuple) or DERIV_KEY_SEP in key:
-                    # derivative keys can be either (of, wrt) or 'of!wrt'
-                    abs_keys, prom_key = self._deriv_keys(key)
-                    for abs_key in abs_keys:
-                        self._values[abs_key] = values[key]
-                    super().__setitem__(prom_key, values[key])
-                elif in_prom2abs is not None and key in in_prom2abs:
-                    # Auto-ivc outputs, use abs source (which is prom source.)
-                    self._values[key] = values[key]
-                    super().__setitem__(key, values[key])
-                else:
-                    # Constraint alias support.
-                    self._values[key] = values[key]
-                    super().__setitem__(key, values[key])
-
             self._keys = self._values.keys()
         else:
             # numpy structured array, which will always use absolute names
             self._values = values[0]
             self._keys = values.dtype.names
-            for key in self._keys:
-                if key in auto_ivc_map:
-                    # key is auto_ivc, so translate to a readable input name.
-                    in_key = auto_ivc_map[key]
-                    super().__setitem__(in_key, self._values[key])
-                elif key in abs2prom:
-                    if in_prom2abs is None:  # this is an abs input
-                        super().__setitem__(key, self._values[key])
-                    else:
-                        super().__setitem__(abs2prom[key], self._values[key])
-                elif DERIV_KEY_SEP in key:
-                    # derivative keys will be a string in the form of 'of!wrt'
-                    abs_keys, prom_key = self._deriv_keys(key)
-                    super().__setitem__(prom_key, self._values[key])
-                elif in_prom2abs is not None and key in in_prom2abs:
-                    # Auto-ivc outputs, use abs source (which is prom source.)
-                    # TODO - maybe get rid of this by always saving the source name
-                    super().__setitem__(key, self._values[key])
 
     def _deriv_keys(self, key):
         """
@@ -1400,6 +1422,26 @@ class PromAbsDict(dict):
 
         return abs_keys, prom_key
 
+    def __len__(self):
+        return len(self._valdict[self._kind])
+
+    def __contains__(self, key):
+        return self._resolver.get_abs(key, self._iotype) is not None
+
+    def __bool__(self):
+        return bool(self._valdict[self._kind])
+
+    def __iter__(self):
+        return self.keys()
+
+    def keys(self):
+        seen = set()
+        for key in self._keys:
+            prom = self._resolver.get_prom(key, self._iotype)
+            if prom not in seen:
+                seen.add(prom)
+                yield prom
+
     def __getitem__(self, key):
         """
         Use the variable name to get the corresponding value.
@@ -1414,81 +1456,56 @@ class PromAbsDict(dict):
         array :
             An array entry value that corresponds to the given variable name.
         """
-        if key in self._keys:
-            # absolute name
-            return self._values[key]
-
-        elif key in self._auto_ivc_map:
-            # We allow the user to query with auto_ivc varname.
-            src_key = self._auto_ivc_map[key]
-            if src_key in self._keys:
-                return self._values[self._auto_ivc_map[key]]
-
-        elif key in self:
-            # promoted name
-            val = super().__getitem__(key)
-            if val is _AMBIGOUS_PROM_NAME:
-                msg = "The promoted name '%s' is invalid because it refers to multiple " + \
-                      "inputs: %s. Access the value using an absolute path name or the " + \
-                      "connected output variable instead."
-                raise RuntimeError(msg % (key, str(self._prom2abs[key])))
-            else:
-                return val
-
-        elif isinstance(key, tuple) or self._DERIV_KEY_SEP in key:
-            # derivative keys can be either (of, wrt) or 'of!wrt'
-            _, prom_key = self._deriv_keys(key)
-            return super().__getitem__(prom_key)
-
-        raise KeyError('Variable name "%s" not found.' % key)
+        return self._resolver.get(key, self._kind, self._valdict)
 
     def __setitem__(self, key, value):
-        """
-        Set the value for the given key, which may use absolute or promoted names.
+        raise NotImplementedError("Setting values in a PromAbsDict is not supported.")
+    #     """
+    #     Set the value for the given key, which may use absolute or promoted names.
 
-        Parameters
-        ----------
-        key : str
-            Absolute or promoted variable name.
-        value : any
-            value for variable
-        """
-        auto_ivc_map = self._auto_ivc_map
-        abs2prom = self._abs2prom
-        prom2abs = self._prom2abs
+    #     Parameters
+    #     ----------
+    #     key : str
+    #         Absolute or promoted variable name.
+    #     value : any
+    #         value for variable
+    #     """
+    #     auto_ivc_map = self._auto_ivc_map
+    #     abs2prom = self._abs2prom
+    #     prom2abs = self._prom2abs
 
-        if isinstance(key, tuple):
-            _, prom_key = self._deriv_keys(key)
-            self._values[f"{prom_key[0]}!{prom_key[1]}"] = value
-            super().__setitem__(prom_key, value)
-        elif self._DERIV_KEY_SEP in key:
-            # derivative keys can be either (of, wrt) or 'of!wrt'
-            _, prom_key = self._deriv_keys(key)
+    #     if isinstance(key, tuple):
+    #         _, prom_key = self._deriv_keys(key)
+    #         self._values[f"{prom_key[0]}!{prom_key[1]}"] = value
+    #         super().__setitem__(prom_key, value)
+    #     elif self._DERIV_KEY_SEP in key:
+    #         # derivative keys can be either (of, wrt) or 'of!wrt'
+    #         _, prom_key = self._deriv_keys(key)
 
-            self._values[f"{prom_key[0]}!{prom_key[1]}"] = value
+    #         self._values[f"{prom_key[0]}!{prom_key[1]}"] = value
 
-            super().__setitem__(prom_key, value)
+    #         super().__setitem__(prom_key, value)
 
-        elif key in abs2prom:
-            if key in auto_ivc_map:
-                # key is auto_ivc, so translate to a readable input name.
-                self._values[key] = value
-                in_key = auto_ivc_map[key]
-                super().__setitem__(in_key, self._values[key])
-            else:
-                # absolute name
-                self._values[key] = value
-                super().__setitem__(self._abs2prom[key], value)
-        elif key in prom2abs:
-            # promoted name, propagate to all connected absolute names
-            for abs_key in self._prom2abs[key]:
-                if abs_key in self._keys:
-                    self._values[abs_key] = value
-            super().__setitem__(key, value)
-        else:
-            # Design variable by promoted input name.
-            self._values[key] = value
-            super().__setitem__(key, value)
+    #     elif key in abs2prom:
+    #         if key in auto_ivc_map:
+    #             # key is auto_ivc, so translate to a readable input name.
+    #             self._values[key] = value
+    #             in_key = auto_ivc_map[key]
+    #             super().__setitem__(in_key, self._values[key])
+    #         else:
+    #             # absolute name
+    #             self._values[key] = value
+    #             super().__setitem__(self._abs2prom[key], value)
+    #     elif key in prom2abs:
+    #         # promoted name, propagate to all connected absolute names
+    #         for abs_key in self._prom2abs[key]:
+    #             if abs_key in self._keys:
+    #                 self._values[abs_key] = value
+    #         super().__setitem__(key, value)
+    #     else:
+    #         # Design variable by promoted input name.
+    #         self._values[key] = value
+    #         super().__setitem__(key, value)
 
     def absolute_names(self):
         """

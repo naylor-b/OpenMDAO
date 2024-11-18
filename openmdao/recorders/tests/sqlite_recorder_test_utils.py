@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from openmdao.utils.record_util import format_iteration_coordinate, deserialize
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.recorders.sqlite_recorder import blob_to_array, format_version
+from openmdao.recorders.case import Resolver
 
 import pickle
 
@@ -91,7 +92,8 @@ def assertProblemDataRecorded(test, filepath, expected, tolerance):
                 outputs_text, residuals_text, derivatives, abs_err, rel_err = row_actual
 
             if f_version >= 3:
-                outputs_actual = deserialize(outputs_text, abs2meta, prom2abs, conns)
+                resolver = Resolver(None, prom2abs, abs2meta, conns)
+                outputs_actual = deserialize(outputs_text, resolver)
             elif f_version in (1, 2):
                 outputs_actual = blob_to_array(outputs_text)
 
@@ -149,9 +151,10 @@ def assertDriverIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                 inputs_text, outputs_text, residuals_text = row_actual
 
             if f_version >= 3:
-                inputs_actual = deserialize(inputs_text, abs2meta, prom2abs, conns)
-                outputs_actual = deserialize(outputs_text, abs2meta, prom2abs, conns)
-                residuals_actual = deserialize(residuals_text, abs2meta, prom2abs, conns)
+                resolver = Resolver(None, prom2abs, abs2meta, conns)
+                inputs_actual = deserialize(inputs_text, resolver)
+                outputs_actual = deserialize(outputs_text, resolver)
+                residuals_actual = deserialize(residuals_text, resolver)
             elif f_version in (1, 2):
                 inputs_actual = blob_to_array(inputs_text)
                 outputs_actual = blob_to_array(outputs_text)
@@ -332,9 +335,10 @@ def assertSystemIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                 outputs_text, residuals_text = row_actual
 
             if f_version >= 3:
-                inputs_actual = deserialize(inputs_text, abs2meta, prom2abs, conns)
-                outputs_actual = deserialize(outputs_text, abs2meta, prom2abs, conns)
-                residuals_actual = deserialize(residuals_text, abs2meta, prom2abs, conns)
+                resolver = Resolver(None, prom2abs, abs2meta, conns)
+                inputs_actual = deserialize(inputs_text, resolver)
+                outputs_actual = deserialize(outputs_text, resolver)
+                residuals_actual = deserialize(residuals_text, resolver)
             elif f_version in (1, 2):
                 inputs_actual = blob_to_array(inputs_text)
                 outputs_actual = blob_to_array(outputs_text)
@@ -401,8 +405,9 @@ def assertSolverIterDataRecorded(test, filepath, expected, tolerance, prefix=Non
                 abs_err, rel_err, input_blob, output_text, residuals_text = row_actual
 
             if f_version >= 3:
-                output_actual = deserialize(output_text, abs2meta, prom2abs, conns)
-                residuals_actual = deserialize(residuals_text, abs2meta, prom2abs, conns)
+                resolver = Resolver(None, prom2abs, abs2meta, conns)
+                output_actual = deserialize(output_text, resolver)
+                residuals_actual = deserialize(residuals_text, resolver)
             elif f_version in (1, 2):
                 output_actual = blob_to_array(output_text)
                 residuals_actual = blob_to_array(residuals_text)

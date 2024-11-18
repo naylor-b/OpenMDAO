@@ -10,7 +10,7 @@ import numpy as np
 import io
 
 from openmdao.recorders.base_case_reader import BaseCaseReader
-from openmdao.recorders.case import Case
+from openmdao.recorders.case import Case, Resolver
 from openmdao.core.constants import _DEFAULT_OUT_STREAM
 from openmdao.utils.variable_table import write_source_table
 from openmdao.utils.record_util import check_valid_sqlite3_db, get_source_system
@@ -244,20 +244,16 @@ class SqliteCaseReader(BaseCaseReader):
         # the problem cases table
         var_info = self.problem_metadata['variables']
         self._driver_cases = DriverCases(filename, self._format_version, self._global_iterations,
-                                         self._prom2abs, self._abs2prom, self._abs2meta,
-                                         self._conns, self._auto_ivc_map, var_info)
+                                         self._resolver, var_info)
         self._system_cases = SystemCases(filename, self._format_version, self._global_iterations,
-                                         self._prom2abs, self._abs2prom, self._abs2meta,
-                                         self._conns, self._auto_ivc_map, var_info)
+                                         self._resolver, var_info)
         self._solver_cases = SolverCases(filename, self._format_version, self._global_iterations,
-                                         self._prom2abs, self._abs2prom, self._abs2meta,
-                                         self._conns, self._auto_ivc_map, var_info)
+                                         self._resolver, var_info)
         if self._format_version >= 2:
             self._problem_cases = ProblemCases(filename,
                                                self._format_version,
                                                self._global_iterations,
-                                               self._prom2abs, self._abs2prom, self._abs2meta,
-                                               self._conns, self._auto_ivc_map, var_info)
+                                               self._resolver, var_info)
 
         # if requested, load all the iteration data into memory
         if pre_load:
@@ -348,7 +344,7 @@ class SqliteCaseReader(BaseCaseReader):
                 self._prom2abs = _safer_unpickle(prom2abs.encode(), 'prom2abs dictionary')
                 self._abs2meta = _safer_unpickle(abs2meta.encode(), 'abs2meta dictionary')
 
-        #self._resolver = Resolver(self._abs2prom, self._prom2abs, self._abs2meta, self._conns)
+        self._resolver = Resolver(self._abs2prom, self._prom2abs, self._abs2meta, self._conns)
 
         self.problem_metadata['abs2prom'] = self._abs2prom
 
@@ -1095,8 +1091,7 @@ class CaseTable(object):
         List of iteration cases and the table and row in which they are found.
     """
 
-    def __init__(self, fname, ver, table, index, giter, prom2abs, abs2prom, abs2meta, conns,
-                 auto_ivc_map, var_info):
+    def __init__(self, fname, ver, table, index, giter, resolver, var_info):
         """
         Initialize.
         """
@@ -1105,11 +1100,7 @@ class CaseTable(object):
         self._table_name = table
         self._index_name = index
         self._global_iterations = giter
-        self._prom2abs = prom2abs
-        self._abs2prom = abs2prom
-        self._abs2meta = abs2meta
-        self._conns = conns
-        self._auto_ivc_map = auto_ivc_map
+        self._resolver = resolver
         self._var_info = var_info
 
         # cached keys/cases
@@ -1274,8 +1265,7 @@ class CaseTable(object):
             else:
                 source = self._get_source(row[self._index_name])
 
-            case = Case(source, row, self._prom2abs, self._abs2prom, self._abs2meta,
-                        self._conns, self._auto_ivc_map, self._var_info, self._format_version)
+            case = Case(source, row, self._resolver, self._var_info, self._format_version)
 
             # cache it if requested
             if cache:
@@ -1326,8 +1316,7 @@ class CaseTable(object):
             for row in cur:
                 case_id = row[self._index_name]
                 source = self._get_source(case_id)
-                case = Case(source, row, self._prom2abs, self._abs2prom, self._abs2meta,
-                            self._conns, self._auto_ivc_map, self._var_info, self._format_version)
+                case = Case(source, row, self._resolver, self._var_info, self._format_version)
                 if cache:
                     self._cases[case_id] = case
                 yield case
@@ -1439,31 +1428,19 @@ class DriverCases(CaseTable):
         The version of the format assumed when loading the file.
     giter : list of tuple
         The global iterations table.
-    prom2abs : {'input': dict, 'output': dict}
-        Dictionary mapping promoted names to absolute names.
-    abs2prom : {'input': dict, 'output': dict}
-        Dictionary mapping absolute names to promoted names.
-    abs2meta : dict
-        Dictionary mapping absolute variable names to variable metadata.
-    conns : dict
-        Dictionary of all model connections.
-    auto_ivc_map : dict
-        Dictionary that maps all auto_ivc sources to either an absolute input name for single
-        connections or a promoted input name for multiple connections. This is for output
-        display.
+    resolver : Resolver
+        Resolves variable absolute names.
     var_info : dict
         Dictionary with information about variables (scaling, indices, execution order).
     """
 
-    def __init__(self, filename, format_version, giter, prom2abs, abs2prom, abs2meta, conns,
-                 auto_ivc_map, var_info):
+    def __init__(self, filename, format_version, giter, resolver, var_info):
         """
         Initialize.
         """
         super().__init__(filename, format_version,
                          'driver_iterations', 'iteration_coordinate', giter,
-                         prom2abs, abs2prom, abs2meta, conns, auto_ivc_map,
-                         var_info)
+                         resolver, var_info)
 
     def cases(self, cache=False):
         """
@@ -1498,8 +1475,7 @@ class DriverCases(CaseTable):
                         row = dict(zip(row.keys(), row))
                         row['jacobian'] = derivs_row['derivatives']
 
-                case = Case('driver', row, self._prom2abs, self._abs2prom, self._abs2meta,
-                            self._conns, self._auto_ivc_map, self._var_info, self._format_version)
+                case = Case('driver', row, self._resolver, self._var_info, self._format_version)
 
                 if cache:
                     self._cases[case.name] = case
@@ -1558,8 +1534,7 @@ class DriverCases(CaseTable):
 
         # if found, create Case object (and cache it if requested) else return None
         if row:
-            case = Case('driver', row, self._prom2abs, self._abs2prom, self._abs2meta,
-                        self._conns, self._auto_ivc_map, self._var_info, self._format_version)
+            case = Case('driver', row, self._resolver, self._var_info, self._format_version)
             if cache:
                 self._cases[case_id] = case
             return case
@@ -1638,15 +1613,13 @@ class SystemCases(CaseTable):
         Dictionary with information about variables (scaling, indices, execution order).
     """
 
-    def __init__(self, filename, format_version, giter, prom2abs, abs2prom, abs2meta, conns,
-                 auto_ivc_map, var_info):
+    def __init__(self, filename, format_version, giter, resolver, var_info):
         """
         Initialize.
         """
         super().__init__(filename, format_version,
                          'system_iterations', 'iteration_coordinate', giter,
-                         prom2abs, abs2prom, abs2meta, conns, auto_ivc_map,
-                         var_info)
+                         resolver, var_info)
 
 
 class SolverCases(CaseTable):
@@ -1677,15 +1650,13 @@ class SolverCases(CaseTable):
         Dictionary with information about variables (scaling, indices, execution order).
     """
 
-    def __init__(self, filename, format_version, giter, prom2abs, abs2prom, abs2meta, conns,
-                 auto_ivc_map, var_info):
+    def __init__(self, filename, format_version, giter, resolver, var_info):
         """
         Initialize.
         """
         super().__init__(filename, format_version,
                          'solver_iterations', 'iteration_coordinate', giter,
-                         prom2abs, abs2prom, abs2meta, conns, auto_ivc_map,
-                         var_info)
+                         resolver, var_info)
 
     def _get_source(self, iteration_coordinate):
         """
@@ -1744,15 +1715,13 @@ class ProblemCases(CaseTable):
         Dictionary with information about variables (scaling, indices, execution order).
     """
 
-    def __init__(self, filename, format_version, giter, prom2abs, abs2prom, abs2meta, conns,
-                 auto_ivc_map, var_info):
+    def __init__(self, filename, format_version, giter, resolver, var_info):
         """
         Initialize.
         """
         super().__init__(filename, format_version,
                          'problem_cases', 'case_name', giter,
-                         prom2abs, abs2prom, abs2meta, conns, auto_ivc_map,
-                         var_info)
+                         resolver, var_info)
 
     def list_sources(self):
         """

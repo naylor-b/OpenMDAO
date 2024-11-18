@@ -324,17 +324,13 @@ class Solver(object, metaclass=SolverMetaclass):
         depth : int
             depth of the current system (already incremented).
         """
-        # Default initialization
-        if self._system is None:
-            self._system = weakref.ref(system)
-        # Following Dead Weakref
-        elif self._system() is None:
-            self._system = weakref.ref(system)
         # Assignment Mismatch
-        elif self._system != weakref.ref(system):
+        if self._system is not None and self._system != weakref.ref(system):
             raise RuntimeError(f"{type(self).__name__} has already been assigned to "
                                f"{self._system().msginfo} and cannot also be assigned to "
                                f"{system.msginfo}.")
+
+        self._system = weakref.ref(system)
 
         self._depth = depth
         self._problem_meta = system._problem_meta

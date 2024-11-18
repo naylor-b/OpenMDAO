@@ -370,8 +370,8 @@ class SqliteRecorder(CaseRecorder):
                 else:
                     objectives[name] = data
 
-        inputs = list(system.abs_name_iter('input', local=False, discrete=True))
-        outputs = list(system.abs_name_iter('output', local=False, discrete=True))
+        inputs = list(system.abs_iter('input', local=False, discrete=True))
+        outputs = list(system.abs_iter('output', local=False, discrete=True))
 
         # _get_vars_exec_order makes a collective MPI call so need to call in all procs
         var_order = system._get_vars_exec_order(inputs=True, outputs=True, local=False)
@@ -405,36 +405,23 @@ class SqliteRecorder(CaseRecorder):
             disc_meta_in = system._var_allprocs_discrete['input']
             disc_meta_out = system._var_allprocs_discrete['output']
 
-            all_var_info = [(outputs, 'output'),
-                            (desvars, 'desvar'), (responses, 'response'),
-                            (objectives, 'objective'), (constraints, 'constraint')]
+            for name in outputs:
+                try:
+                    meta = real_meta_out[name].copy()
+                except KeyError:
+                    meta = disc_meta_out[name].copy()
+                meta['type'] = ['output']
+                meta['explicit'] = name not in states
+                self._abs2meta[name] = meta
+
+            all_var_info = [(desvars.items(), 'desvar'), (responses.items(), 'response'),
+                            (objectives.items(), 'objective'), (constraints.items(), 'constraint')]
 
             for varinfo, var_type in all_var_info:
-                if var_type != 'output':
-                    varinfo = varinfo.items()
-
-                for data in varinfo:
+                for name, vmeta in varinfo:
 
                     # Design variables, constraints and objectives can be requested by input name.
-                    if var_type != 'output':
-                        name, vmeta = data
-                        srcname = vmeta['source']
-                    else:
-                        srcname = name = data
-
-                    if srcname not in self._abs2meta:
-                        if srcname in real_meta_out:
-                            self._abs2meta[srcname] = real_meta_out[srcname].copy()
-                        elif srcname in disc_meta_out:
-                            self._abs2meta[srcname] = disc_meta_out[srcname].copy()
-                        elif name in system._responses:
-                            for io in self._prom2abs:
-                                if srcname in self._prom2abs[io]:
-                                    abs_in = self._prom2abs[io][srcname][0]
-                                    self._abs2meta[srcname] = real_meta_in[abs_in].copy()
-                                    break
-                        self._abs2meta[srcname]['type'] = []
-                        self._abs2meta[srcname]['explicit'] = srcname not in states
+                    srcname = vmeta['source']
 
                     if var_type not in self._abs2meta[srcname]['type']:
                         self._abs2meta[srcname]['type'].append(var_type)
@@ -447,12 +434,12 @@ class SqliteRecorder(CaseRecorder):
                 self._abs2meta[name]['type'] = ['input']
                 self._abs2meta[name]['explicit'] = True
 
-            # merge current abs2meta with this system's version
-            for name, meta in self._abs2meta.items():
-                for io in ('input', 'output'):
-                    if name in system._var_allprocs_abs2meta[io]:
-                        meta.update(system._var_allprocs_abs2meta[io][name])
-                        break
+            # # merge current abs2meta with this system's version
+            # for name, meta in self._abs2meta.items():
+            #     for io in ('input', 'output'):
+            #         if name in system._var_allprocs_abs2meta[io]:
+            #             meta.update(system._var_allprocs_abs2meta[io][name])
+            #             break
 
             self._make_abs2meta_serializable()
 
@@ -465,8 +452,7 @@ class SqliteRecorder(CaseRecorder):
 
             # TODO: seems like we could clobber the var_settings for a desvar in cases where a
             # desvar is also a constraint... Make a test case and fix if needed.
-            var_settings = {}
-            var_settings.update(desvars)
+            var_settings = desvars.copy()
             var_settings.update(objectives)
             var_settings.update(constraints)
             var_settings = self._make_var_setting_serializable(var_settings)

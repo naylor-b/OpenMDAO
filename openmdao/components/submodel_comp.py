@@ -309,7 +309,7 @@ class SubmodelComp(ExplicitComponent):
         for inner_prom, (outer_name, kwargs) in self._static_submodel_inputs.items():
             # outer_name could still be None here
             if _is_glob(inner_prom):
-                matches = list(pattern_filter(inner_prom, indep_vars))
+                matches = list(pattern_filter(indep_vars, inner_prom))
                 if not matches:
                     raise NameError(f"Pattern '{inner_prom}' doesn't match any independent "
                                     "variables in the submodel.")
@@ -334,7 +334,7 @@ class SubmodelComp(ExplicitComponent):
             # outer_name could still be None here
             if _is_glob(inner_prom):
                 matches = []
-                for match in pattern_filter(inner_prom, prom2abs_out):
+                for match in pattern_filter(prom2abs_out, inner_prom):
                     if match.startswith('_auto_ivc.') or match in self._submodel_inputs:
                         continue
                     matches.append(match)

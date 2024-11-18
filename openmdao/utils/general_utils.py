@@ -402,16 +402,16 @@ def find_matches(pattern, var_list):
     return [name for name in var_list if fnmatchcase(name, pattern)]
 
 
-def pattern_filter(patterns, var_iter, name_index=None):
+def pattern_filter(var_iter, patterns, name_index=None):
     """
-    Yield variable names that match a given pattern.
+    Yield variable names that match given patterns.
 
     Parameters
     ----------
-    patterns : iter of str
-        Glob patterns or variable names.
     var_iter : iter of str or iter of tuple/list
         Iterator of variable names (or tuples containing variable names) to search for patterns.
+    patterns : iter of str
+        Glob patterns or variable names.
     name_index : int or None
         If not None, the var_iter is assumed to yield tuples, and the
         name_index is the index of the variable name in the tuple.
@@ -437,6 +437,77 @@ def pattern_filter(patterns, var_iter, name_index=None):
                     if fnmatchcase(vname, pattern):
                         yield tup
                         break
+
+
+def pattern_exclude(var_iter, patterns, name_index=None):
+    """
+    Yield variable names that don't match given patterns.
+
+    Parameters
+    ----------
+    var_iter : iter of str or iter of tuple/list
+        Iterator of variable names (or tuples containing variable names) to search for patterns.
+    patterns : iter of str
+        Glob patterns or variable names.
+    name_index : int or None
+        If not None, the var_iter is assumed to yield tuples, and the
+        name_index is the index of the variable name in the tuple.
+
+    Yields
+    ------
+    str
+        Variable name that matches a pattern.
+    """
+    if not patterns:
+        yield from var_iter
+    else:
+        if name_index is None:
+            for vname in var_iter:
+                for pattern in patterns:
+                    if fnmatchcase(vname, pattern):
+                        break
+                else:
+                    yield vname
+        else:
+            for tup in var_iter:
+                vname = tup[name_index]
+                for pattern in patterns:
+                    if fnmatchcase(vname, pattern):
+                        break
+                else:
+                    yield tup
+
+
+def pattern_include_exclude(var_iter, includes, excludes, name_index=None, ret_index=None):
+    """
+    Yield variable names that match includes and don't match excludes.
+
+    Parameters
+    ----------
+    var_iter : iter of str or iter of tuple/list
+        Iterator of variable names (or tuples containing variable names) to search for patterns.
+    includes : iter of str
+        Glob patterns or variable names to include.
+    excludes : iter of str
+        Glob patterns or variable names to exclude.
+    name_index : int or None
+        If not None, the var_iter is assumed to yield tuples, and the
+        name_index is the index of the variable name in the tuple.
+    ret_index : int or None
+        If not None, the yielded values will be the value at the given index in the tuple.
+
+    Yields
+    ------
+    str
+        Variable name that matches a pattern.
+    """
+    if ret_index is None:
+        yield from pattern_exclude(pattern_filter(var_iter, includes, name_index),
+                                   excludes, name_index)
+    else:
+        for tup in pattern_exclude(pattern_filter(var_iter, includes, name_index),
+                                   excludes, name_index):
+            yield tup[ret_index]
 
 
 def _find_dict_meta(dct, key):

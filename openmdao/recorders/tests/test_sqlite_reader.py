@@ -3377,18 +3377,12 @@ class TestFeatureSqliteReader(unittest.TestCase):
                          ('inputs:', [], 'outputs:', ['con1', 'con2', 'obj', 'x', 'z']))
 
         model_vars = cr.list_source_vars('root')
-        self.assertEqual(('inputs:', sorted(model_vars['inputs']), 'outputs:', sorted(model_vars['outputs'])),
-                         ('inputs:', ['con_cmp1.y1', 'con_cmp2.y2',
-                                      'cycle.d1.x', 'cycle.d1.y2', 'cycle.d1.z', 'cycle.d2.y1', 'cycle.d2.z',
-                                      'obj_cmp.x', 'obj_cmp.y1', 'obj_cmp.y2', 'obj_cmp.z'],
-                          'outputs:', ['con1', 'con2', 'obj', 'x', 'y1', 'y2', 'z']))
+        self.assertEqual(sorted(model_vars['inputs']), ['x', 'y1', 'y2', 'z'])
+        self.assertEqual(sorted(model_vars['outputs']), ['con1', 'con2', 'obj', 'x', 'y1', 'y2', 'z'])
 
         solver_vars = cr.list_source_vars('root.nonlinear_solver')
-        self.assertEqual(('inputs:', sorted(solver_vars['inputs']), 'outputs:', sorted(solver_vars['outputs'])),
-                         ('inputs:', ['con_cmp1.y1', 'con_cmp2.y2',
-                                      'cycle.d1.x', 'cycle.d1.y2', 'cycle.d1.z', 'cycle.d2.y1', 'cycle.d2.z',
-                                      'obj_cmp.x', 'obj_cmp.y1', 'obj_cmp.y2', 'obj_cmp.z'],
-                          'outputs:', ['con1', 'con2', 'obj', 'x', 'y1', 'y2', 'z']))
+        self.assertEqual(sorted(solver_vars['inputs']), ['x', 'y1', 'y2', 'z'])
+        self.assertEqual(sorted(solver_vars['outputs']),  ['con1', 'con2', 'obj', 'x', 'y1', 'y2', 'z'])
 
     def test_feature_reading_driver_derivatives(self):
 
@@ -3556,10 +3550,6 @@ class TestFeatureSqliteReader(unittest.TestCase):
         self.assertEqual((sorted(objs.keys()), sorted(cons.keys()), sorted(dvs.keys())),
                          (['obj'], ['con1', 'con2'], ['x', 'z']))
 
-        # alternatively, you can get the absolute names
-        self.assertEqual((sorted(objs.absolute_names()), sorted(cons.absolute_names()), sorted(dvs.absolute_names())),
-                         (['obj_cmp.obj'], ['con_cmp1.con1', 'con_cmp2.con2'], ['x', 'z']))
-
         # you can access variable values using either the promoted or the absolute name
         self.assertEqual((objs['obj'], objs['obj_cmp.obj']), (objs['obj_cmp.obj'], objs['obj']))
         self.assertEqual((dvs['x'], dvs['_auto_ivc.v1']), (dvs['_auto_ivc.v1'], dvs['x']))
@@ -3568,6 +3558,11 @@ class TestFeatureSqliteReader(unittest.TestCase):
         # you can also access the variables directly from the case object
         self.assertEqual((case['obj'], case['obj_cmp.obj']), (objs['obj_cmp.obj'], objs['obj']))
         self.assertEqual((case['x'], case['_auto_ivc.v1']), (dvs['_auto_ivc.v1'], dvs['x']))
+
+        # alternatively, you can get the absolute names
+        self.assertEqual(sorted(objs.absolute_names()), ['obj_cmp.obj'])
+        self.assertEqual(sorted(cons.absolute_names()), ['con_cmp1.con1', 'con_cmp2.con2'])
+        self.assertEqual(sorted(dvs.absolute_names()), ['_auto_ivc.v0', '_auto_ivc.v1'])
 
     def test_feature_list_inputs_and_outputs(self):
         prob = SellarProblem(nonlinear_solver=om.NonlinearBlockGS,
@@ -4724,7 +4719,6 @@ class TestCaseReaderMPI4(unittest.TestCase):
                         self.assertIn(out, case.outputs)
                     for inp in expected_inputs:
                         self.assertIn(inp, case.inputs)
-                    print(case.outputs, case.inputs)
 
 
 if __name__ == "__main__":
