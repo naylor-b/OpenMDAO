@@ -466,13 +466,16 @@ class Case(object):
                 # data not recorded for this i/o type
                 continue
 
-            for abs_name in data.absolute_names():
+            for abs_name in data._keys:
                 prom = self._resolver.get_prom(abs_name)
 
                 if not match_prom_or_abs(abs_name, prom, includes, excludes):
                     continue
 
-                meta = self._resolver.get_meta(prom)
+                if is_indep_var or is_design_var:
+                    meta = self._resolver.get_meta(self._resolver.get_src(abs_name, iotype), 'output')
+                else:
+                    meta = self._resolver.get_meta(abs_name)
 
                 if meta is None:
                     continue
@@ -504,14 +507,15 @@ class Case(object):
 
                 # handle is_design_var
                 if is_design_var is not None:
-                    if iotype == 'output':
-                        out_name = abs_name
-                    else:
-                        # input, get connected output
-                        src_name = self._resolver.get_abs(prom)
-                        #src_name = self._conns[abs_name]
-                        out_name = self._resolver.get_prom(src_name) # abs2prom['output'][src_name]
+                    #if iotype == 'output':
+                        #out_name = abs_name
+                    #else:
+                        ## input, get connected output
+                        ##src_name = self._resolver.get_abs(prom)
+                        ##src_name = self._conns[abs_name]
+                        #out_name = self._resolver.get_prom(abs_name) # abs2prom['output'][src_name]
 
+                    out_name = self._resolver.get_prom(abs_name)
                     #if out_name.startswith('_auto_ivc.'):
                         #out_name = auto_ivc_map[out_name]
 
@@ -1185,9 +1189,11 @@ class Case(object):
                         val += meta['total_adder']
                     if meta['total_scaler'] is not None:
                         val *= meta['total_scaler']
-                ret_vars[src] = val
+                #ret_vars[src] = val
+                ret_vars[meta['name']] = val
 
-        return PromAbsDict({'output': ret_vars}, 'output', self._resolver)
+        #return PromAbsDict({'output': ret_vars}, 'output', self._resolver)
+        return ret_vars
 
 
 class Resolver(object):
@@ -1211,7 +1217,6 @@ class Resolver(object):
             src: abs2prom_in[tgt] for tgt, src in conns.items()
             if tgt in abs2prom_in and src.startswith('_auto_ivc.')
         }
-        self._rev_auto_ivc_map = {v: k for k, v in self._auto_ivc_map.items()}
 
     def get(self, name, kind, valdict):
         iotype = _kind2iotype[kind]
@@ -1222,6 +1227,8 @@ class Resolver(object):
             myvals = valdict[kind]
             if absname in myvals:
                 return myvals[absname]
+            elif kind == 'input' and 'output' in valdict and absname in valdict['output']:
+                return valdict['output'][absname]
         elif iotype is None:
             for io in ('output', 'input'):
                 if io in valdict:
@@ -1231,11 +1238,15 @@ class Resolver(object):
 
         raise KeyError(f'Variable name "{name}" not found.')
 
-    def get_meta(self, name, io=None):
-        abs_name = self.get_abs(name, io)
-        if abs_name is None:
-            raise KeyError(f'Variable name "{name}" not found.')
-        return self._abs2meta[abs_name]
+    def get_src(self, name, io=None):
+        if io == 'input':
+            absname = self.get_abs(name, io)
+            if absname in self._conns:
+                return self._conns[absname]
+        else:
+            return self.get_abs(name, io)
+
+        raise KeyError(f'Variable name "{name}" not found.')
 
     def get_abs(self, name, io=None):
         if io is None:
@@ -1253,7 +1264,7 @@ class Resolver(object):
             elif name in self._prom2abs[io]:
                 if io == 'output':
                     return self._prom2abs[io][name][0]
-                else:
+                else:  # give src if it'a a promoted input name
                     return self._conns[self._prom2abs[io][name][0]]
             elif io == 'output':
                 if name in self._prom2abs['input']:
@@ -1274,25 +1285,11 @@ class Resolver(object):
 
         raise KeyError(f'Variable name "{abs_name}" not found.')
 
-
-class VOIDict(object):
-    def __init__(self, vois, resolver):
-        self._vois = vois
-        self._resolver = resolver
-
-    def get_type(self, name):
-        return self._resolver.get_meta(name)['type']
-
-    def __getitem__(self, name):
-        if name in self._vois:
-            return self._vois[name]
-        raise KeyError(f'Variable name "{name}" not found.')
-
-    def __len__(self):
-        return len(self._vois)
-
-    def keys(self):
-        return self._vois.keys()
+    def get_meta(self, name, io=None):
+        abs_name = self.get_abs(name, io)
+        if abs_name is None:
+            raise KeyError(f'Variable name "{name}" not found.')
+        return self._abs2meta[abs_name]
 
 
 _kind2iotype = {
@@ -1441,6 +1438,14 @@ class PromAbsDict(dict):
             if prom not in seen:
                 seen.add(prom)
                 yield prom
+
+    def abs_prom_iter(self):
+        """
+        Yield tuples of (absolute_name, promoted_name) for all variables in this dictionary.
+        """
+        for key in self._keys:
+            prom = self._resolver.get_prom(key, self._iotype)
+            yield key, prom
 
     def __getitem__(self, key):
         """

@@ -2200,9 +2200,11 @@ class TestSqliteCaseReader(unittest.TestCase):
         # check inputs, outputs and residuals for last case
         case = cr.get_case(system_cases[-1])
 
-        self.assertEqual(list(case.inputs.keys()), ['obj_cmp.x', 'obj_cmp.y1', 'obj_cmp.y2', 'obj_cmp.z'])
+        self.assertEqual(list(case.inputs.keys()), ['x', 'y1', 'y2', 'z'])
         self.assertEqual(case.inputs['obj_cmp.y1'], prob['obj_cmp.y1'])
+        self.assertEqual(case.inputs['y1'], prob['y1'])
         self.assertEqual(case.inputs['obj_cmp.y2'], prob['obj_cmp.y2'])
+        self.assertEqual(case.inputs['y2'], prob['y2'])
 
         self.assertEqual(list(case.outputs.keys()), ['obj'])
         self.assertEqual(case.outputs['obj'], prob['obj'])
@@ -3637,7 +3639,7 @@ class TestFeatureSqliteReader(unittest.TestCase):
 
         # Inputs with tag that matches
         inputs = case.list_inputs(out_stream=None, tags="tag1")
-        self.assertEqual(sorted([inp[0] for inp in inputs]), sorted(['rect.length',]))
+        self.assertEqual([inp[0] for inp in inputs], ['rect.length'])
 
         # Inputs with multiple tags
         inputs = case.list_inputs(out_stream=None, tags=["tag1", "tag2"])
@@ -3645,7 +3647,7 @@ class TestFeatureSqliteReader(unittest.TestCase):
 
         # Outputs with tag that does match
         outputs = case.list_outputs(tags="tag1")
-        self.assertEqual(sorted([outp[0] for outp in outputs]), ['rect.area',])
+        self.assertEqual([outp[0] for outp in outputs], ['rect.area'])
 
     def test_feature_list_inputs_and_outputs_with_includes_excludes(self):
 

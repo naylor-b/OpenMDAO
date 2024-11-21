@@ -369,6 +369,11 @@ class SqliteRecorder(CaseRecorder):
                     constraints[name] = data
                 else:
                     objectives[name] = data
+        else:
+            desvars = driver._designvars
+            responses = driver._responses
+            constraints = driver._cons
+            objectives = driver._objs
 
         inputs = list(system.abs_iter('input', local=False, discrete=True))
         outputs = list(system.abs_iter('output', local=False, discrete=True))
@@ -377,12 +382,6 @@ class SqliteRecorder(CaseRecorder):
         var_order = system._get_vars_exec_order(inputs=True, outputs=True, local=False)
 
         if self.connection:
-
-            if driver is not None:
-                desvars = driver._designvars
-                responses = driver._responses
-                constraints = driver._cons
-                objectives = driver._objs
 
             # merge current abs2prom and prom2abs with this system's version
             self._abs2prom['input'].update(system._var_allprocs_abs2prom['input'])
