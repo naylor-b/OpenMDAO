@@ -1197,7 +1197,7 @@ class Case(object):
 
 
 class Resolver(object):
-    def __init__(self, abs2prom, prom2abs, abs2meta, conns):
+    def __init__(self, abs2prom, prom2abs, abs2meta, conns, data_format=current_version):
         if abs2prom is None:
             self._abs2prom = abs2prom = {'input': {}, 'output': {}}
             for io in ('input', 'output'):
@@ -1218,6 +1218,11 @@ class Resolver(object):
             if tgt in abs2prom_in and src.startswith('_auto_ivc.')
         }
 
+        if data_format <= 8:
+            self._DERIV_KEY_SEP = ','
+        else:
+            self._DERIV_KEY_SEP = '!'
+
     def get(self, name, kind, valdict):
         iotype = _kind2iotype[kind]
         absname = self.get_abs(name, iotype)
@@ -1225,6 +1230,8 @@ class Resolver(object):
             return valdict['output'][absname]
         elif kind in valdict:
             myvals = valdict[kind]
+            if absname is None and kind == 'jacobian':
+                return self._get_jac(name, myvals)
             if absname in myvals:
                 return myvals[absname]
             elif kind == 'input' and 'output' in valdict and absname in valdict['output']:
@@ -1237,6 +1244,13 @@ class Resolver(object):
                         return valdict[io][absname]
 
         raise KeyError(f'Variable name "{name}" not found.')
+
+    def _get_jac(self, name, myvals):
+        if isinstance(myvals, dict) and name in myvals:
+            return myvals[name]
+
+        key = self._DERIV_KEY_SEP.join(name)
+        return myvals[key]
 
     def get_src(self, name, io=None):
         if io == 'input':
@@ -1296,6 +1310,7 @@ _kind2iotype = {
     'residual': 'output',
     'input': 'input',
     'output': 'output',
+    'jacobian': None,
     None: None,
 }
 
