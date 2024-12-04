@@ -1299,6 +1299,7 @@ _kind2iotype = {
     'residual': 'output',
     'input': 'input',
     'output': 'output',
+    'jacobian': 'output',
     None: None,
 }
 
@@ -1355,10 +1356,10 @@ class PromAbsDict(dict):
         self._kind = kind
         self._iotype = _kind2iotype[kind]
 
-        # if data_format <= 8:
-        #     DERIV_KEY_SEP = self._DERIV_KEY_SEP = ','
-        # else:
-        #     DERIV_KEY_SEP = self._DERIV_KEY_SEP = '!'
+        if data_format <= 8:
+            self._DERIV_KEY_SEP = ','
+        else:
+            self._DERIV_KEY_SEP = '!'
 
         if isinstance(values, dict):
             self._keys = self._values.keys()
