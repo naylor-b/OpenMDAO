@@ -956,3 +956,20 @@ def submat_sparsity_iter(row_var_size_iter, col_var_size_iter, nzrows, nzcols, s
 
             if submat.row.size > 0:  # only yield if nonzero
                 yield (of, wrt, submat.row, submat.col, submat.shape)
+
+
+def safe_norm(arr):
+    """
+    Return the norm of the given array, or 0 if the array is None or empty.
+
+    Parameters
+    ----------
+    arr : ndarray or None
+        Array to be normed.
+
+    Returns
+    -------
+    float
+        Norm of the array or 0 if the array is None or empty.
+    """
+    return 0. if arr is None or arr.size == 0 else np.linalg.norm(arr)

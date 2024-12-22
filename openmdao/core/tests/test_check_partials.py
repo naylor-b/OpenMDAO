@@ -16,9 +16,10 @@ from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_mat_vec import ParaboloidMatVec
 from openmdao.test_suite.components.array_comp import ArrayComp
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_no_warning, \
-     assert_check_partials
+     assert_check_partials, assert_check_totals
 from openmdao.utils.om_warnings import DerivativesWarning, OMInvalidCheckDerivativesOptionsWarning
 from openmdao.utils.testing_utils import set_env_vars_context
+from openmdao.utils.array_utils import safe_norm
 
 from openmdao.utils.mpi import MPI
 
@@ -257,8 +258,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         # but we still get good derivative data for 'comp1'
         self.assertTrue('comp2' in data)
 
-        assert_near_equal(data['comp2'][('f_xy', 'x')]['J_fd'][0][0], 4., 1e-6)
-        assert_near_equal(data['comp2'][('f_xy', 'x')]['J_fwd'][0][0], 4., 1e-15)
+        assert_check_partials(data)
 
     def test_component_no_check_partials(self):
         prob = om.Problem()
@@ -291,6 +291,7 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fd'][0][0], 4., 1e-6)
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fwd'][0][0], 4., 1e-15)
+        assert_check_partials(data)
 
         #
         # re-enable partials on comp2
@@ -309,6 +310,8 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fd'][0][0], 4., 1e-6)
         assert_near_equal(data['comp1'][('f_xy', 'x')]['J_fwd'][0][0], 4., 1e-15)
+
+        assert_check_partials(data)
 
     def test_missing_entry(self):
         class MyComp(om.ExplicitComponent):
@@ -389,12 +392,7 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         p.setup()
         data = p.check_partials(step=1e-7, out_stream=None)
-
-        for comp_name, comp in data.items():
-            for partial_name, partial in comp.items():
-                forward = partial['J_fwd']
-                fd = partial['J_fd']
-                self.assertAlmostEqual(np.linalg.norm(forward - fd), 0., delta=1e-6)
+        assert_check_partials(data)
 
     def test_units(self):
         class UnitCompBase(om.ExplicitComponent):
@@ -432,11 +430,7 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         p.setup()
         data = p.check_partials(out_stream=None)
-
-        for comp_name, comp in data.items():
-            for partial_name, partial in comp.items():
-                abs_error = partial['abs error']
-                self.assertAlmostEqual(abs_error.forward, 0.)
+        assert_check_partials(data)
 
         # Make sure we only FD this twice.
         # The count is 5 because in check_partials, there are two calls to apply_nonlinear
@@ -498,12 +492,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         p.run_model()
 
         data = p.check_partials(out_stream=None)
-        identity = np.eye(4)
-        assert_near_equal(data['pt'][('bar', 'foo')]['J_fwd'], identity, 1e-15)
-        assert_near_equal(data['pt'][('bar', 'foo')]['J_fd'], identity, 1e-9)
-
-        assert_near_equal(data['pt2'][('bar2', 'foo2')]['J_fwd'], identity, 1e-15)
-        assert_near_equal(data['pt2'][('bar2', 'foo2')]['J_fd'], identity, 1e-9)
+        assert_check_partials(data)
 
     def test_matrix_free_explicit(self):
         prob = om.Problem()
@@ -521,22 +510,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         data = prob.check_partials(out_stream=None)
-
-        for comp_name, comp in data.items():
-            for partial_name, partial in comp.items():
-                abs_error = partial['abs error']
-                rel_error = partial['rel error']
-                assert_near_equal(abs_error.forward, 0., 1e-5)
-                assert_near_equal(abs_error.reverse, 0., 1e-5)
-                assert_near_equal(abs_error.forward_reverse, 0., 1e-5)
-                assert_near_equal(rel_error.forward, 0., 1e-5)
-                assert_near_equal(rel_error.reverse, 0., 1e-5)
-                assert_near_equal(rel_error.forward_reverse, 0., 1e-5)
-
-        assert_near_equal(data['comp'][('f_xy', 'x')]['J_fwd'][0][0], 5.0, 1e-6)
-        assert_near_equal(data['comp'][('f_xy', 'x')]['J_rev'][0][0], 5.0, 1e-6)
-        assert_near_equal(data['comp'][('f_xy', 'y')]['J_fwd'][0][0], 21.0, 1e-6)
-        assert_near_equal(data['comp'][('f_xy', 'y')]['J_rev'][0][0], 21.0, 1e-6)
+        assert_check_partials(data)
 
     def test_matrix_free_implicit(self):
         prob = om.Problem()
@@ -552,17 +526,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         data = prob.check_partials(out_stream=None)
-
-        for comp_name, comp in data.items():
-            for partial_name, partial in comp.items():
-                abs_error = partial['abs error']
-                rel_error = partial['rel error']
-                assert_near_equal(abs_error.forward, 0., 1e-5)
-                assert_near_equal(abs_error.reverse, 0., 1e-5)
-                assert_near_equal(abs_error.forward_reverse, 0., 1e-5)
-                assert_near_equal(rel_error.forward, 0., 1e-5)
-                assert_near_equal(rel_error.reverse, 0., 1e-5)
-                assert_near_equal(rel_error.forward_reverse, 0., 1e-5)
+        assert_check_partials(data)
 
     def test_implicit_undeclared(self):
         # Test to see that check_partials works when state_wrt_input and state_wrt_state
@@ -604,6 +568,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         data = prob.check_partials(out_stream=None)
+        assert_check_partials(data)
 
         assert_near_equal(data['comp']['y', 'extra']['J_fwd'], np.zeros((2, 2)))
         assert_near_equal(data['comp']['y', 'dummy']['J_fwd'], np.zeros((2, 2)))
@@ -782,18 +747,16 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        msg = "The following components requested complex step, but force_alloc_complex " + \
-              "has not been set to True, so finite difference was used: ['comp']\n" + \
+        msg = "Component 'comp' requested complex step, but force_alloc_complex " + \
+              "has not been set to True, so finite difference was used.\n" + \
               "To enable complex step, specify 'force_alloc_complex=True' when calling " + \
-              "setup on the problem, e.g. 'problem.setup(force_alloc_complex=True)'"
+              "setup on the problem, e.g. 'problem.setup(force_alloc_complex=True)'."
 
         with assert_warning(UserWarning, msg):
             data = prob.check_partials(out_stream=None)
 
         # Derivative still calculated, but with fd instead.
-        x_error = data['comp']['f_xy', 'x']['rel error']
-        self.assertLess(x_error.forward, 1e-5)
-        self.assertLess(x_error.reverse, 1e-5)
+        assert_check_partials(data)
 
     def test_set_method_on_comp(self):
         prob = om.Problem()
@@ -813,9 +776,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         data = prob.check_partials(out_stream=None, compact_print=True)
-
-        x_error = data['comp']['f_xy', 'x']['rel error']
-        self.assertLess(x_error.forward, 1e-5)
+        assert_check_partials(data)
 
     def test_set_method_global(self):
         prob = om.Problem()
@@ -833,9 +794,7 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
 
         data = prob.check_partials(out_stream=None, method='cs')
-
-        x_error = data['comp']['f_xy', 'x']['rel error']
-        self.assertLess(x_error.forward, 1e-5)
+        assert_check_partials(data)
 
     def test_set_form_on_comp(self):
         prob = om.Problem()
@@ -1229,10 +1188,10 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.setup()
 
         stream = StringIO()
-        prob.check_partials(out_stream=stream, compact_print=True)
+        prob.check_partials(out_stream=stream, abs_err_tol=1.1e-6, compact_print=True)
 
-        self.assertEqual(stream.getvalue().count('n/a'), 25)
-        self.assertEqual(stream.getvalue().count('rev'), 15)
+        self.assertEqual(stream.getvalue().count('n/a'), 0)
+        self.assertEqual(stream.getvalue().count('rev'), 5)
         self.assertEqual(stream.getvalue().count('Component'), 2)
         self.assertEqual(len([ln for ln in stream.getvalue().splitlines() if ln.startswith('| ')]), 12) # counts rows (including headers)
 
@@ -1317,8 +1276,8 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         stream = StringIO()
         prob.check_partials(out_stream=stream, compact_print=True)
-        self.assertEqual(stream.getvalue().count('n/a'), 10)
-        self.assertEqual(stream.getvalue().count('rev'), 15)
+        self.assertEqual(stream.getvalue().count('n/a'), 0)
+        self.assertEqual(stream.getvalue().count('rev'), 10)
         self.assertEqual(stream.getvalue().count('Component'), 2)
         self.assertEqual(len([ln for ln in stream.getvalue().splitlines() if ln.startswith('| ')]), 8)
 
@@ -1445,14 +1404,14 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         data = prob.check_partials(out_stream=None)
 
-        # Note on why we run 10 times:
+        # Note on why we run 9 times:
         # 1    - Initial execution
-        # 2~3  - Called apply_nonlinear at the start of fwd and rev analytic deriv calculations
-        # 4    - Called apply_nonlinear to clean up before starting FD
-        # 5~8  - FD wrt bb, non-directional
-        # 9    - FD wrt x1, directional
-        # 10   - FD wrt x2, directional
-        self.assertEqual(mycomp.exec_count, 10)
+        # 2    - Called apply_nonlinear at the start of analytic deriv calculations
+        # 3    - Called apply_nonlinear to clean up before starting FD
+        # 4-7  - FD wrt bb, non-directional
+        # 8    - FD wrt x1, directional
+        # 9    - FD wrt x2, directional
+        self.assertEqual(mycomp.exec_count, 9)
 
         assert_check_partials(data, atol=1.0E-8, rtol=1.0E-8)
 
@@ -1480,14 +1439,14 @@ class TestProblemCheckPartials(unittest.TestCase):
 
         data = prob.check_partials(method='cs', out_stream=None)
 
-        # Note on why we run 10 times:
+        # Note on why we run 9 times:
         # 1    - Initial execution
-        # 2~3  - Called apply_nonlinear at the start of fwd and rev analytic deriv calculations
-        # 4    - Called apply_nonlinear to clean up before starting FD
-        # 5~8  - FD wrt bb, non-directional
-        # 9    - FD wrt x1, directional
-        # 10   - FD wrt x2, directional
-        self.assertEqual(mycomp.exec_count, 10)
+        # 2    - Called apply_nonlinear at the start of analytic deriv calculations
+        # 3    - Called apply_nonlinear to clean up before starting FD
+        # 4-7  - FD wrt bb, non-directional
+        # 8    - FD wrt x1, directional
+        # 9   - FD wrt x2, directional
+        self.assertEqual(mycomp.exec_count, 9)
 
         assert_check_partials(data, atol=1.0E-8, rtol=1.0E-8)
 
@@ -1773,14 +1732,18 @@ class TestProblemCheckPartials(unittest.TestCase):
         prob.run_model()
         partials = prob.check_partials(method='cs')#, out_stream=None)
 
-        self.assertGreater(np.abs(partials['comp']['out2', 'in']['directional_fwd_rev']),
+        mhatdotm, dhatdotd = partials['comp']['out2', 'in']['directional_fwd_rev']
+        self.assertGreater(np.abs(safe_norm(mhatdotm - dhatdotd)),
                            1e-3, msg='Reverse deriv is supposed to be wrong.')
-        assert_near_equal(np.abs(partials['comp']['out', 'in']['directional_fwd_rev']),
-                          0.0, 1e-12)
-        assert_near_equal(np.abs(partials['comp']['out', 'in2']['directional_fwd_rev']),
-                          0.0, 1e-12)
-        assert_near_equal(np.abs(partials['comp']['out2', 'in2']['directional_fwd_rev']),
-                          0.0, 1e-12)
+
+        mhatdotm, dhatdotd = partials['comp']['out', 'in']['directional_fwd_rev']
+        assert_near_equal(np.abs(safe_norm(mhatdotm - dhatdotd)), 0.0, 1e-12)
+
+        mhatdotm, dhatdotd = partials['comp']['out', 'in2']['directional_fwd_rev']
+        assert_near_equal(np.abs(safe_norm(mhatdotm - dhatdotd)), 0.0, 1e-12)
+
+        mhatdotm, dhatdotd = partials['comp']['out2', 'in2']['directional_fwd_rev']
+        assert_near_equal(np.abs(safe_norm(mhatdotm - dhatdotd)), 0.0, 1e-12)
 
     def test_bug_local_method(self):
         # This fixes a bug setting the check method on a component overrode the requested method for
@@ -1982,21 +1945,23 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
             prob.setup(force_alloc_complex=force_alloc_complex)
             return prob, parab
 
-        expected_check_partials_error = "Problem {prob._name}: Checking partials " \
-              "with respect to variable '{var}' in component '{comp.pathname}' using the " \
-              "same method and options as are used to compute the component's derivatives " \
-              "will not provide any relevant information on the accuracy.\n" \
-              "To correct this, change the options to do the \n" \
-              "check_partials using either:\n" \
-              "     - arguments to Problem.check_partials. \n" \
-              "     - arguments to Component.set_check_partial_options"
+        expected_check_partials_error = (
+            "'parab' <class Paraboloid>: Checking partials with respect to variable '{var}' in component "
+            "'{comp.pathname}' using the same method and options as are used "
+            "to compute the component's derivatives will not provide any "
+            "relevant information on the accuracy.\n"
+            "To correct this, change the options to do the "
+            "check_partials using either:\n"
+            "     - arguments to Problem.check_partials.\n"
+            "     - arguments to Component.set_check_partial_options"
+        )
 
         # Scenario 1:
         #    Compute partials: exact
         #    Check partials: fd using argument to check_partials, default options
         #    Expected result: no error
         prob, parab = create_problem()
-        prob.check_partials(method='fd')
+        assert_check_partials(prob.check_partials(method='fd'))
 
         # Scenario 2:
         #    Compute partials: fd, with default options
@@ -2006,6 +1971,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         parab.declare_partials(of='*', wrt='*', method='fd')
         with self.assertRaises(OMInvalidCheckDerivativesOptionsWarning) as cm:
             prob.check_partials(method='fd')
+
         self.assertEqual(str(cm.exception),
                          expected_check_partials_error.format(prob=prob, var='x', comp=parab))
 
@@ -2015,7 +1981,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         #    Expected result: No error
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='fd')
-        prob.check_partials(method='fd', step=1e-4)
+        assert_check_partials(prob.check_partials(method='fd', step=1e-4), atol=1e-4, rtol=2e-5)
 
         # Scenario 4:
         #    Compute partials: fd, with default options
@@ -2023,7 +1989,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         #    Expected result: No error
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='fd')
-        prob.check_partials(method='fd', form='backward')
+        assert_check_partials(prob.check_partials(method='fd', form='backward'))
 
         # Scenario 5:
         #    Compute partials: fd, with default options
@@ -2031,7 +1997,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         #    Expected result: No error
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='fd')
-        prob.check_partials(method='fd', step_calc='rel')
+        assert_check_partials(prob.check_partials(method='fd', step_calc='rel'))
 
         # Scenario 5:
         #    Compute partials: fd, with default options
@@ -2040,7 +2006,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='fd')
         parab.set_check_partial_options('*', directional=True)
-        prob.check_partials(method='fd')
+        assert_check_partials(prob.check_partials(method='fd'))
 
         # Scenario 6:
         #    Compute partials: fd, with default options
@@ -2063,7 +2029,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         parab.declare_partials(of='*', wrt='*', method='fd')
         prob.setup(force_alloc_complex=True)
         prob.run_model()
-        prob.check_partials(method='cs')
+        assert_check_partials(prob.check_partials(method='cs'))
 
         # Scenario 8:
         #    Compute partials: fd, with default options
@@ -2084,7 +2050,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='fd')
         parab.set_check_partial_options('*', step=1e-4)
-        prob.check_partials()
+        assert_check_partials(prob.check_partials(), atol=1e-4, rtol=2e-5)
 
         # Scenario 10:
         #    Compute partials: fd, with default options
@@ -2094,7 +2060,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         parab.declare_partials(of='*', wrt='*', method='fd')
         parab.set_check_partial_options('*', form='backward',
                                         step= FiniteDifference.DEFAULT_OPTIONS['step'])
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
         # Scenario 11:
         #    Compute partials: fd, with default options
@@ -2104,7 +2070,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         parab.declare_partials(of='*', wrt='*', method='fd')
         parab.set_check_partial_options('*', step_calc='rel',
                                         form=FiniteDifference.DEFAULT_OPTIONS['form'])
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
         # Scenario 12:
         #    Compute partials: fd, with default options
@@ -2113,7 +2079,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob, parab = create_problem(force_alloc_complex=True)
         parab.declare_partials(of='*', wrt='*', method='fd')
         parab.set_check_partial_options('*', method='cs')
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
         # Scenario 13:
         #    Compute partials: cs, with default options
@@ -2122,7 +2088,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob, parab = create_problem()
         parab.declare_partials(of='*', wrt='*', method='cs')
         parab.set_check_partial_options('*', method='fd')
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
         # Scenario 14:
         #    Compute partials: cs, with default options
@@ -2145,7 +2111,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
                                step=ComplexStep.DEFAULT_OPTIONS['step'])
         parab.set_check_partial_options('*', method='cs',
                                         step=2.0*ComplexStep.DEFAULT_OPTIONS['step'])
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
         # Now do similar checks for check_totals when approximations are used
         expected_check_totals_error_msg = "Problem {prob._name}: Checking totals using the " \
@@ -2161,7 +2127,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob, parab = create_problem()
         prob.setup()
         prob.run_model()
-        prob.check_totals()
+        assert_check_totals(prob.check_totals())
 
         # Scenario 17:
         #    Compute totals: approx on totals using defaults
@@ -2184,7 +2150,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals()
         prob.setup()
         prob.run_model()
-        prob.check_totals(step=1e-7)
+        assert_check_totals(prob.check_totals(step=1e-7))
 
         # Scenario 18a:
         #    Compute totals: approx on totals using defaults
@@ -2194,7 +2160,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals()
         prob.setup()
         prob.run_model()
-        prob.check_totals(step=[1e-7, 1e-8])
+        assert_check_totals(prob.check_totals(step=[1e-7, 1e-8]))
 
         # Scenario 19:
         #    Compute totals: approx on totals using defaults
@@ -2204,7 +2170,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals()
         prob.setup()
         prob.run_model()
-        prob.check_totals(form='central')
+        assert_check_totals(prob.check_totals(form='central'))
 
 
         # Scenario 20:
@@ -2215,7 +2181,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals()
         prob.setup()
         prob.run_model()
-        prob.check_totals(step_calc='rel')
+        assert_check_totals(prob.check_totals(step_calc='rel'))
 
         # Scenario 21:
         #    Compute totals: cs
@@ -2238,7 +2204,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals()
         prob.setup(force_alloc_complex=True)
         prob.run_model()
-        prob.check_totals(method='cs')
+        assert_check_totals(prob.check_totals(method='cs'))
 
         # Scenario 23:
         #    Compute totals: cs
@@ -2248,7 +2214,7 @@ class TestCheckDerivativesOptionsDifferentFromComputeOptions(unittest.TestCase):
         prob.model.approx_totals(method='cs')
         prob.setup(force_alloc_complex=True)
         prob.run_model()
-        prob.check_totals()
+        assert_check_totals(prob.check_totals())
 
 
 class TestCheckPartialsFeature(unittest.TestCase):
@@ -2339,7 +2305,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials(compact_print=True)
+        assert_check_partials(prob.check_partials(compact_print=True))
 
     def test_set_step_global(self):
 
@@ -2355,7 +2321,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials(step=1e-2, compact_print=True)
+        assert_check_partials(prob.check_partials(step=1e-2, compact_print=True), atol=1e-2, rtol=4e-4)
 
     def test_set_method_on_comp(self):
 
@@ -2373,7 +2339,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup(force_alloc_complex=True)
         prob.run_model()
 
-        prob.check_partials(compact_print=True)
+        assert_check_partials(prob.check_partials(compact_print=True))
 
     def test_set_method_global(self):
 
@@ -2389,7 +2355,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup(force_alloc_complex=True)
         prob.run_model()
 
-        prob.check_partials(method='cs', compact_print=True)
+        assert_check_partials(prob.check_partials(method='cs', compact_print=True))
 
     def test_set_form_global(self):
 
@@ -2405,7 +2371,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials(form='central', compact_print=True)
+        assert_check_partials(prob.check_partials(form='central', compact_print=True))
 
     def test_set_step_calc_global(self):
 
@@ -2418,7 +2384,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials(step_calc='rel', compact_print=True)
+        assert_check_partials(prob.check_partials(step_calc='rel', compact_print=True))
 
     def test_feature_check_partials_show_only_incorrect(self):
 
@@ -2485,13 +2451,14 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials(compact_print=True, includes='*c*c*')
+        assert_check_partials(prob.check_partials(compact_print=True, includes='*c*c*'))
 
-        prob.check_partials(compact_print=True, includes=['*d1', '*e1'])
+        assert_check_partials(prob.check_partials(compact_print=True, includes=['*d1', '*e1']))
 
-        prob.check_partials(compact_print=True, includes=['abc1cab'])
+        assert_check_partials(prob.check_partials(compact_print=True, includes=['abc1cab']))
 
-        prob.check_partials(compact_print=True, includes='*c*c*', excludes=['*e*'])
+        assert_check_partials(prob.check_partials(compact_print=True, includes='*c*c*',
+                                                  excludes=['*e*']))
 
     def test_directional(self):
 
@@ -2502,7 +2469,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
     def test_directional_matrix_free(self):
 
@@ -2561,7 +2528,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        prob.check_partials()
+        assert_check_partials(prob.check_partials())
 
     def test_directional_sparse_deriv(self):
 
@@ -2834,9 +2801,9 @@ class TestCheckPartialsMultipleSteps(unittest.TestCase):
         contents = stream.getvalue()
         self.assertEqual(contents.count("Component: CompGoodPartials 'good'"), 1)
         self.assertEqual(contents.count("Component: CompBadPartials 'bad'"), 1)
-        self.assertEqual(contents.count("Sub Jacobian with Largest Relative Error: CompBadPartials 'bad'"), 1)
         self.assertEqual(contents.count(">ABS_TOL >REL_TOL"), 4)
         self.assertEqual(contents.count("step"), 3)
+        self.assertEqual(contents.count("Sub Jacobian with Largest Relative Error: CompBadPartials 'bad'"), 1)
         tables = self.get_tables(contents)
         self.assertEqual(len(tables), 3)
         self.assertEqual(len(tables[0]), 11)
