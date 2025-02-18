@@ -169,7 +169,7 @@ def _to_filename(spec):
     return spec
 
 
-def _load_and_exec(script_name, user_args):
+def _load_and_exec(script_name, user_args=()):
     """
     Load and exec the given script as __main__.
 
@@ -179,13 +179,18 @@ def _load_and_exec(script_name, user_args):
         The name of the script to load and exec.
     user_args : list of str
         Args to be passed to the user script.
+
+    Returns
+    -------
+    dict
+        The globals dictionary.
     """
     if ':' in script_name and not isfile(script_name):
         return _load_and_run_test(script_name)
 
     sys.path.insert(0, dirname(script_name))
 
-    sys.argv[:] = [script_name] + user_args
+    sys.argv[:] = [script_name] + list(user_args)
 
     with open(script_name, 'rb') as fp:
         code = compile(fp.read(), script_name, 'exec')
@@ -198,6 +203,22 @@ def _load_and_exec(script_name, user_args):
     }
 
     exec(code, globals_dict)  # nosec: private, internal use only
+
+    return globals_dict
+
+
+def _get_object_from_script(fname, objname):
+    globals_dict = _load_and_exec(fname)
+    try:
+        obj = None
+        for oname in objname.split('.'):
+            if obj is None:
+                obj = globals_dict[oname]
+            else:
+                obj = getattr(obj, oname)
+        return obj
+    except (KeyError, AttributeError):
+        raise ValueError(f"Object '{objname}' not found in file globals for script '{fname}'.")
 
 
 def fname2mod_name(fname):
