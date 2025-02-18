@@ -62,25 +62,27 @@ def get_plugin(fname, problem_name=None, *user_args):
             worker.prob = prob  # Store the problem in worker's state for later use.
             worker.responses = responses
 
+    return OpenMDAOSetupPlugin()
+
 
 def run_model(case):
-    ident, samples, result_names = case
+    ident, samples = case
     # Use the worker's stored state
     worker = get_worker()
     _set_inputs(worker.prob, samples)
 
     worker.prob.run_model()
-    return _collect_responses(worker.prob, ident, result_names)
+    return _collect_responses(worker.prob, ident, worker.responses)
 
 
 def optimize_model(case):
-    ident, samples, result_names = case
+    ident, samples = case
     # Use the worker's stored state
     worker = get_worker()
     _set_inputs(worker.prob, samples)
 
     worker.prob.run_driver()
-    return _collect_responses(worker.prob, ident, result_names)
+    return _collect_responses(worker.prob, ident, worker.responses)
 
 
 def _set_inputs(problem, samples):
@@ -91,9 +93,9 @@ def _set_inputs(problem, samples):
         problem.set_val(var, val, units, idxs)
 
 
-def _collect_responses(problem, ident, result_names):
+def _collect_responses(problem, ident, responses):
     # values must be copied to avoid race condition where later cases overwrite previous values
-    return (ident, [np.copy(problem.get_val(name)) for name in result_names])
+    return (ident, [np.copy(problem.get_val(name)) for name in responses])
 
 
 def load_inputs(input_fname, input_objname=None):
@@ -115,7 +117,7 @@ def _read_yaml(input_fname):
 
 
 def run_dask(model_fname, input_fname, input_objname=None, num_workers=None, problem_name=None,
-             do_opt=False, user_args=None):
+             do_opt=False, user_args=()):
     """
     Run a model with different inputs in parallel using Dask.
 
@@ -159,8 +161,13 @@ def run_dask(model_fname, input_fname, input_objname=None, num_workers=None, pro
 
     func = optimize_model if do_opt else run_model
 
-    futures = client.map(func, inputs, pure=False,
-                         workers=list(client.scheduler_info()['workers'].keys()))
+    print('inputs:')
 
+    futures = []
+    for i, idict in enumerate(inputs):
+        print(i, idict.items())
+        futures.append(client.submit(func, (i, idict), pure=False))
+
+    print('results:')
     for future in as_completed(futures):
         print(future.result())
