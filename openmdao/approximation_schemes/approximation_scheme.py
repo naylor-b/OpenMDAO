@@ -374,8 +374,6 @@ class ApproximationScheme(object):
         tosend = None
 
         for data, jcols, vec_ind_list, nzrows, seed_vars, in colored_approx_groups:
-            mult = self._get_multiplier(data)
-
             if fd_count % num_par_fd == system._par_fd_id:
                 # run the finite difference
                 with system._relevance.seeds_active(fwd_seeds=seed_vars):
@@ -385,8 +383,7 @@ class ApproximationScheme(object):
                 if par_fd_w_serial_model or not use_parallel_fd:
                     result = self._transform_result(result)
 
-                    if mult != 1.0:
-                        result *= mult
+                    self._apply_multiplier(result, data)
 
                     if total:
                         result = self._get_total_result(result, tot_result)
@@ -486,8 +483,8 @@ class ApproximationScheme(object):
         total_or_semi = total or _is_group(system)
 
         # Clean vector for results (copy of the outputs or resids)
-        results_array = system._outputs.asarray(copy=True) if total_or_semi \
-            else system._residuals.asarray(copy=True)
+        results_vec = system._outputs if total_or_semi else system._residuals
+        results_array = results_vec.asarray(copy=True)
         use_parallel_fd = system._num_par_fd > 1 and (system._full_comm is not None and
                                                       system._full_comm.size > 1)
         num_par_fd = system._num_par_fd if use_parallel_fd else 1
@@ -508,8 +505,6 @@ class ApproximationScheme(object):
             else:
                 app_data = data
 
-            mult = self._get_multiplier(data)
-
             jidx_iter = iter(range(len(jcol_idxs)))
             for vec_ind_info, vecidxs in self._vec_ind_iter(vec_ind_list):
 
@@ -528,8 +523,7 @@ class ApproximationScheme(object):
 
                     result = self._transform_result(result)
 
-                    if direction is not None or mult != 1.0:
-                        result *= mult
+                    self._apply_multiplier(result, data)
 
                     if total:
                         result = self._get_total_result(result, tot_result)

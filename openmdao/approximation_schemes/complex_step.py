@@ -145,21 +145,18 @@ class ComplexStep(ApproximationScheme):
         system._outputs.set_val(saved_outputs)
         system._residuals.set_val(saved_resids)
 
-    def _get_multiplier(self, delta):
+    def _apply_multiplier(self, result, delta):
         """
-        Return a multiplier to be applied to the jacobian.
+        Apply a multiplier to the result.
 
         Parameters
         ----------
+        result : ndarray
+            The result to apply the multiplier to.
         delta : complex
             Complex number used to compute the multiplier.
-
-        Returns
-        -------
-        float
-            multiplier to apply to the jacobian.
         """
-        return (1.0 / delta * 1j).real
+        result *= (1.0 / delta * 1j).real
 
     def _transform_result(self, array):
         """
@@ -177,7 +174,7 @@ class ComplexStep(ApproximationScheme):
         """
         return array.imag
 
-    def _run_point(self, system, idx_info, delta, result_array, total, idx_range=range(1)):
+    def _run_point(self, system, idx_info, delta, result_array, total_or_semi, idx_range=range(1)):
         """
         Perturb the system inputs with a complex step, run, and return the results.
 
@@ -191,10 +188,10 @@ class ComplexStep(ApproximationScheme):
             Perturbation amount.
         result_array : ndarray
             An array used to store the results.
-        total : bool
-            If True total derivatives are being approximated, else partials.
+        total_or_semi : bool
+            If True total or semitotal derivatives are being approximated, else partials.
         idx_range : range
-            Range of vector indices for this wrt variable.
+            Range of vector indices for this wrt variable.  Ignored for complex step.
 
         Returns
         -------
@@ -205,7 +202,7 @@ class ComplexStep(ApproximationScheme):
             if vec is not None and idxs is not None:
                 vec.iadd(delta, idxs)
 
-        if total:
+        if total_or_semi:
             system.run_solve_nonlinear()
             result_array[:] = system._outputs.asarray()
         else:

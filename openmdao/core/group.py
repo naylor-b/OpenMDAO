@@ -4081,10 +4081,9 @@ class Group(System):
                 if total:
                     src = ofmeta['source']
                 else:
+                    if name not in self._var_abs2meta['output']:
+                        continue
                     src = name
-
-                if not total and src not in self._var_abs2meta['output']:
-                    continue
 
                 meta = abs2meta[src]
                 if meta['distributed']:

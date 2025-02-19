@@ -257,23 +257,18 @@ class FiniteDifference(ApproximationScheme):
         self._starting_resids = None
         self._results_tmp = None
 
-    def _get_multiplier(self, data):
+    def _apply_multiplier(self, result, data):
         """
-        Return a multiplier to be applied to the jacobian.
-
-        Always returns 1.0 for finite difference.
+        Do nothing for finite difference.
 
         Parameters
         ----------
+        result : ndarray
+            The result to apply the multiplier to.
         data : tuple
             Not used.
-
-        Returns
-        -------
-        float
-            1.0
         """
-        return 1.0
+        return result
 
     def _transform_result(self, array):
         """
@@ -291,7 +286,7 @@ class FiniteDifference(ApproximationScheme):
         """
         return array.real
 
-    def _run_point(self, system, idx_info, data, results_array, total, idx_range=range(1)):
+    def _run_point(self, system, idx_info, data, results_array, total_or_semi, idx_range=range(1)):
         """
         Alter the specified inputs by the given deltas, run the system, and return the results.
 
@@ -305,8 +300,8 @@ class FiniteDifference(ApproximationScheme):
             Tuple of the form (deltas, coeffs, current_coeff)
         results_array : ndarray
             Where the results will be stored.
-        total : bool
-            If True total derivatives are being approximated, else partials.
+        total_or_semi : bool
+            If True total or semitotal derivatives are being approximated, else partials.
         idx_range : range
             Range of vector indices for this wrt variable.
 
@@ -323,8 +318,8 @@ class FiniteDifference(ApproximationScheme):
             rel_element = True
 
             if current_coeff[0]:
-                current_vec = system._outputs if total else system._residuals
-                # copy data from outputs (if doing total derivs) or residuals (if doing partials)
+                current_vec = system._outputs if total_or_semi else system._residuals
+                # copy data from outputs (total or semitotal) or residuals (partial)
                 results_array[:] = current_vec.asarray()
 
                 for vec, idxs in idx_info:
@@ -338,8 +333,8 @@ class FiniteDifference(ApproximationScheme):
                 results_array[:] = 0.
 
         elif not isinstance(current_coeff, np.ndarray) and current_coeff:
-            current_vec = system._outputs if total else system._residuals
-            # copy data from outputs (if doing total derivs) or residuals (if doing partials)
+            current_vec = system._outputs if total_or_semi else system._residuals
+            # copy data from outputs (total or semitotal) or residuals (partial)
             results_array[:] = current_vec.asarray()
             results_array *= current_coeff
         else:
@@ -347,8 +342,8 @@ class FiniteDifference(ApproximationScheme):
 
         # Run the Finite Difference
         for delta, coeff in zip(deltas, coeffs):
-            results = self._run_sub_point(system, idx_info, delta, total, idx_range=idx_range,
-                                          rel_element=rel_element)
+            results = self._run_sub_point(system, idx_info, delta, total_or_semi,
+                                          idx_range=idx_range, rel_element=rel_element)
 
             if rel_element:
                 for vec, idxs in idx_info:
@@ -362,7 +357,7 @@ class FiniteDifference(ApproximationScheme):
 
         return results_array
 
-    def _run_sub_point(self, system, idx_info, delta, total, idx_range, rel_element=False):
+    def _run_sub_point(self, system, idx_info, delta, total_or_semi, idx_range, rel_element=False):
         """
         Alter the specified inputs by the given delta, run the system, and return the results.
 
@@ -374,8 +369,8 @@ class FiniteDifference(ApproximationScheme):
             Tuple of wrt indices and corresponding data vector to perturb.
         delta : float
             Perturbation amount.
-        total : bool
-            If True total derivatives are being approximated, else partials.
+        total_or_semi : bool
+            If True total or semitotal derivatives are being approximated, else partials.
         idx_range : range
             Range of vector indices for this wrt variable.
         rel_element : bool
@@ -397,7 +392,7 @@ class FiniteDifference(ApproximationScheme):
 
                 vec.iadd(local_delta, idxs)
 
-        if total:
+        if total_or_semi:
             system.run_solve_nonlinear()
             self._results_tmp[:] = system._outputs.asarray()
         else:
