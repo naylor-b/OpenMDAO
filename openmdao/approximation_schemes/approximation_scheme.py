@@ -506,6 +506,7 @@ class ApproximationScheme(object):
                 app_data = data
 
             jidx_iter = iter(range(len(jcol_idxs)))
+            wrt_offset = jcol_idxs[0] if len(jcol_idxs) > 0 else 0
             for vec_ind_info, vecidxs in self._vec_ind_iter(vec_ind_list):
 
                 if fd_count % num_par_fd == system._par_fd_id:
@@ -515,11 +516,11 @@ class ApproximationScheme(object):
                         with system._relevance.seeds_active(fwd_seeds=seeds):
                             result = self._run_point(system, vec_ind_info,
                                                      app_data, results_array, total_or_semi,
-                                                     jcol_idxs)
+                                                     wrt_offset)
                     else:
                         result = self._run_point(system, vec_ind_info,
                                                  app_data, results_array, total_or_semi,
-                                                 jcol_idxs)
+                                                 wrt_offset)
 
                     result = self._transform_result(result)
 

@@ -2028,19 +2028,19 @@ class Component(System):
             self.compute_fd_jac(jac=jac, method=method)
         return jac.get_sparsity()
 
-    def check_sparsity(self, method='fd', max_nz=90., out_stream=_DEFAULT_OUT_STREAM):
+    def check_sparsity(self, method='fd', max_nz_pct=90., out_stream=_DEFAULT_OUT_STREAM):
         """
         Check the sparsity of the computed jacobian against the declared sparsity.
 
         Check is skipped if one of the dimensions of the jacobian is 1 or if the percentage of
-        nonzeros in the computed jacobian is greater than max_nz%.
+        nonzeros in the computed jacobian is greater than max_nz_pct.
 
         Parameters
         ----------
         method : str
             The type of finite difference to perform. Valid options are 'fd' for forward difference,
             or 'cs' for complex step.
-        max_nz : float
+        max_nz_pct : float
             If the percentage of nonzeros in a sub-jacobian exceeds this, no warning is issued if
             the computed sparsity does not match the declared sparsity.
         out_stream : file-like object
@@ -2088,7 +2088,7 @@ class Component(System):
                     declared = sorted(zip(rows, cols))
                 if declared != computed:
                     pct_nonzero = 100. * len(nzrows) / (shape[0] * shape[1])
-                    if pct_nonzero > max_nz:
+                    if pct_nonzero > max_nz_pct:
                         continue
                     if shape[0] > 200 or shape[1] > 200:
                         mstr = "Sparsity matrix too large to show."

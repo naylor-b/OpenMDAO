@@ -62,7 +62,8 @@ class TestSemiTotals(unittest.TestCase):
         prob.run_model()
 
         # Deriv should be 75. Analytic was wrong before the fix.
-        data = prob.check_totals(method="fd", form="forward", step=step, step_calc="abs", out_stream=None)
+        data = prob.check_totals(method="fd", form="forward", step=step, step_calc="abs",
+                                 show_only_incorrect=True)#, out_stream=None)
         assert_check_totals(data, atol=1e-5, rtol=1e-6)
 
     def test_semi_totals_cs(self):

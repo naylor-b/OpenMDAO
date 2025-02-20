@@ -286,7 +286,7 @@ class FiniteDifference(ApproximationScheme):
         """
         return array.real
 
-    def _run_point(self, system, idx_info, data, results_array, total_or_semi, idx_range=range(1)):
+    def _run_point(self, system, idx_info, data, results_array, total_or_semi, wrt_offset=0):
         """
         Alter the specified inputs by the given deltas, run the system, and return the results.
 
@@ -302,8 +302,8 @@ class FiniteDifference(ApproximationScheme):
             Where the results will be stored.
         total_or_semi : bool
             If True total or semitotal derivatives are being approximated, else partials.
-        idx_range : range
-            Range of vector indices for this wrt variable.
+        wrt_offset : int
+            Offset of the wrt variable into the vector.
 
         Returns
         -------
@@ -325,7 +325,7 @@ class FiniteDifference(ApproximationScheme):
                 for vec, idxs in idx_info:
                     if vec is not None and idxs is not None:
 
-                        results_array *= current_coeff[idxs - idx_range[0]]
+                        results_array *= current_coeff[idxs - wrt_offset]
                         # We don't allow mixed fd forms, so first one is all we need.
                         break
 
@@ -343,12 +343,12 @@ class FiniteDifference(ApproximationScheme):
         # Run the Finite Difference
         for delta, coeff in zip(deltas, coeffs):
             results = self._run_sub_point(system, idx_info, delta, total_or_semi,
-                                          idx_range=idx_range, rel_element=rel_element)
+                                          wrt_offset=wrt_offset, rel_element=rel_element)
 
             if rel_element:
                 for vec, idxs in idx_info:
                     if vec is not None and idxs is not None:
-                        results *= coeff[idxs - idx_range[0]]
+                        results *= coeff[idxs - wrt_offset]
                         break
             else:
                 results *= coeff
@@ -357,7 +357,7 @@ class FiniteDifference(ApproximationScheme):
 
         return results_array
 
-    def _run_sub_point(self, system, idx_info, delta, total_or_semi, idx_range, rel_element=False):
+    def _run_sub_point(self, system, idx_info, delta, total_or_semi, wrt_offset, rel_element=False):
         """
         Alter the specified inputs by the given delta, run the system, and return the results.
 
@@ -371,8 +371,8 @@ class FiniteDifference(ApproximationScheme):
             Perturbation amount.
         total_or_semi : bool
             If True total or semitotal derivatives are being approximated, else partials.
-        idx_range : range
-            Range of vector indices for this wrt variable.
+        wrt_offset : int
+            Offset of the wrt variable into the vector.
         rel_element : bool
             If True, then each element has a different delta.
 
@@ -386,7 +386,7 @@ class FiniteDifference(ApproximationScheme):
 
                 # Support rel_element stepsizing
                 if rel_element:
-                    local_delta = delta[idxs - idx_range[0]]
+                    local_delta = delta[idxs - wrt_offset]
                 else:
                     local_delta = delta
 

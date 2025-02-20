@@ -210,6 +210,8 @@ class Group(System):
         Set of variables involved in invalid connections.
     _sys_graph_cache : dict
         Cache for the system graph.
+    _multi_conn_prom_ins : dict
+        Dictionary of promoted inputs connected to multiple absolute inputs.
     """
 
     def __init__(self, **kwargs):
@@ -243,6 +245,7 @@ class Group(System):
         self._ivcs = {}
         self._bad_conn_vars = None
         self._sys_graph_cache = None
+        self._multi_conn_prom_ins = {}
 
         # TODO: we cannot set the solvers with property setters at the moment
         # because our lint check thinks that we are defining new attributes
@@ -1672,6 +1675,7 @@ class Group(System):
         abs2meta = self._var_abs2meta
         abs2prom = self._var_abs2prom
 
+        self._multi_conn_prom_ins = {}
         allprocs_abs2meta = {'input': {}, 'output': {}}
         self._ivcs = {}
 
@@ -3839,8 +3843,9 @@ class Group(System):
 
         self._check_first_linearize()
 
-        # Group finite difference
         if self._owns_approx_jac:
+            # Group finite difference - perturb inputs on entry at a time and do a solve_nonlinear.
+            # Do not linearize any subsystems.
 
             jac = self._jacobian
             if self.pathname == "":
@@ -3854,6 +3859,7 @@ class Group(System):
                         approximation.compute_approximations(self, jac=jac)
 
         else:
+            # linearize our subsystems
             if self._assembled_jac is not None:
                 jac = self._assembled_jac
 
@@ -4013,12 +4019,17 @@ class Group(System):
                 wrt = ivc
 
         else:
-            for abs_inps in pro2abs['input'].values():
+            for prom, abs_inps in pro2abs['input'].items():
                 if abs_inps[0] not in self._conn_abs_in2out:
                     # If connection is inside of this Group, perturbation of all implicitly
                     # connected inputs will be handled properly via internal transfers.
                     # Otherwise, we need to add all implicitly connected inputs separately.
                     wrt.update(abs_inps)
+                    # keep track of promoted inputs connected to multiple abs inputs because
+                    # they require us to set multiple seeds in order to avoid unnecessary
+                    # executions of the group when computing semitotals.
+                    if len(abs_inps) > 1:
+                        self._multi_conn_prom_ins[prom] = abs_inps
 
             # get rid of any old stuff in here
             self._owns_approx_of = self._owns_approx_wrt = None
@@ -4110,7 +4121,7 @@ class Group(System):
         Parameters
         ----------
         wrt_matches : set or None
-            Only include row vars that are contained in this set.  This will determine what
+            Only include column vars that are contained in this set.  This will determine what
             the actual offsets are, i.e. the offsets will be into a reduced jacobian
             containing only the matching columns.
 
@@ -4129,8 +4140,6 @@ class Group(System):
         ndarray or None
             Distributed sizes if var is distributed else None
         """
-        total = self.pathname == ''
-
         if self._owns_approx_wrt:
             sizes = self._var_sizes
             toidx = self._var_allprocs_abs2idx
@@ -4138,18 +4147,19 @@ class Group(System):
             local_ins = self._var_abs2meta['input']
             local_outs = self._var_abs2meta['output']
 
+            total = self.pathname == ''
             szname = 'global_size' if total else 'size'
 
             seen = set()
             start = end = 0
-            if self.pathname:  # doing semitotals, so include output columns
-                for of, _start, _end, _, dist_sizes in self._jac_of_iter():
-                    if wrt_matches is None or of in wrt_matches:
-                        seen.add(of)
-                        end += (_end - _start)
-                        vec = self._outputs if of in local_outs else None
-                        yield of, start, end, vec, _full_slice, dist_sizes
-                        start = end
+            # if not total and not self.is_explicit():  # doing semitotals, so include output columns
+            #     for of, _start, _end, _, dist_sizes in self._jac_of_iter():
+            #         if wrt_matches is None or of in wrt_matches:
+            #             seen.add(of)
+            #             end += (_end - _start)
+            #             vec = self._outputs if of in local_outs else None
+            #             yield of, start, end, vec, _full_slice, dist_sizes
+            #             start = end
 
             for wrt, wrtmeta in self._owns_approx_wrt.items():
                 if total:
@@ -4255,6 +4265,7 @@ class Group(System):
                     # All group approximations are treated as explicit components, so we
                     # have a -1 on the diagonal.
                     meta['val'] = np.full(size, -1.0)
+
                 self._subjacs_info[key] = meta
 
             meta['method'] = method
