@@ -425,11 +425,13 @@ class Group(System):
         for abs_name, meta in self._var_allprocs_abs2meta['output'].items():
             ref0 = meta['ref0']
             res_ref = meta['res_ref']
+            if res_ref is None:
+                res_ref = 1.0
             a0 = ref0
             a1 = meta['ref'] - ref0
             scale_factors[abs_name] = {
                 'output': (a0, a1),
-                'residual': (0.0, 1.0 if res_ref is None else res_ref),
+                'residual': (0.0, res_ref),
             }
 
         # Input scaling for connected inputs is added here.
@@ -444,10 +446,33 @@ class Group(System):
                 ref = meta_out['ref']
                 ref0 = meta_out['ref0']
 
+                scalar_ref = np.ndim(ref) == 0
+                scalar_ref0 = np.ndim(ref0) == 0
+
+                has_scaling = not scalar_ref or not scalar_ref0 or ref != 1.0 or ref0 != 0.0
+
+                units_in = meta_in['units']
+                units_out = meta_out['units']
+
+                has_unit_conv = \
+                    units_in is not None and units_out is not None and units_in != units_out
+                if has_unit_conv:
+                    factor, offset = unit_conversion(units_out, units_in)
+                    if factor == 1.0 and offset == 0.0:
+                        has_unit_conv = False
+                else:
+                    factor = 1.0
+                    offset = 0.0
+
+                # print('--------', abs_in, 'ref', ref, 'ref0', ref0, 'units_in', units_in, 'units_out', units_out)
+
+                if not has_scaling and not has_unit_conv:
+                    continue
+
                 src_indices = meta_in['src_indices']
 
                 if src_indices is not None:
-                    if not (np.ndim(ref) == 0 and np.ndim(ref0) == 0):
+                    if not (scalar_ref and scalar_ref0):
                         # TODO: if either ref or ref0 are not scalar and the output is
                         # distributed, we need to do a scatter
                         # to obtain the values needed due to global src_indices
@@ -461,11 +486,11 @@ class Group(System):
                                                                meta_out['global_shape'],
                                                                meta_out['global_size'])
 
-                        if np.ndim(ref) > 0:
+                        if not scalar_ref:
                             ref = ref[src_indices]
                         else:  # ref is scalar so ref0 must be an array
                             ref = np.full(ref0.shape, ref)
-                        if np.ndim(ref0) > 0:
+                        if not scalar_ref0:
                             ref0 = ref0[src_indices]
                         else:  # ref0 is scalar so ref must be an array
                             ref0 = np.full(ref.shape, ref0)
@@ -483,35 +508,25 @@ class Group(System):
                 #   b1 = d0 + d1 a1 - d0
                 #   b1 = g(a1) - g(0)
 
-                units_in = meta_in['units']
-                units_out = meta_out['units']
-
-                if units_in is None or units_out is None or units_in == units_out:
-                    a0 = ref0
-                    a1 = ref - ref0
-
-                    # No unit conversion, only scaling. Just send the scale factors.
-                    scale_factors[abs_in] = {
-                        'input': (a0, a1),
-                    }
-
-                else:
-                    factor, offset = unit_conversion(units_out, units_in)
+                if has_unit_conv:
                     a0 = ref0
                     a1 = ref - ref0
 
                     # Send both unit scaling and solver scaling. Linear input vectors need to
                     # treat them differently in reverse mode.
-                    scale_factors[abs_in] = {
-                        'input': (a0, a1, factor, offset),
-                    }
+                    scale_factors[abs_in] = {'input': (a0, a1, factor, offset)}
 
                     # For adder allocation check.
                     a0 = (ref0 + offset) * factor
+                else:
+                    a0 = ref0
+                    a1 = ref - ref0
+
+                    # No unit conversion, only scaling. Just send the scale factors.
+                    scale_factors[abs_in] = {'input': (a0, a1)}
 
                 # Check whether we need to allocate an adder for the input vector.
-                if np.any(np.asarray(a0)):
-                    self._has_input_adder = True
+                self._has_input_adder |= np.any(np.asarray(a0))
 
         return scale_factors
 
@@ -1277,23 +1292,25 @@ class Group(System):
         self._root_vecs = root_vectors = {'input': {}, 'output': {}, 'residual': {}}
 
         for kind in ['input', 'output', 'residual']:
-            root_vectors[kind]['nonlinear'] = self._vector_class('nonlinear', kind, self,
-                                                                 self._name_shape_iter(kind),
-                                                                 root_vectors,
-                                                                 alloc_complex=nl_alloc_complex,
-                                                                 do_scaling=do_scaling[kind],
-                                                                 do_adder=do_adder[kind])
-            if self._use_derivatives:
-                root_vectors[kind]['linear'] = self._vector_class('linear', kind, self,
-                                                                  self._name_shape_iter(kind),
-                                                                  root_vectors,
-                                                                  alloc_complex=ln_alloc_complex,
-                                                                  do_scaling=do_scaling[kind],
-                                                                  do_adder=do_adder[kind])
+            rvec = root_vectors[kind]
+            rvec['nonlinear'] = nlvec = self._vector_class('nonlinear', kind, self,
+                                                           self._name_shape_iter(kind),
+                                                           None,
+                                                           path=self.pathname,
+                                                           alloc_complex=nl_alloc_complex,
+                                                           do_scaling=do_scaling[kind],
+                                                           do_adder=do_adder[kind])
 
-        if self._use_derivatives:
-            root_vectors['input']['linear']._scaling_nl_vec = \
-                root_vectors['input']['nonlinear']._scaling
+            if self._use_derivatives:
+                rvec['linear'] = self._vector_class('linear', kind, self,
+                                                    self._name_shape_iter(kind),
+                                                    None,
+                                                    path=self.pathname,
+                                                    alloc_complex=ln_alloc_complex,
+                                                    do_scaling=do_scaling[kind],
+                                                    do_adder=do_adder[kind],
+                                                    nlvec=nlvec)
+
 
         return root_vectors
 
