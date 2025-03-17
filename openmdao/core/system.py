@@ -2545,7 +2545,7 @@ class System(object, metaclass=SystemMetaclass):
                         nlvec = vectors['input']['nonlinear']
                     else:
                         nlvec = None
-                    parent_vector =  parent_vectors[kind][vec_name]
+                    parent_vector = parent_vectors[kind][vec_name]
                     vectors[kind][vec_name] = self._vector_class(
                         vec_name, kind, self, self._name_shape_iter(kind), parent_vector,
                         msginfo=self.msginfo, path=self.pathname,

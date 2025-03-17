@@ -464,8 +464,6 @@ class Group(System):
                     factor = 1.0
                     offset = 0.0
 
-                # print('--------', abs_in, 'ref', ref, 'ref0', ref0, 'units_in', units_in, 'units_out', units_out)
-
                 if not has_scaling and not has_unit_conv:
                     continue
 
@@ -1310,7 +1308,6 @@ class Group(System):
                                                     do_scaling=do_scaling[kind],
                                                     do_adder=do_adder[kind],
                                                     nlvec=nlvec)
-
 
         return root_vectors
 

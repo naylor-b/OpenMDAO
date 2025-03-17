@@ -22,6 +22,7 @@ class _VecData(object):
     """
     Internal data structure for each variable in a Vector.
     """
+
     __slots__ = ['shape', 'size', 'is_scalar', 'range', 'view', 'flat']
 
     def __init__(self, shape, rng):
@@ -52,11 +53,22 @@ class Vector(object):
         The kind of vector, 'input', 'output', or 'residual'.
     system : <System>
         Pointer to the owning system.
-    parent_vectors : dict of dict of Vector
-        Parent vectors: first key is 'input', 'output', or 'residual'; second key is vec_name.
-        If None, this is a root vector.
+    name_shape_iter : iterator of (str, tuple)
+        Iterator of (name, shape) tuples.
+    parent_vector : <Vector> or None
+        Parent vector.
+    msginfo : str
+        String containing information about how this vector is being used.
+    path : str
+        Path to the owning system.
     alloc_complex : bool
         Whether to allocate any imaginary storage to perform complex step. Default is False.
+    do_scaling : bool
+        Whether to perform scaling. Default is False.
+    do_adder : bool
+        Whether to perform additive scaling. Default is False.
+    nlvec : <Vector> or None
+        Nonlinear vector of the same kind as this vector.
 
     Attributes
     ----------
@@ -82,10 +94,24 @@ class Vector(object):
         If scaling is active, this is a tuple of (scale_factor, adder) for _data.
     read_only : bool
         When True, values in the vector cannot be changed via the user __setitem__ API.
-    _len : int
-        Total length of data vector (including shared memory parts).
     _has_solver_ref : bool
         This is set to True only when a ref is defined on a solver.
+    _do_scaling : bool
+        Whether to perform scaling.
+    _do_adder : bool
+        Whether to perform additive scaling.
+    _nlvec : <Vector> or None
+        Nonlinear vector of the same kind as this vector.
+    msginfo : str
+        String containing information about how this vector is being used.
+    _pathname : str
+        Path to the owning system.
+    _prom2abs : dict
+        Dictionary mapping promoted names to absolute names.
+    _slices : dict
+        Dictionary mapping absolute variable names to slices into the data array.
+    _system : weakref to System
+        Weak reference to the owning system.
     """
 
     # Listing of relevant citations
@@ -128,7 +154,7 @@ class Vector(object):
         # If we define 'ref' on an output, then we will need to allocate a separate scaling ndarray
         # for the linear and nonlinear input vectors.
         self._has_solver_ref = system._has_output_scaling and kind == 'input' and name == 'linear'
-        self._nlvec =nlvec
+        self._nlvec = nlvec
 
         self._initialize_data(parent_vector, name_shape_iter)
         self._initialize_views(parent_vector, system)

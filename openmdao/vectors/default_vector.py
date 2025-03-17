@@ -20,10 +20,22 @@ class DefaultVector(Vector):
         The kind of vector, 'input', 'output', or 'residual'.
     system : <System>
         Pointer to the owning system.
-    root_vector : <Vector>
-        Pointer to the vector owned by the root system.
+    name_shape_iter : iterator of (str, tuple)
+        Iterator of (name, shape) tuples.
+    parent_vector : <Vector> or None
+        Parent vector.
+    msginfo : str
+        String containing information about how this vector is being used.
+    path : str
+        Path to the owning system.
     alloc_complex : bool
         Whether to allocate any imaginary storage to perform complex step. Default is False.
+    do_scaling : bool
+        Whether to perform scaling. Default is False.
+    do_adder : bool
+        Whether to perform additive scaling. Default is False.
+    nlvec : <Vector> or None
+        Nonlinear vector.
 
     Attributes
     ----------
