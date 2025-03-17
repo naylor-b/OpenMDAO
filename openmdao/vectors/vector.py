@@ -265,6 +265,39 @@ class Vector(object):
                 if n in self._names:
                     yield n[plen:], vinfo.view[0].real if vinfo.is_scalar else vinfo.view.real
 
+    def ranges(self):
+        """
+        Yield (name, start, stop) for variables contained in this vector.
+
+        Yields
+        ------
+        str
+            Name of each variable.
+        int
+            Start index of the variable.
+        int
+            Stop index of the variable.
+        """
+        for name, vinfo in self._views.items():
+            start, stop = vinfo.range
+            yield name, start, stop
+
+    def get_info(self, name):
+        """
+        Get the info object for the given variable.
+
+        Parameters
+        ----------
+        name : str
+            Name of the variable.
+
+        Returns
+        -------
+        _VecData
+            Info object for the variable.
+        """
+        return self._views[name]
+
     def _name2abs_name(self, name):
         """
         Map the given promoted or relative name to the absolute name.
