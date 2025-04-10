@@ -186,6 +186,9 @@ class JaxMixin(object):
             # avoid unnecessary statics checks
             self._statics_changed = self._statics_noop
 
+        self.compute_primal = self._get_jax_compute_primal(self._discrete_inputs,
+                                                           self.options['use_jit'])
+
     def _check_first_linearize(self):
         if self._first_call_to_linearize:
             self._first_call_to_linearize = False  # only do this once
@@ -288,7 +291,6 @@ class JaxMixin(object):
             self._jac_func_ = None
 
         if self._jac_func_ is None:
-            self.compute_primal = self._get_jax_compute_primal(discrete_inputs, need_jit)
             differentiable_cp = self._get_differentiable_compute_primal(discrete_inputs)
 
             if self._coloring_info.use_coloring():
@@ -355,12 +357,12 @@ class JaxMixin(object):
                 ncontouts = self._outputs.nvars()
 
                 def differentiable_compute_primal(*contvals):
-                    return self.compute_primal(*contvals, *discrete_inputs)[:ncontouts]
+                    return self._ret_tuple_compute_primal(*contvals, *discrete_inputs)[:ncontouts]
 
             else:
 
                 def differentiable_compute_primal(*contvals):
-                    return self.compute_primal(*contvals, *discrete_inputs)
+                    return self._ret_tuple_compute_primal(*contvals, *discrete_inputs)
 
             return differentiable_compute_primal
 
@@ -368,11 +370,11 @@ class JaxMixin(object):
             ncontouts = self._outputs.nvars()
 
             def differentiable_compute_primal(*contvals):
-                return self.compute_primal(*contvals)[:ncontouts]
+                return self._ret_tuple_compute_primal(*contvals)[:ncontouts]
 
             return differentiable_compute_primal
 
-        return self.compute_primal
+        return self._ret_tuple_compute_primal
 
     def _get_tangents(self, direction, coloring=None):
         """
@@ -803,13 +805,14 @@ class JaxExplicitMixin(JaxMixin):
             inhash = ((inputs.get_hash(),) + tuple(self._discrete_inputs.values()) +
                       self.get_self_statics())
             if inhash != self._static_hash:
+                self._static_hash = inhash
+
                 ncont_ins = d_inputs.nvars()
                 full_invals = tuple(self._get_compute_primal_invals(inputs, discrete_inputs))
                 x = full_invals[:ncont_ins]
                 other = full_invals[ncont_ins:]
                 # recompute vjp function if inputs have changed
                 _, self._vjp_fun = jax.vjp(lambda *args: self.compute_primal(*args, *other), *x)
-                self._static_hash = inhash
 
             deriv_vals = self._vjp_fun(tuple(d_outputs.values()) +
                                        tuple(self._discrete_outputs.values()))
@@ -995,3 +998,128 @@ class JaxImplicitMixin(JaxMixin):
 
             d_inputs.set_vals(deriv_vals[:ninputs])
             d_outputs.set_vals(deriv_vals[ninputs:])
+
+
+class JaxExplicitGroupMixin(JaxMixin):
+    """
+    Mixin class for ExplicitGroups that use JAX for derivatives.
+    """
+
+    def _setup_compute_primal(self):
+        """
+        Set up the compute_primal method.
+        """
+        pass  # do nothing now because this is called before the Group's compute_primal is set
+
+    def _get_compute_primal_inputs(self):
+        """
+        Return a dict of 'inputs' that will be used to compute the primal.
+
+        This includes any inputs connected to a source outside the group boundary.
+
+        Returns
+        -------
+        dict
+            A dict of names of inputs passed to compute_primal mapped to shape.
+        """
+        if self.pathname == '':
+            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for the top level"
+                               " group.")
+        else:
+            boundary_ins = self.get_boundary_inputs(local=True)
+            ins = {n: m['shape'] for n, m in self._var_abs2meta['input'].items()
+                   if n in boundary_ins}
+
+        return ins
+
+    def _get_compute_primal_outputs(self):
+        # return all outputs that are not indep vars
+        return {n: m for n, m in self._var_abs2meta['output'].items()
+                if 'openmdao:indep_var' not in m['tags']}
+
+    def _setup_check(self):
+        """
+        Do any error checking on user's setup, before any other recursion happens.
+        """
+        pass
+
+    def _setup_jax(self):
+        """
+        If jax is active, collect all compute_primal methods from subcomponents.
+        Combine them into a single compute_primal method for the group.
+        """
+        if jax is None:
+            return
+
+        if self.options['derivs_method'] != 'jax':
+            # recurse down the tree and setup
+            # jax anywhere below where it's active, then return.
+            for subgroup in self._subgroups_myproc:
+                subgroup._setup_jax()
+            return
+
+        if self._contains_parallel_group or self._mpi_proc_allocator.parallel:
+            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for parallel "
+                               "groups or groups that contain them.")
+
+        if self._discrete_inputs or self._discrete_outputs:
+            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for groups that "
+                               "contain discrete inputs or outputs.")
+
+        self._compute_primal_ins = self._get_compute_primal_inputs()
+        self._compute_primal_in_slices = None
+        self._compute_primal_outs = self._get_compute_primal_outputs()
+
+        pathlen = len(self.pathname) + 1 if self.pathname else 0
+
+        # local var names within our compute_primal function
+        goutput_map = {n: f'o{i}' for i, n in enumerate(self._var_abs2meta['output'])}
+        ginput_map = {}
+        for i, name in enumerate(self._compute_primal_ins):
+            ginput_map[name] = f'v{i}'
+
+        instrs = ", ".join(ginput_map.values())
+        src = [''.join(["def compute_primal(self, ", instrs, "):"])]
+
+        from openmdao.core.component import Component
+
+        # this will call compute_primal on all Components directly or indirectly under this group
+        for system in self.system_iter(recurse=True, include_self=False, typ=Component):
+            if system.compute_primal is None:
+                raise RuntimeError(f"{self.msginfo}: Can't generate a compute_primal method for "
+                                   f"this Group because component {system.pathname} has no "
+                                   "compute_primal method.")
+
+            ins = [f"self.{system.pathname[pathlen:]}"]
+            for n in system._var_abs2meta['input']:
+                if n in self._conn_global_abs_in2out:
+                    ins.append(goutput_map[self._conn_global_abs_in2out[n]])
+                else:
+                    ins.append(ginput_map[n])
+
+            ins = ', '.join(ins)
+            outs = ', '.join(goutput_map[n] for n, m in system._var_abs2meta['output'].items()
+                             if 'openmdao:indep_var' not in m['tags'])
+            if len(system._var_abs2meta['output']) == 1:
+                outs += ','
+            src.append(f"    {outs} = self.{system.pathname[pathlen:]}.compute_primal({ins})")
+
+        src.append('    return ' + ', '.join([goutput_map[n] for n in self._compute_primal_outs]))
+        if len(goutput_map) == 1:
+            src[-1] += ','  # make the output a tuple
+
+        src = '\n'.join(src)
+
+        print(f"{self.msginfo} compute_primal:\n" + src)
+
+        # create the function
+        namespace = {}
+        exec(compile(src, '<string>', 'exec'), namespace)  # nosec trusted input
+        compute_primal = namespace['compute_primal']
+
+        self._orig_compute_primal = MethodType(compute_primal, self)
+
+        if self.options['use_jit']:
+            compute_primal = jax.jit(compute_primal, static_argnums=[0])
+
+        self.compute_primal = MethodType(compute_primal, self)
