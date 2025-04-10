@@ -2599,7 +2599,7 @@ class Component(System):
         """
         Check that the compute_primal method returns a tuple.
         """
-        retnames = get_return_names(self.compute_primal)
+        retnames = get_return_names(self._orig_compute_primal)
         if self._valid_name_map:
             expected_names = [self._valid_name_map.get(n, n) for n in self._var_rel_names['output']]
             expected_names.extend([self._valid_name_map.get(n, n) for n in self._discrete_outputs])

@@ -6539,17 +6539,6 @@ class System(object, metaclass=SystemMetaclass):
                     keys.update(proc_keys)
         return keys
 
-    def is_explicit(self):
-        """
-        Return True if this is an explicit component.
-
-        Returns
-        -------
-        bool
-            True if this is an explicit component.
-        """
-        return False
-
     def best_partial_deriv_direction(self):
         """
         Return the best direction for partial deriv calculations based on input and output sizes.

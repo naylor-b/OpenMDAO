@@ -5,7 +5,7 @@ import itertools
 import numpy as np
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_check_totals
-from openmdao.utils.jax_utils import jax
+from openmdao.jax.jax_utils import jax
 from openmdao.utils.testing_utils import parameterized_name
 
 

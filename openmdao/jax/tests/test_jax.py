@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 from openmdao.utils.assert_utils import assert_near_equal
 
-from openmdao.utils.jax_utils import jax
+from openmdao.jax.jax_utils import jax
 
 if jax is not None:
     from openmdao.jax import act_tanh, smooth_abs, smooth_max, smooth_min, ks_max, \

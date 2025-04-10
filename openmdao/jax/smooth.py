@@ -2,17 +2,9 @@
 Smooth approximations to functions that do not have continuous derivatives.
 """
 
-try:
-    import jax
-    from jax import jit
-    import jax.numpy as jnp
-    jax.config.update("jax_enable_x64", True)
-except (ImportError, ModuleNotFoundError):
-    jax = None
-    from openmdao.utils.jax_utils import jit_stub as jit
+from openmdao.jax.jax_utils import jnp
 
 
-@jit
 def act_tanh(x, mu=1.0E-2, z=0., a=-1., b=1.):
     """
     Compute a differentiable activation function based on the hyperbolic tangent.
@@ -52,7 +44,6 @@ def act_tanh(x, mu=1.0E-2, z=0., a=-1., b=1.):
     return 0.5 * dy * (1. + tanh_term) + a
 
 
-@jit
 def smooth_max(x, y, mu=1.0E-2):
     """
     Compute a differentiable maximum between two arrays of the same shape.
@@ -81,7 +72,6 @@ def smooth_max(x, y, mu=1.0E-2):
     return x_greater * x + y_greater * y
 
 
-@jit
 def smooth_min(x, y, mu=1.0E-2):
     """
     Compute a differentiable minimum between two arrays of the same shape.
@@ -110,7 +100,6 @@ def smooth_min(x, y, mu=1.0E-2):
     return x_greater * y + y_greater * x
 
 
-@jit
 def smooth_abs(x, mu=1.0E-2):
     """
     Compute a differentiable approximation to the absolute value function.
@@ -134,7 +123,6 @@ def smooth_abs(x, mu=1.0E-2):
     return x * act_tanh(x, mu, 0.0, -1.0, 1.0)
 
 
-@jit
 def smooth_round(x, mu=0.01):
     """
     Compute a smooth and differentiable approximation to the round function.

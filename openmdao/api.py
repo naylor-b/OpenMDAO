@@ -36,6 +36,7 @@ from openmdao.components.vector_magnitude_comp import VectorMagnitudeComp
 from openmdao.components.submodel_comp import SubmodelComp
 from openmdao.components.jax_explicit_comp import JaxExplicitComponent
 from openmdao.components.jax_implicit_comp import JaxImplicitComponent
+from openmdao.jax.jax_explicit_group import JaxExplicitGroup
 
 
 # Solvers
@@ -124,7 +125,7 @@ from openmdao.utils.om_warnings import issue_warning, reset_warnings, OpenMDAOWa
 # Utils
 from openmdao.utils.general_utils import wing_dbg, env_truthy, om_dump, is_undefined
 from openmdao.utils.array_utils import shape_to_len
-from openmdao.utils.jax_utils import register_jax_component
+from openmdao.jax.jax_utils import register_jax_component
 
 # Reports System
 from openmdao.utils.reports_system import register_report, unregister_report, get_reports_dir, \

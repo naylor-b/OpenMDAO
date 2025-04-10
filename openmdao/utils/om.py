@@ -54,8 +54,6 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.file_utils import clean_outputs
 from openmdao.utils.find_cite import print_citations
 from openmdao.utils.code_utils import _calltree_setup_parser, _calltree_exec
-from openmdao.utils.jax_utils import _to_compute_primal_setup_parser, \
-    _to_compute_primal_exec
 from openmdao.utils.coloring import _total_coloring_setup_parser, _total_coloring_cmd, \
     _partial_coloring_setup_parser, _partial_coloring_cmd, \
     _view_coloring_setup_parser, _view_coloring_exec
@@ -70,6 +68,8 @@ from openmdao.visualization.graph_viewer import _graph_setup_parser, _graph_cmd
 from openmdao.visualization.realtime_opt_plot.realtime_opt_plot import \
     _realtime_opt_plot_setup_parser, _realtime_opt_plot_cmd
 from openmdao.recorders.view_cases import _view_cases_setup_parser, _view_cases_cmd
+from openmdao.jax.jax_converter import _to_compute_primal_setup_parser, \
+    _to_compute_primal_exec
 
 
 def _view_connections_setup_parser(parser):

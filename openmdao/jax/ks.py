@@ -2,14 +2,8 @@
 jax implementations of the Kreisselmeier-Steinhauser for the min and max values in an array.
 """
 
-try:
-    import jax
-    from jax import jit
-    import jax.numpy as jnp
-    jax.config.update("jax_enable_x64", True)
-except (ImportError, ModuleNotFoundError):
-    jax = None
-    from openmdao.utils.jax_utils import jit_stub as jit
+from openmdao.jax.jax_utils import jnp
+
 
 CITATIONS = """
 @conference {Martins:2005:SOU,
@@ -24,7 +18,6 @@ CITATIONS = """
 """
 
 
-@jit
 def ks_max(x, rho=100.0):
     """
     Compute a differentiable maximum value in an array.
@@ -52,7 +45,6 @@ def ks_max(x, rho=100.0):
     return x_max + 1.0 / rho * jnp.log(summation)
 
 
-@jit
 def ks_min(x, rho=100.0):
     """
     Compute a differentiable minimum value in an array.

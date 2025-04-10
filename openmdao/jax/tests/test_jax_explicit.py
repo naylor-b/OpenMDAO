@@ -7,7 +7,7 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials
     assert_check_totals, assert_sparsity_matches_fd
 import openmdao.api as om
 
-from openmdao.utils.jax_utils import jax, jnp
+from openmdao.jax.jax_utils import jax, jnp
 from openmdao.utils.testing_utils import parameterized_name
 
 try:

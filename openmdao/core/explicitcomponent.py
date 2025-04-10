@@ -119,6 +119,12 @@ class ExplicitComponent(Component):
                 yield wrt, start, end, vec, _full_slice, dist_sizes
                 start = end
 
+    def _get_num_differentiable_args(self):
+        """
+        Get the number of differentiable arguments for the compute_primal method.
+        """
+        return len(self._var_rel_names['input'])
+
     def _setup_residuals(self):
         """
         Prevent the user from implementing setup_residuals for explicit components.
@@ -590,7 +596,7 @@ class ExplicitComponent(Component):
         """
         return True
 
-    def _get_compute_primal_invals(self, inputs=None, discrete_inputs=None):
+    def _get_compute_primal_invals(self, inputs=None, discrete_inputs=None, include_discrete=True):
         """
         Yield the inputs expected by the compute_primal method.
 
@@ -600,6 +606,8 @@ class ExplicitComponent(Component):
             Unscaled, dimensional input variables Vector.
         discrete_inputs : dict or None
             If not None, dict containing discrete input values.
+        include_discrete : bool
+            If True, include discrete inputs.
 
         Yields
         ------
@@ -608,12 +616,14 @@ class ExplicitComponent(Component):
         """
         if inputs is None:
             inputs = self._inputs
-        if discrete_inputs is None:
-            discrete_inputs = self._discrete_inputs
 
         yield from inputs.values()
-        if discrete_inputs:
-            yield from discrete_inputs.values()
+
+        if include_discrete:
+            if discrete_inputs is None:
+                discrete_inputs = self._discrete_inputs
+            if discrete_inputs:
+                yield from discrete_inputs.values()
 
     def _get_compute_primal_argnames(self):
         """

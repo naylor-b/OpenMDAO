@@ -38,7 +38,7 @@ from openmdao.utils.relevance import get_relevance
 from openmdao.utils.om_warnings import issue_warning, UnitsWarning, UnusedOptionWarning, \
     PromotionWarning, MPIWarning, DerivativesWarning
 from openmdao.utils.class_util import overrides_method
-from openmdao.utils.jax_utils import jax
+from openmdao.jax.jax_utils import jax
 from openmdao.core.total_jac import _TotalJacInfo
 
 # regex to check for valid names.
@@ -2372,28 +2372,6 @@ class Group(System):
         abs2meta = self._var_abs2meta['output'] if local else self._var_allprocs_abs2meta['output']
         return {n: meta for n, meta in abs2meta.items() if 'openmdao:indep_var' in meta['tags']}
 
-    def get_boundary_vars(self, io, local):
-        """
-        Return a set of inputs or outputs connected to variables outside of this Group.
-
-        Parameters
-        ----------
-        io : str
-            Either 'input' or 'output'.
-        local : bool
-            If True, return only the variables local to the current process.
-
-        Returns
-        -------
-        set
-            Set of absolute inputs or outputs connected to variables outside of this Group.
-        """
-        assert io in ('input', 'output'), \
-            f"io must be either 'input' or 'output', but '{io}' was given."
-        # _var_*_abs2prom contains both continuous and discrete variables
-        vnames = self._var_abs2prom[io] if local else self._var_allprocs_abs2prom[io]
-        return set(vnames).difference(self._conn_global_abs_in2out)
-
     def _setup_jax(self):
         if jax is None:
             return
@@ -3898,6 +3876,10 @@ class Group(System):
         else:
             if self._assembled_jac is not None:
                 jac = self._assembled_jac
+
+            if self.options['derivs_method'] == 'jax':
+                self._jax_linearize(self._inputs, self._jacobian)
+                return
 
             relevance = self._relevance
             with relevance.active(self._linear_solver.use_relevance()):
@@ -5452,6 +5434,23 @@ class Group(System):
         # inside of the group or its children.
         meta['base'] = 'Group'
         return meta
+
+    def get_boundary_inputs(self, local):
+        """
+        Return a set of inputs connected to sources outside of this Group.
+
+        Parameters
+        ----------
+        local : bool
+            If True, return only the variables local to the current process.
+
+        Returns
+        -------
+        set
+            Set of absolute inputs connected to sources outside of this Group.
+        """
+        inputs = self._var_abs2meta['input'] if local else self._var_allprocs_abs2meta['input']
+        return set(inputs).difference(self._conn_global_abs_in2out)
 
 
 def iter_solver_info(system):

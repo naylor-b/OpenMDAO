@@ -505,6 +505,12 @@ class ImplicitComponent(Component):
         for name, meta in self._declared_residuals.items():
             yield name, meta['shape']
 
+    def _get_num_differentiable_args(self):
+        """
+        Get the number of differentiable arguments for the compute_primal method.
+        """
+        return len(self._var_rel_names['input']) + len(self._var_rel_names['output'])
+
     def setup_residuals(self):
         """
         User hook for adding named residuals to this component.
@@ -942,7 +948,8 @@ class ImplicitComponent(Component):
         """
         return self._list_states()
 
-    def _get_compute_primal_invals(self, inputs=None, outputs=None, discrete_inputs=None):
+    def _get_compute_primal_invals(self, inputs=None, outputs=None, discrete_inputs=None,
+                                   include_discrete=True):
         """
         Yield inputs and outputs in the order expected by the compute_primal method.
 
@@ -954,6 +961,8 @@ class ImplicitComponent(Component):
             Unscaled, dimensional output variables read via outputs[key].
         discrete_inputs : dict or None
             If not None, dict containing discrete input values.
+        include_discrete : bool
+            If True, include discrete inputs.
 
         Yields
         ------
@@ -964,13 +973,15 @@ class ImplicitComponent(Component):
             inputs = self._inputs
         if outputs is None:
             outputs = self._outputs
-        if discrete_inputs is None:
-            discrete_inputs = self._discrete_inputs
 
         yield from inputs.values()
         yield from outputs.values()
-        if discrete_inputs:
-            yield from discrete_inputs.values()
+
+        if include_discrete:
+            if discrete_inputs is None:
+                discrete_inputs = self._discrete_inputs
+            if discrete_inputs:
+                yield from discrete_inputs.values()
 
     def _get_compute_primal_argnames(self):
         if self._valid_name_map:
@@ -1008,6 +1019,17 @@ class ImplicitComponent(Component):
             self._apply_nonlinear()
             self.compute_fd_jac(jac=jac, method=method)
         return jac.get_sparsity()
+
+    def is_explicit(self):
+        """
+        Return True if this is an explicit component.
+
+        Returns
+        -------
+        bool
+            True if this is an explicit component.
+        """
+        return False
 
 
 def _overlap_range_iter(meta_dict1, meta_dict2, names1=None, names2=None):

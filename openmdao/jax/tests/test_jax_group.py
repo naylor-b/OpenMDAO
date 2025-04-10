@@ -4,25 +4,25 @@ import numpy as np
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_check_totals
 import openmdao.api as om
 
-from openmdao.utils.jax_utils import jnp
+from openmdao.jax.jax_utils import jnp
 from openmdao.jax.tests.test_jax_implicit import JaxQuadraticCompPrimal
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
 
 
 
-class JaxExplicitComp1(om.ExplicitComponent):
+class JaxExplicitComp1(om.JaxExplicitComponent):
     def setup(self):
-        self.add_input('x', shape_by_conn=True)
-        self.add_input('y', shape_by_conn=True)
-        self.add_output('z', compute_shape=lambda shapes: (shapes['x'][0], shapes['y'][1]))
+        self.options['default_to_dyn_shapes'] = True
 
-        self.declare_partials(of='z', wrt=['x', 'y'])
+        self.add_input('x')
+        self.add_input('y')
+        self.add_output('z')
 
-    def compute(self, inputs, outputs):
-        outputs['z'] = np.dot(inputs['x'], inputs['y'])
+    def compute(self, x, y):
+        return np.dot(x, y)
 
 
-class JaxExplicitComp1Shaped(om.ExplicitComponent):
+class JaxExplicitComp1Shaped(om.JaxExplicitComponent):
     def __init__(self, xshape, yshape, **kwargs):
         super().__init__(**kwargs)
         self.xshape = xshape
@@ -33,27 +33,26 @@ class JaxExplicitComp1Shaped(om.ExplicitComponent):
         self.add_input('y', shape=self.yshape)
         self.add_output('z', shape=(self.xshape[0], self.yshape[1]))
 
-        self.declare_partials(of='z', wrt=['x', 'y'])
-
-    def compute(self, inputs, outputs):
-        outputs['z'] = np.dot(inputs['x'], inputs['y'])
+    def compute_primal(self, x, y):
+        return np.dot(x, y)
 
 
-class JaxExplicitComp2(om.ExplicitComponent):
+class JaxExplicitComp2(om.JaxExplicitComponent):
     def setup(self):
-        self.add_input('x', shape_by_conn=True)
-        self.add_input('y', shape_by_conn=True)
-        self.add_output('z', compute_shape=lambda shapes: (shapes['x'][0], shapes['y'][1]))
-        self.add_output('zz', copy_shape='y')
+        self.options['default_to_dyn_shapes'] = True
 
-        self.declare_partials(of=['z', 'zz'], wrt=['x', 'y'])
+        self.add_input('x')
+        self.add_input('y')
+        self.add_output('z')
+        self.add_output('zz')
 
-    def compute(self, inputs, outputs):
-        outputs['z'] = np.dot(inputs['x'], inputs['y'])
-        outputs['zz'] = inputs['y'] * 2.5
+    def compute_primal(self, x, y):
+        z = np.dot(x, y)
+        zz = y * 2.5
+        return z, zz
 
 
-class JaxExplicitComp2Shaped(om.ExplicitComponent):
+class JaxExplicitComp2Shaped(om.JaxExplicitComponent):
     def __init__(self, xshape, yshape, **kwargs):
         super().__init__(**kwargs)
         self.xshape = xshape
@@ -65,14 +64,13 @@ class JaxExplicitComp2Shaped(om.ExplicitComponent):
         self.add_output('z', shape=(self.xshape[0], self.yshape[1]))
         self.add_output('zz', shape=self.yshape)
 
-        self.declare_partials(of=['z', 'zz'], wrt=['x', 'y'])
+    def compute_primal(self, x, y):
+        z = jnp.dot(x, y)
+        zz = y * 2.5
+        return z, zz
 
-    def compute(self, inputs, outputs):
-        outputs['z'] = np.dot(inputs['x'], inputs['y'])
-        outputs['zz'] = inputs['y'] * 2.5
 
-
-class SellarDis1Primal(om.ExplicitComponent):
+class SellarDis1Primal(om.JaxExplicitComponent):
     def __init__(self, units=None, ref=1.):
         super().__init__()
         self._units = units
@@ -84,14 +82,12 @@ class SellarDis1Primal(om.ExplicitComponent):
         self.add_input('y2', val=1.0, units=self._units)
         self.add_output('y1', val=1.0, lower=0.1, upper=1000., units=self._units, ref=self._ref)
 
-        self.declare_partials('*', '*')
-
     def compute_primal(self, z, x, y2):
         y1 = z[0]**2 + z[1] + x - 0.2*y2
         return y1
 
 
-class SellarDis2Primal(om.ExplicitComponent):
+class SellarDis2Primal(om.JaxExplicitComponent):
     def __init__(self, units=None, ref=1.):
         super().__init__()
         self._units = units
@@ -101,8 +97,6 @@ class SellarDis2Primal(om.ExplicitComponent):
         self.add_input('z', val=np.zeros(2), units=self._units)
         self.add_input('y1', val=1.0, units=self._units)
         self.add_output('y2', val=1.0, lower=0.1, upper=1000., units=self._units, ref=self._ref)
-
-        self.declare_partials('*', '*')
 
     def compute_primal(self, z, y1):
         # Note: this may cause some issues. However, y1 is constrained to be
@@ -136,15 +130,12 @@ x_shape = (2, 3)
 y_shape = (3, 4)
 
 
-#@unittest.skipIf(jax is None or sys.version_info < (3, 9), 'jax is not available or python < 3.9.')
-@unittest.skip('JAX is not supported yet for Groups')
 class TestJaxGroup(unittest.TestCase):
     def test_jax_group_outer_ivc(self):
         p = om.Problem()
         ivc = p.model.add_subsystem('ivc', om.IndepVarComp('x', val=np.ones(x_shape)))
         ivc.add_output('y', val=np.ones(y_shape))
-        G = p.model.add_subsystem('G', om.Group())
-        G.options['derivs_method'] = 'jax'
+        G = p.model.add_subsystem('G', om.JaxExplicitGroup())
         G.add_subsystem('comp2', JaxExplicitComp2())
         G.add_subsystem('comp', JaxExplicitComp1())
 
@@ -169,10 +160,7 @@ class TestJaxGroup(unittest.TestCase):
 
     def test_jax_group_auto_ivc(self):
         p = om.Problem()
-        G = p.model.add_subsystem('G', om.Group())
-        G.options['derivs_method'] = 'jax'
-        # G.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
-        # G.linear_solver = om.ScipyKrylov()
+        G = p.model.add_subsystem('G', om.JaxExplicitGroup())
 
         G.add_subsystem('comp2', JaxExplicitComp2Shaped(x_shape, y_shape))
         G.add_subsystem('comp', JaxExplicitComp1Shaped(x_shape, y_shape))
@@ -191,68 +179,10 @@ class TestJaxGroup(unittest.TestCase):
 
         assert_near_equal(p.get_val('G.comp2.z'), np.dot(x, y))
         assert_near_equal(p.get_val('G.comp2.zz'), y * 2.5)
-        assert_check_partials(p.check_partials(show_only_incorrect=True))
         assert_check_totals(p.check_totals(of=['G.comp.z','G.comp2.z', 'G.comp2.zz'],
                                              wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
-
-    @unittest.skip("unskip this after inner ivc issue is fixed for fd")
-    def test_jax_group_inner_ivc(self):
-        p = om.Problem()
-        G = p.model.add_subsystem('G', om.Group())
-        ivc = G.add_subsystem('ivc', om.IndepVarComp('x', val=np.ones(x_shape)))
-        ivc.add_output('y', val=np.ones(y_shape))
-        G.options['derivs_method'] = 'jax'
-        G.add_subsystem('comp2', JaxExplicitComp2())
-        G.add_subsystem('comp', JaxExplicitComp1())
-
-        p.model.connect('G.ivc.x', ['G.comp.x', 'G.comp2.x'])
-        p.model.connect('G.ivc.y', 'G.comp2.y')
-        G.connect('comp2.zz', 'comp.y')
-
-        p.setup(mode='fwd')
-
-        x = np.arange(1,np.prod(x_shape)+1).reshape(x_shape) * 2.0
-        y = np.arange(1,np.prod(y_shape)+1).reshape(y_shape)* 3.0
-        p.set_val('G.ivc.x', x)
-        p.set_val('G.ivc.y', y)
-        p.final_setup()
-        p.run_model()
-
-        assert_near_equal(p.get_val('G.comp2.z'), np.dot(x, y))
-        assert_near_equal(p.get_val('G.comp2.zz'), y * 2.5)
-
-        print('-' * 80)
         assert_check_partials(p.check_partials(show_only_incorrect=True))
-        assert_check_totals(p.check_totals(of=['G.comp.z','G.comp2.z', 'G.comp2.zz'],
-                                             wrt=['G.ivc.x', 'G.ivc.y'], method='fd', show_only_incorrect=True))
 
-    def test_jax_group_top_level(self):
-        p = om.Problem()
-        ivc = p.model.add_subsystem('ivc', om.IndepVarComp('x', val=np.ones(x_shape)))
-        ivc.add_output('y', val=np.ones(y_shape))
-        G = p.model
-        G.options['derivs_method'] = 'jax'
-        G.add_subsystem('comp2', JaxExplicitComp2())
-        G.add_subsystem('comp', JaxExplicitComp1())
-
-        p.model.connect('ivc.x', ['comp.x', 'comp2.x'])
-        p.model.connect('ivc.y', 'comp2.y')
-        G.connect('comp2.zz', 'comp.y')
-
-        p.setup(mode='rev')
-
-        x = np.arange(1,np.prod(x_shape)+1).reshape(x_shape) * 2.0
-        y = np.arange(1,np.prod(y_shape)+1).reshape(y_shape) * 3.0
-        p.set_val('ivc.x', x)
-        p.set_val('ivc.y', y)
-        p.final_setup()
-        p.run_model()
-
-        assert_near_equal(p.get_val('comp2.z'), np.dot(x, y))
-        assert_near_equal(p.get_val('comp2.zz'), y * 2.5)
-        assert_check_partials(p.check_partials(show_only_incorrect=True))
-        assert_check_totals(p.check_totals(of=['comp.z','comp2.z', 'comp2.zz'],
-                                             wrt=['ivc.x', 'comp2.y'], method='fd', show_only_incorrect=True))
 
     def test_jax_implicit_comp_group(self):
         raise unittest.SkipTest("Skipping this test until implicit AD support works.")
