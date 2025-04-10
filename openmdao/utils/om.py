@@ -68,7 +68,7 @@ from openmdao.visualization.graph_viewer import _graph_setup_parser, _graph_cmd
 from openmdao.visualization.realtime_opt_plot.realtime_opt_plot import \
     _realtime_opt_plot_setup_parser, _realtime_opt_plot_cmd
 from openmdao.recorders.view_cases import _view_cases_setup_parser, _view_cases_cmd
-from openmdao.jax.jax_converter import _to_compute_primal_setup_parser, \
+from openmdao.jax.comp_primals_converter import _to_compute_primal_setup_parser, \
     _to_compute_primal_exec
 
 
