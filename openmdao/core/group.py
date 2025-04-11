@@ -394,7 +394,7 @@ class Group(System):
             # Empty for the excl_sub
             scope_out = frozenset()
 
-            # All inputs connected to an output in this system but not in excl_sub
+            # All inputs connected to an output in this system but not in excl_sub.
             # allins is used to filter out discrete variables that might be found in
             # self._conn_global_abs_in2out.
             allins = self._var_allprocs_abs2meta['input']
@@ -3714,6 +3714,7 @@ class Group(System):
             True if _apply_linear should be called from within a parent _apply_linear.
         """
         return (self._owns_approx_jac and self._jacobian is not None) or \
+            (self.options['derivs_method'] == 'jax' and self._jacobian is not None) or \
             self._assembled_jac is not None or not self._linear_solver.does_recursive_applies()
 
     def _apply_linear(self, jac, mode, scope_out=None, scope_in=None):
@@ -3733,7 +3734,7 @@ class Group(System):
             Set of absolute input names in the scope of this mat-vec product.
             If None, all are in the scope.
         """
-        if self._owns_approx_jac:
+        if self._owns_approx_jac or self.options['derivs_method'] == 'jax':
             jac = self._jacobian
         elif jac is None and self._assembled_jac is not None:
             jac = self._assembled_jac
@@ -3750,7 +3751,7 @@ class Group(System):
                 # system doutput variables, taking into account distributed inputs.
                 # Since the transfers are not correcting for those issues, we need to do it here.
 
-                # If we have a distributed constraint/obj within the FD group and that con/obj is,
+                # If we have a distributed constraint/obj within the FD group and that con/obj is
                 # active, we perform essentially an allreduce on the d_inputs vars that connect to
                 # outside systems so they'll include the contribution from all procs.
                 if self._fd_rev_xfer_correction_dist and mode == 'rev':
@@ -3810,7 +3811,7 @@ class Group(System):
         scope_in : set, None, or _UNDEFINED
             Inputs relevant to possible lower level calls to _apply_linear on Components.
         """
-        if self._owns_approx_jac:
+        if self._owns_approx_jac or self.options['derivs_method'] == 'jax':
             # No subsolves if we are approximating our jacobian. Instead, we behave like an
             # ExplicitComponent and pass on the values in the derivatives vectors.
             d_outputs = self._doutputs
@@ -4037,12 +4038,16 @@ class Group(System):
                 wrt = ivc
 
         else:
-            for abs_inps in pro2abs['input'].values():
-                if abs_inps[0] not in self._conn_abs_in2out:
-                    # If connection is inside of this Group, perturbation of all implicitly
-                    # connected inputs will be handled properly via internal transfers.
-                    # Otherwise, we need to add all implicitly connected inputs separately.
-                    wrt.update(abs_inps)
+            if self.options['derivs_method'] == 'jax':
+                # no internal transfers used when jax is active
+                wrt = set(self._var_abs2meta['input'])
+            else:
+                for abs_inps in pro2abs['input'].values():
+                    if abs_inps[0] not in self._conn_abs_in2out:
+                        # If connection is inside of this Group, perturbation of all implicitly
+                        # connected inputs will be handled properly via internal transfers.
+                        # Otherwise, we need to add all implicitly connected inputs separately.
+                        wrt.update(abs_inps)
 
             # get rid of any old stuff in here
             self._owns_approx_of = self._owns_approx_wrt = None

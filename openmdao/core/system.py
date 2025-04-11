@@ -419,6 +419,9 @@ class System(object, metaclass=SystemMetaclass):
                                   'if using an assembled jacobian, will use this type.')
         self.options.declare('derivs_method', default=None, values=['jax', 'cs', 'fd', None],
                              desc='The method to use for computing derivatives')
+        self.options.declare('use_jit', types=bool, default=True,
+                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
+                             'some other AD package capable of jitting is active.')
 
         # Case recording options
         self.recording_options = OptionsDictionary(parent_name=type(self).__name__)

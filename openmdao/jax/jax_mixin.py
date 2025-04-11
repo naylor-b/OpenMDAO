@@ -15,6 +15,9 @@ from openmdao.utils.om_warnings import issue_warning
 import openmdao.utils.coloring as coloring_mod
 from openmdao.jax.jax_utils import jax, jit, _ensure_returns_tuple, _jax_register_pytree_class, \
     get_vmap_tangents, _update_subjac_sparsity, _jax2np, _compute_output_shapes
+from openmdao.recorders.recording_iteration_stack import Recording
+from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
+from openmdao.jacobians.jacobian import SUBJAC_META_DEFAULTS
 
 
 class JaxMixin(object):
@@ -75,6 +78,27 @@ class JaxMixin(object):
                           "will be used for derivatives.")
             self.options['derivs_method'] = fallback_derivs_method
 
+    def _tree_flatten(self):
+        """
+        Return a flattened pytree representation of this component.
+
+        We treat this component, when passed as 'self' into a function that is used by jax, as a
+        pytree with no continuous data.
+
+        Returns
+        -------
+        Tuple
+            A tuple containing continuous and static data.
+        """
+        return ((), {'_self_': self, '_statics_': self.get_self_statics()})
+
+    @staticmethod
+    def _tree_unflatten(aux_data, children):
+        """
+        Return the same instance of this component that was returned by the _tree_flatten method.
+        """
+        return aux_data['_self_']
+
     def _setup_compute_primal(self):
         """
         Set up the compute_primal method.
@@ -112,7 +136,7 @@ class JaxMixin(object):
 
     def _get_jax_compute_primal(self, discrete_inputs, need_jit):
         """
-        Get the jax version of the compute_primal method.
+        Get the jax version of the compute_primal method, possibly jitted.
         """
         compute_primal = self._ret_tuple_compute_primal.__func__
 
@@ -146,8 +170,8 @@ class JaxMixin(object):
         """
         Add an input to the component.
 
-        This overrides the base class method to update the kwargs to use dynamic shaping by
-        default.
+        This overrides the base class method to update the kwargs to use dynamic shaping if
+        the default_to_dyn_shapes option is True.
 
         Parameters
         ----------
@@ -162,8 +186,8 @@ class JaxMixin(object):
         """
         Add an output to the component.
 
-        This overrides the base class method to update the kwargs to use dynamic shaping by
-        default.
+        This overrides the base class method to update the kwargs to use dynamic shaping if
+        the default_to_dyn_shapes option is True.
 
         Parameters
         ----------
@@ -529,92 +553,6 @@ class JaxMixin(object):
 
         return sparsity, info
 
-    def _uncompress_jac(self, J, direction):
-        """
-        Uncompress the Jacobian using the coloring information.
-
-        Parameters
-        ----------
-        self : Component
-            The component to uncompress the Jacobian for.
-        J : ndarray
-            The Jacobian to uncompress.
-        direction : str
-            The direction to uncompress the Jacobian in.
-
-        Returns
-        -------
-        ndarray
-            The uncompressed Jacobian.
-        """
-        if self._coloring_info.coloring is not None:
-            return self._coloring_info.coloring.expand_jac(J, direction)
-        return J
-
-    def _jax_derivs2partials(self, deriv_vals, partials, ofnames, wrtnames):
-        """
-        Copy JAX derivatives into partials.
-
-        Parameters
-        ----------
-        self : Component
-            The component to copy the derivatives into.
-        deriv_vals : tuple
-            The derivatives.
-        partials : dict
-            The partials to copy the derivatives into, keyed by (of_name, wrt_name).
-        ofnames : list
-            The output names.
-        wrtnames : list
-            The input names.
-        """
-        nested_tup = isinstance(deriv_vals, tuple) and len(deriv_vals) > 0 and \
-            isinstance(deriv_vals[0], tuple)
-        nof = len(ofnames)
-
-        wrtnames = list(wrtnames)
-        for ofidx, ofname in enumerate(ofnames):
-            ofmeta = self._var_rel2meta[ofname]
-            for wrtidx, wrtname in enumerate(wrtnames):
-                key = (ofname, wrtname)
-                if key not in partials:
-                    # FIXME: this means that we computed a derivative that we didn't need
-                    continue
-
-                dvals = deriv_vals
-                # if there's only one 'of' value, we only take the indexed value if the
-                # return value of compute_primal is single entry tuple. If a single array or
-                # scalar is returned, we don't apply the 'of' index.
-                if nof > 1 or nested_tup:
-                    dvals = dvals[ofidx]
-
-                dvals = dvals[wrtidx].reshape(ofmeta['size'], self._var_rel2meta[wrtname]['size'])
-
-                sjmeta = partials.get_metadata(key)
-                rows = sjmeta['rows']
-                if rows is None:
-                    partials[ofname, wrtname] = dvals
-                else:
-                    partials[ofname, wrtname] = dvals[rows, sjmeta['cols']]
-
-    def _update_add_input_kwargs(self, **kwargs):
-        if self.options['default_to_dyn_shapes']:
-            if kwargs.get('val') is None and kwargs.get('shape') is None:
-                if kwargs.get('copy_shape') is None and kwargs.get('compute_shape') is None:
-                    if kwargs.get('shape_by_conn') is None:
-                        kwargs['shape_by_conn'] = True
-
-        return kwargs
-
-    def _update_add_output_kwargs(self, name, **kwargs):
-        if self.options['default_to_dyn_shapes']:
-            if kwargs.get('val') is None and kwargs.get('shape') is None:
-                if kwargs.get('copy_shape') is None and kwargs.get('compute_shape') is None:
-                    # add our own compute_shape function
-                    kwargs['compute_shape'] = self._get_compute_shape_func(name)
-
-        return kwargs
-
     def compute_sparsity(self, direction=None, num_iters=1, perturb_size=1e-9):
         """
         Get the sparsity of the Jacobian.
@@ -641,6 +579,97 @@ class JaxMixin(object):
                                                           num_iters=num_iters,
                                                           perturb_size=perturb_size)
         return self._sparsity
+
+    def _uncompress_jac(self, J, direction):
+        """
+        Uncompress the Jacobian using the coloring information.
+
+        Parameters
+        ----------
+        self : Component
+            The component to uncompress the Jacobian for.
+        J : ndarray
+            The Jacobian to uncompress.
+        direction : str
+            The direction to uncompress the Jacobian in.
+
+        Returns
+        -------
+        ndarray
+            The uncompressed Jacobian.
+        """
+        if self._coloring_info.coloring is not None:
+            return self._coloring_info.coloring.expand_jac(J, direction)
+        return J
+
+    def _jax_derivs2partials(self, deriv_vals, partials, ofnames, wrtnames, in_meta_dict,
+                             out_meta_dict):
+        """
+        Copy JAX derivatives into partials.
+
+        Parameters
+        ----------
+        self : Component
+            The component to copy the derivatives into.
+        deriv_vals : tuple
+            The derivatives.
+        partials : dict
+            The partials to copy the derivatives into, keyed by (of_name, wrt_name).
+        ofnames : list
+            The output names.
+        wrtnames : list
+            The input names.
+        in_meta_dict : dict
+            The metadata for the inputs.
+        out_meta_dict : dict
+            The metadata for the outputs.
+        """
+        nested_tup = isinstance(deriv_vals, tuple) and len(deriv_vals) > 0 and \
+            isinstance(deriv_vals[0], tuple)
+        nof = len(ofnames)
+
+        wrtnames = list(wrtnames)
+        for ofidx, ofname in enumerate(ofnames):
+            ofmeta = out_meta_dict[ofname]
+            for wrtidx, wrtname in enumerate(wrtnames):
+                key = (ofname, wrtname)
+                if key not in partials:
+                    # FIXME: this means that we computed a derivative that we didn't need
+                    continue
+
+                dvals = deriv_vals
+                # if there's only one 'of' value, we only take the indexed value if the
+                # return value of compute_primal is single entry tuple. If a single array or
+                # scalar is returned, we don't apply the 'of' index.
+                if nof > 1 or nested_tup:
+                    dvals = dvals[ofidx]
+
+                dvals = dvals[wrtidx].reshape(ofmeta['size'], in_meta_dict[wrtname]['size'])
+
+                sjmeta = partials.get_metadata(key)
+                rows = sjmeta['rows']
+                if rows is None:
+                    partials[ofname, wrtname] = dvals
+                else:
+                    partials[ofname, wrtname] = dvals[rows, sjmeta['cols']]
+
+    def _update_add_input_kwargs(self, **kwargs):
+        if self.options['default_to_dyn_shapes']:
+            if kwargs.get('val') is None and kwargs.get('shape') is None:
+                if kwargs.get('copy_shape') is None and kwargs.get('compute_shape') is None:
+                    if kwargs.get('shape_by_conn') is None:
+                        kwargs['shape_by_conn'] = True
+
+        return kwargs
+
+    def _update_add_output_kwargs(self, name, **kwargs):
+        if self.options['default_to_dyn_shapes']:
+            if kwargs.get('val') is None and kwargs.get('shape') is None:
+                if kwargs.get('copy_shape') is None and kwargs.get('compute_shape') is None:
+                    # add our own compute_shape function
+                    kwargs['compute_shape'] = self._get_compute_shape_func(name)
+
+        return kwargs
 
     def _update_subjac_sparsity(self, sparsity_iter):
         if self.options['derivs_method'] == 'jax':
@@ -739,7 +768,8 @@ class JaxExplicitMixin(JaxMixin):
         # Maybe make a simple JaxJacobian that is just a thin wrapper around the jacobian array.
         # The only issue is do higher level jacobians need the subjacobian info?
         self._jax_derivs2partials(derivs, partials, self._var_rel_names['output'],
-                                  self._var_rel_names['input'])
+                                  self._var_rel_names['input'],
+                                  self._var_rel2meta, self._var_rel2meta)
 
     def _jacfwd_colored(self, inputs, partials):
         """
@@ -898,7 +928,8 @@ class JaxImplicitMixin(JaxMixin):
         derivs = self._jac_func_(*chain(inputs.values(), outputs.values()))
         self._jax_derivs2partials(derivs, partials, self._var_rel_names['output'],
                                   chain(self._var_rel_names['input'],
-                                        self._var_rel_names['output']))
+                                        self._var_rel_names['output']),
+                                        self._var_rel2meta, self._var_rel2meta)
 
     def _jacfwd_colored(self, inputs, outputs, partials):
         """
@@ -1005,6 +1036,12 @@ class JaxExplicitGroupMixin(JaxMixin):
     Mixin class for ExplicitGroups that use JAX for derivatives.
     """
 
+    def __init__(self, *args, **kwargs):
+        # set compute_primal to something to avoid exception during JaxMixin.__init__
+        self.compute_primal = lambda: None
+        self._compute_primal_ins = None
+        super().__init__(*args, **kwargs)
+
     def _setup_compute_primal(self):
         """
         Set up the compute_primal method.
@@ -1025,17 +1062,24 @@ class JaxExplicitGroupMixin(JaxMixin):
         if self.pathname == '':
             raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for the top level"
                                " group.")
-        else:
+        elif self._compute_primal_ins is None:
             boundary_ins = self.get_boundary_inputs(local=True)
-            ins = {n: m['shape'] for n, m in self._var_abs2meta['input'].items()
-                   if n in boundary_ins}
+            self._compute_primal_ins = {n: m['shape']
+                                        for n, m in self._var_abs2meta['input'].items()
+                                        if n in boundary_ins}
 
-        return ins
+        return self._compute_primal_ins
 
     def _get_compute_primal_outputs(self):
         # return all outputs that are not indep vars
         return {n: m for n, m in self._var_abs2meta['output'].items()
                 if 'openmdao:indep_var' not in m['tags']}
+
+    def _get_num_differentiable_args(self):
+        """
+        Get the number of differentiable arguments for the compute_primal method.
+        """
+        return len(self._get_compute_primal_inputs())
 
     def _setup_check(self):
         """
@@ -1073,8 +1117,8 @@ class JaxExplicitGroupMixin(JaxMixin):
         pathlen = len(self.pathname) + 1 if self.pathname else 0
 
         # local var names within our compute_primal function
-        goutput_map = {n: f'o{i}' for i, n in enumerate(self._var_abs2meta['output'])}
-        ginput_map = {}
+        self._goutput_map = goutput_map = {n: f'o{i}' for i, n in enumerate(self._var_abs2meta['output'])}
+        self._ginput_map = ginput_map = {}
         for i, name in enumerate(self._compute_primal_ins):
             ginput_map[name] = f'v{i}'
 
@@ -1090,7 +1134,7 @@ class JaxExplicitGroupMixin(JaxMixin):
                                    f"this Group because component {system.pathname} has no "
                                    "compute_primal method.")
 
-            ins = [f"self.{system.pathname[pathlen:]}"]
+            ins = []
             for n in system._var_abs2meta['input']:
                 if n in self._conn_global_abs_in2out:
                     ins.append(goutput_map[self._conn_global_abs_in2out[n]])
@@ -1113,13 +1157,83 @@ class JaxExplicitGroupMixin(JaxMixin):
         print(f"{self.msginfo} compute_primal:\n" + src)
 
         # create the function
-        namespace = {}
+        namespace = {'self': self}  # Add self to namespace
         exec(compile(src, '<string>', 'exec'), namespace)  # nosec trusted input
-        compute_primal = namespace['compute_primal']
+        self.compute_primal = MethodType(namespace['compute_primal'], self)
 
-        self._orig_compute_primal = MethodType(compute_primal, self)
+        self._orig_compute_primal = self.compute_primal
+        self._ret_tuple_compute_primal = self.compute_primal
 
-        if self.options['use_jit']:
-            compute_primal = jax.jit(compute_primal, static_argnums=[0])
+        super()._setup_jax()
 
-        self.compute_primal = MethodType(compute_primal, self)
+        self._setup_jax_jacobian()
+
+    def _solve_nonlinear(self):
+        """
+        Compute outputs. The model is assumed to be in a scaled state.
+        """
+        with Recording(self.pathname + '.compute_primal', self.iter_count, self):
+            returns = self.compute_primal(*self._get_compute_primal_invals(self._inputs))
+
+        if self._discrete_outputs:
+            self._outputs.set_vals(returns[:self._outputs.nvars()])
+            self._discrete_outputs.set_vals(returns[self._outputs.nvars():])
+        else:
+            self._outputs.set_vals(returns)
+
+    def _linearize(self, jac, sub_do_ln=True):
+        self._update_jac_functs(())
+
+        if jac is None:
+            jac = self._jacobian
+        if jac is None:
+            self._jacobian = DictionaryJacobian(self)
+            jac = self._jacobian
+
+        if self._jac_colored_ is not None:
+            return self._jac_colored_(self._inputs, jac)
+
+        derivs = self._jac_func_(*self._get_compute_primal_invals(self._inputs))
+
+
+        self._jax_derivs2partials(derivs, jac, self._goutput_map, self._ginput_map,
+                                  self._var_abs2meta['input'],
+                                  self._var_abs2meta['output'])
+
+    def _setup_jax_jacobian(self):
+        """
+        Set up the partials for the group.
+        """
+        self._subjac_key_map = {}
+
+        if self._tot_jac is None:  # doing semitotals
+            abs2meta_out = self._var_abs2meta['output']
+            conns = self._conn_global_abs_in2out
+            for key in self._subjacs_info:
+                of, wrt = key
+                if wrt in conns:
+                    src = conns[wrt]
+                    if src in self._ivcs and (of, src) not in self._subjacs_info:
+                        self._subjac_key_map[(of, src)] = key
+
+            ometa = self._var_abs2meta['output']
+            imeta = self._var_abs2meta['input']
+            
+            # add any missing partials
+            for key in self._subjac_keys_iter():
+                if key not in self._subjacs_info and key not in self._subjac_key_map:
+                    of, wrt = key
+
+                    meta = SUBJAC_META_DEFAULTS.copy()
+
+                    if of == wrt:
+                        size = abs2meta_out[of]['size']
+                        meta['rows'] = meta['cols'] = np.arange(size)
+                        # group is explicit, so we have a -1 on the diagonal.
+                        meta['val'] = np.full(size, -1.0)
+                    else:
+                        ofsize = ometa[of]['size']
+                        wrtsize = imeta[wrt]['size'] if wrt in imeta else ometa[wrt]['size']
+                        meta['val'] = np.zeros((ofsize, wrtsize))
+
+                    self._subjacs_info[key] = meta

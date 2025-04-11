@@ -125,27 +125,6 @@ class Component(System):
         self._valid_name_map = {}
         self._orig_compute_primal = getattr(self, 'compute_primal')
 
-    def _tree_flatten(self):
-        """
-        Return a flattened pytree representation of this component.
-
-        We treat this component, when passed as 'self' into a function that is used by jax, as a
-        pytree with no continuous data.
-
-        Returns
-        -------
-        Tuple
-            A tuple containing continuous and static data.
-        """
-        return ((), {'_self_': self, '_statics_': self.get_self_statics()})
-
-    @staticmethod
-    def _tree_unflatten(aux_data, children):
-        """
-        Return the same instance of this component that was returned by the _tree_flatten method.
-        """
-        return aux_data['_self_']
-
     def _declare_options(self):
         """
         Declare options before kwargs are processed in the init method.
@@ -164,9 +143,6 @@ class Component(System):
                              desc='If True, force nonlinear operations on this component to be '
                                   'included in the optimization loop even if this component is not '
                                   'relevant to the design variables and responses.')
-        self.options.declare('use_jit', types=bool, default=True,
-                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
-                             'some other AD package capable of jitting is active.')
         self.options.declare('default_shape', types=tuple, default=(1,),
                              desc='Default shape for variables that do not set val to a non-scalar '
                              'value or set shape, shape_by_conn, copy_shape, or compute_shape.'

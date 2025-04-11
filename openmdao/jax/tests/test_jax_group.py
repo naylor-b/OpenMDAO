@@ -18,8 +18,8 @@ class JaxExplicitComp1(om.JaxExplicitComponent):
         self.add_input('y')
         self.add_output('z')
 
-    def compute(self, x, y):
-        return np.dot(x, y)
+    def compute_primal(self, x, y):
+        return jnp.dot(x, y)
 
 
 class JaxExplicitComp1Shaped(om.JaxExplicitComponent):
@@ -34,7 +34,7 @@ class JaxExplicitComp1Shaped(om.JaxExplicitComponent):
         self.add_output('z', shape=(self.xshape[0], self.yshape[1]))
 
     def compute_primal(self, x, y):
-        return np.dot(x, y)
+        return jnp.dot(x, y)
 
 
 class JaxExplicitComp2(om.JaxExplicitComponent):
@@ -47,7 +47,7 @@ class JaxExplicitComp2(om.JaxExplicitComponent):
         self.add_output('zz')
 
     def compute_primal(self, x, y):
-        z = np.dot(x, y)
+        z = jnp.dot(x, y)
         zz = y * 2.5
         return z, zz
 
@@ -126,12 +126,11 @@ class SellarPrimalGrouped(om.Group):
         self.set_input_defaults('z', np.array([5.0, 2.0]))
 
 
-x_shape = (2, 3)
-y_shape = (3, 4)
-
-
 class TestJaxGroup(unittest.TestCase):
     def test_jax_group_outer_ivc(self):
+        x_shape = (2, 3)
+        y_shape = (3, 4)
+
         p = om.Problem()
         ivc = p.model.add_subsystem('ivc', om.IndepVarComp('x', val=np.ones(x_shape)))
         ivc.add_output('y', val=np.ones(y_shape))
@@ -159,6 +158,9 @@ class TestJaxGroup(unittest.TestCase):
                                              wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
 
     def test_jax_group_auto_ivc(self):
+        x_shape = (2, 3)
+        y_shape = (3, 4)
+
         p = om.Problem()
         G = p.model.add_subsystem('G', om.JaxExplicitGroup())
 
@@ -166,8 +168,8 @@ class TestJaxGroup(unittest.TestCase):
         G.add_subsystem('comp', JaxExplicitComp1Shaped(x_shape, y_shape))
 
         G.connect('comp2.zz', 'comp.y')
-
-        p.setup(mode='rev')
+        
+        p.setup(mode='fwd')
 
         x = np.arange(1,np.prod(x_shape)+1).reshape(x_shape) * 2.0
         y = np.arange(1,np.prod(y_shape)+1).reshape(y_shape)* 3.0
@@ -179,8 +181,9 @@ class TestJaxGroup(unittest.TestCase):
 
         assert_near_equal(p.get_val('G.comp2.z'), np.dot(x, y))
         assert_near_equal(p.get_val('G.comp2.zz'), y * 2.5)
+        assert_near_equal(p.get_val('G.comp.z'), np.dot(x, y * 2.5))
         assert_check_totals(p.check_totals(of=['G.comp.z','G.comp2.z', 'G.comp2.zz'],
-                                             wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
+                                           wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
         assert_check_partials(p.check_partials(show_only_incorrect=True))
 
 
