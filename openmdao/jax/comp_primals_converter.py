@@ -16,9 +16,8 @@ from itertools import chain
 from collections import defaultdict
 import importlib
 
-from openmdao.utils.code_utils import remove_src_blocks, replace_src_block, _get_long_name, \
-    get_module_path
-from openmdao.utils.file_utils import _load_and_exec
+from openmdao.utils.code_utils import remove_src_blocks, replace_src_block, _get_long_name
+from openmdao.utils.file_utils import _load_and_exec, get_module_path
 from openmdao.jax.jax_utils import jnp
 
 

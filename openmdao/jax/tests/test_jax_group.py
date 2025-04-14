@@ -7,7 +7,12 @@ import openmdao.api as om
 from openmdao.jax.jax_utils import jnp
 from openmdao.jax.tests.test_jax_implicit import JaxQuadraticCompPrimal
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
+from openmdao.utils.testing_utils import parameterized_name
 
+try:
+    from parameterized import parameterized
+except ImportError:
+    from openmdao.utils.assert_utils import SkipParameterized as parameterized
 
 
 class JaxExplicitComp1(om.JaxExplicitComponent):
@@ -127,7 +132,8 @@ class SellarPrimalGrouped(om.Group):
 
 
 class TestJaxGroup(unittest.TestCase):
-    def test_jax_group_outer_ivc(self):
+    @parameterized.expand(['fwd', 'rev'], name_func=parameterized_name)
+    def test_jax_group_outer_ivc(self, mode):
         x_shape = (2, 3)
         y_shape = (3, 4)
 
@@ -142,7 +148,7 @@ class TestJaxGroup(unittest.TestCase):
         p.model.connect('ivc.y', 'G.comp2.y')
         G.connect('comp2.zz', 'comp.y')
 
-        p.setup(mode='rev')
+        p.setup(mode=mode)
 
         x = np.arange(1,np.prod(x_shape)+1).reshape(x_shape) * 2.0
         y = np.arange(1,np.prod(y_shape)+1).reshape(y_shape)* 3.0
@@ -157,7 +163,8 @@ class TestJaxGroup(unittest.TestCase):
         assert_check_totals(p.check_totals(of=['G.comp.z','G.comp2.z', 'G.comp2.zz'],
                                              wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
 
-    def test_jax_group_auto_ivc(self):
+    @parameterized.expand(['fwd', 'rev'], name_func=parameterized_name)
+    def test_jax_group_auto_ivc(self, mode):
         x_shape = (2, 3)
         y_shape = (3, 4)
 
@@ -168,8 +175,8 @@ class TestJaxGroup(unittest.TestCase):
         G.add_subsystem('comp', JaxExplicitComp1Shaped(x_shape, y_shape))
 
         G.connect('comp2.zz', 'comp.y')
-        
-        p.setup(mode='fwd')
+
+        p.setup(mode=mode)
 
         x = np.arange(1,np.prod(x_shape)+1).reshape(x_shape) * 2.0
         y = np.arange(1,np.prod(y_shape)+1).reshape(y_shape)* 3.0
@@ -186,6 +193,26 @@ class TestJaxGroup(unittest.TestCase):
                                            wrt=['G.comp2.x', 'G.comp2.y'], method='fd', show_only_incorrect=True))
         assert_check_partials(p.check_partials(show_only_incorrect=True))
 
+    @parameterized.expand(['fwd', 'rev'], name_func=parameterized_name)
+    def test_cycle_error(self, mode):
+        x_shape = (2, 3)
+        y_shape = (3, 4)
+
+        p = om.Problem()
+        G = p.model.add_subsystem('G', om.JaxExplicitGroup())
+
+        G.add_subsystem('comp2', JaxExplicitComp2Shaped(x_shape, y_shape))
+        G.add_subsystem('comp', JaxExplicitComp1Shaped(x_shape, y_shape))
+
+        G.connect('comp2.zz', 'comp.y')
+        G.connect('comp.z', 'comp2.x')
+
+        with self.assertRaises(Exception) as ctx:
+            p.setup(mode=mode)
+
+        self.assertEqual(ctx.exception.args[0],
+                         "'G' <class JaxExplicitGroup>: JAX mode is currently supported for explicit groups only, meaning they contain no implicit components and no cycles."
+)
 
     def test_jax_implicit_comp_group(self):
         raise unittest.SkipTest("Skipping this test until implicit AD support works.")

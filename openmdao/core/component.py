@@ -143,6 +143,9 @@ class Component(System):
                              desc='If True, force nonlinear operations on this component to be '
                                   'included in the optimization loop even if this component is not '
                                   'relevant to the design variables and responses.')
+        self.options.declare('use_jit', types=bool, default=True,
+                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
+                             'some other AD package capable of jitting is active.')
         self.options.declare('default_shape', types=tuple, default=(1,),
                              desc='Default shape for variables that do not set val to a non-scalar '
                              'value or set shape, shape_by_conn, copy_shape, or compute_shape.'

@@ -11,6 +11,7 @@ import numpy as np
 from scipy.sparse import coo_matrix
 
 from openmdao.utils.code_utils import get_function_deps, get_return_names
+from openmdao.core.constants import _UNDEFINED
 from openmdao.utils.om_warnings import issue_warning
 import openmdao.utils.coloring as coloring_mod
 from openmdao.jax.jax_utils import jax, jit, _ensure_returns_tuple, _jax_register_pytree_class, \
@@ -929,7 +930,7 @@ class JaxImplicitMixin(JaxMixin):
         self._jax_derivs2partials(derivs, partials, self._var_rel_names['output'],
                                   chain(self._var_rel_names['input'],
                                         self._var_rel_names['output']),
-                                        self._var_rel2meta, self._var_rel2meta)
+                                  self._var_rel2meta, self._var_rel2meta)
 
     def _jacfwd_colored(self, inputs, outputs, partials):
         """
@@ -1034,13 +1035,46 @@ class JaxImplicitMixin(JaxMixin):
 class JaxExplicitGroupMixin(JaxMixin):
     """
     Mixin class for ExplicitGroups that use JAX for derivatives.
+
+    Parameters
+    ----------
+    *args : list
+        Positional arguments to be passed to the base class.
+    **kwargs : dict
+        Keyword arguments to be passed to the base class.
+
+    Attributes
+    ----------
+    compute_primal : function
+        The compute_primal method for the group.
+    _compute_primal_ins : dict
+        A dict of 'inputs' that will be used to compute the primal.
     """
 
     def __init__(self, *args, **kwargs):
+        """
+        Initialize the JaxExplicitGroupMixin.
+
+        Parameters
+        ----------
+        *args : list
+            Positional arguments to be passed to the base class.
+        **kwargs : dict
+            Keyword arguments to be passed to the base class.
+        """
         # set compute_primal to something to avoid exception during JaxMixin.__init__
         self.compute_primal = lambda: None
         self._compute_primal_ins = None
         super().__init__(*args, **kwargs)
+
+    def _declare_options(self):
+        """
+        Declare options before kwargs are processed in the init method.
+        """
+        super()._declare_options()
+        self.options.declare('use_jit', types=bool, default=True,
+                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
+                             'some other AD package capable of jitting is active.')
 
     def _setup_compute_primal(self):
         """
@@ -1087,9 +1121,37 @@ class JaxExplicitGroupMixin(JaxMixin):
         """
         pass
 
+    def _configure_check(self):
+        """
+        Check if the group is compatible with JAX.
+        """
+        super()._configure_check()
+
+        if self.options['derivs_method'] != 'jax':
+            return
+
+        if self._contains_parallel_group or self._mpi_proc_allocator.parallel:
+            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for parallel "
+                               "groups or groups that contain them.")
+
+        if self._discrete_inputs or self._discrete_outputs:
+            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for groups that "
+                               "contain discrete inputs or outputs.")
+
+    def _setup_global_connections(self):
+        """
+        Set up the global connections for the group.
+        """
+        super()._setup_global_connections()
+        if not self.is_explicit():
+            raise RuntimeError(f"{self.msginfo}: JAX mode is currently supported for explicit "
+                               "groups only, meaning they contain no implicit components and no "
+                               "cycles.")
+
     def _setup_jax(self):
         """
         If jax is active, collect all compute_primal methods from subcomponents.
+
         Combine them into a single compute_primal method for the group.
         """
         if jax is None:
@@ -1102,14 +1164,6 @@ class JaxExplicitGroupMixin(JaxMixin):
                 subgroup._setup_jax()
             return
 
-        if self._contains_parallel_group or self._mpi_proc_allocator.parallel:
-            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for parallel "
-                               "groups or groups that contain them.")
-
-        if self._discrete_inputs or self._discrete_outputs:
-            raise RuntimeError(f"{self.msginfo}: JAX mode not currently supported for groups that "
-                               "contain discrete inputs or outputs.")
-
         self._compute_primal_ins = self._get_compute_primal_inputs()
         self._compute_primal_in_slices = None
         self._compute_primal_outs = self._get_compute_primal_outputs()
@@ -1117,7 +1171,8 @@ class JaxExplicitGroupMixin(JaxMixin):
         pathlen = len(self.pathname) + 1 if self.pathname else 0
 
         # local var names within our compute_primal function
-        self._goutput_map = goutput_map = {n: f'o{i}' for i, n in enumerate(self._var_abs2meta['output'])}
+        self._goutput_map = goutput_map = {n: f'o{i}'
+                                           for i, n in enumerate(self._var_abs2meta['output'])}
         self._ginput_map = ginput_map = {}
         for i, name in enumerate(self._compute_primal_ins):
             ginput_map[name] = f'v{i}'
@@ -1181,6 +1236,58 @@ class JaxExplicitGroupMixin(JaxMixin):
         else:
             self._outputs.set_vals(returns)
 
+    def _apply_linear(self, jac, mode, scope_out=None, scope_in=None):
+        """
+        Compute jac-vec product. The model is assumed to be in a scaled state.
+
+        Parameters
+        ----------
+        jac : Jacobian or None
+            If None, use local jacobian, else use assembled jacobian jac.
+        mode : str
+            'fwd' or 'rev'.
+        scope_out : set or None
+            Set of absolute output names in the scope of this mat-vec product.
+            If None, all are in the scope.
+        scope_in : set or None
+            Set of absolute input names in the scope of this mat-vec product.
+            If None, all are in the scope.
+        """
+        with self._matvec_context(scope_out, scope_in, mode) as vecs:
+            d_inputs, d_outputs, d_residuals = vecs
+            self._jacobian._apply(self, d_inputs, d_outputs, d_residuals, mode)
+
+    def _solve_linear(self, mode, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
+        """
+        Apply inverse jac product. The model is assumed to be in a scaled state.
+
+        Parameters
+        ----------
+        mode : str
+            'fwd' or 'rev'.
+        scope_out : set, None, or _UNDEFINED
+            Outputs relevant to possible lower level calls to _apply_linear on Components.
+        scope_in : set, None, or _UNDEFINED
+            Inputs relevant to possible lower level calls to _apply_linear on Components.
+        """
+        if mode == 'fwd':
+            src = self._dresiduals
+            tgt = self._doutputs
+        else:  # rev
+            src = self._doutputs
+            tgt = self._dresiduals
+
+        if self._has_resid_scaling:
+            src.scale_to_phys()
+            tgt.set_vec(src)
+            tgt.scale_to_norm()
+            src.scale_to_norm()
+        else:
+            tgt.set_vec(src)
+
+        # ExplicitComponent jacobian defined with -1 on diagonal.
+        tgt *= -1.0
+
     def _linearize(self, jac, sub_do_ln=True):
         self._update_jac_functs(())
 
@@ -1193,8 +1300,8 @@ class JaxExplicitGroupMixin(JaxMixin):
         if self._jac_colored_ is not None:
             return self._jac_colored_(self._inputs, jac)
 
-        derivs = self._jac_func_(*self._get_compute_primal_invals(self._inputs))
-
+        derivs = self._jac_func_(*self._get_compute_primal_invals(self._inputs,
+                                                                  include_discrete=False))
 
         self._jax_derivs2partials(derivs, jac, self._goutput_map, self._ginput_map,
                                   self._var_abs2meta['input'],
@@ -1218,7 +1325,7 @@ class JaxExplicitGroupMixin(JaxMixin):
 
             ometa = self._var_abs2meta['output']
             imeta = self._var_abs2meta['input']
-            
+
             # add any missing partials
             for key in self._subjac_keys_iter():
                 if key not in self._subjacs_info and key not in self._subjac_key_map:

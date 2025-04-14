@@ -3734,7 +3734,7 @@ class Group(System):
             Set of absolute input names in the scope of this mat-vec product.
             If None, all are in the scope.
         """
-        if self._owns_approx_jac or self.options['derivs_method'] == 'jax':
+        if self._owns_approx_jac:
             jac = self._jacobian
         elif jac is None and self._assembled_jac is not None:
             jac = self._assembled_jac
@@ -3811,31 +3811,28 @@ class Group(System):
         scope_in : set, None, or _UNDEFINED
             Inputs relevant to possible lower level calls to _apply_linear on Components.
         """
-        if self._owns_approx_jac or self.options['derivs_method'] == 'jax':
+        if self._owns_approx_jac:
             # No subsolves if we are approximating our jacobian. Instead, we behave like an
             # ExplicitComponent and pass on the values in the derivatives vectors.
-            d_outputs = self._doutputs
-            d_residuals = self._dresiduals
-
             if mode == 'fwd':
-                if self._has_resid_scaling:
-                    with self._unscaled_context(outputs=[d_outputs], residuals=[d_residuals]):
-                        d_outputs.set_vec(d_residuals)
-                else:
-                    d_outputs.set_vec(d_residuals)
-
-                # ExplicitComponent jacobian defined with -1 on diagonal.
-                d_outputs *= -1.0
-
+                src = self._dresiduals
+                tgt = self._doutputs
             else:  # rev
-                if self._has_resid_scaling:
-                    with self._unscaled_context(outputs=[d_outputs], residuals=[d_residuals]):
-                        d_residuals.set_vec(d_outputs)
-                else:
-                    d_residuals.set_vec(d_outputs)
+                src = self._doutputs
+                tgt = self._dresiduals
 
-                # ExplicitComponent jacobian defined with -1 on diagonal.
-                d_residuals *= -1.0
+            if self._has_resid_scaling:
+                src.scale_to_phys()
+
+                tgt.set_vec(src)
+
+                tgt.scale_to_norm()
+                src.scale_to_norm()
+            else:
+                tgt.set_vec(src)
+
+            # ExplicitComponent jacobian defined with -1 on diagonal.
+            tgt *= -1.0
         else:
             self._linear_solver._set_matvec_scope(scope_out, scope_in)
             with self._relevance.active(self._linear_solver.use_relevance()):
