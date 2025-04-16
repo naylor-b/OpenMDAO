@@ -355,6 +355,7 @@ class JaxMixin(object):
                                        argnums=self._get_differentiable_argnums())
 
             if need_jit:
+                print("JITing jac", self.pathname)
                 self._jac_func_ = jax.jit(self._jac_func_)
 
     def _get_differentiable_compute_primal(self, discrete_inputs):
@@ -1288,7 +1289,7 @@ class JaxExplicitGroupMixin(JaxMixin):
         # ExplicitComponent jacobian defined with -1 on diagonal.
         tgt *= -1.0
 
-    def _linearize(self, jac, sub_do_ln=True):
+    def _linearize(self, jac=None, sub_do_ln=True):
         self._update_jac_functs(())
 
         if jac is None:

@@ -3838,7 +3838,7 @@ class Group(System):
             with self._relevance.active(self._linear_solver.use_relevance()):
                 self._linear_solver.solve(mode, None)
 
-    def _linearize(self, jac, sub_do_ln=True):
+    def _linearize(self, jac=None, sub_do_ln=True):
         """
         Compute jacobian / factorization. The model is assumed to be in a scaled state.
 

@@ -94,6 +94,7 @@ class JaxSparsityComp(JaxExplicitComponent):
             self.declare_partials('y', 'x', rows=self.nzrows, cols=self.nzcols)
 
     def compute_primal(self, x):
+        print("computing primal", self.pathname, type(x))
         return self.sparsity @ x
 
 
