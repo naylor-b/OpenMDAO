@@ -960,6 +960,28 @@ class _LambdaSrcFinder(ast.NodeVisitor):
             self.src = None
 
 
+def is_staticmethod(inst_or_cls, method_name):
+    """
+    Return True if the given method is a staticmethod.
+
+    Parameters
+    ----------
+    inst_or_cls : class or instance
+        The class or instance to check.
+    method_name : str
+        The name of the method to check.
+
+    Returns
+    -------
+    bool
+        True if the given method is a static method, False otherwise.
+    """
+    if not isinstance(inst_or_cls, type):
+        inst_or_cls = type(inst_or_cls)
+
+    return isinstance(inspect.getattr_static(inst_or_cls, method_name), staticmethod)
+
+
 if __name__ == '__main__':
     import pprint
     pprint.pprint(get_class_attributes(__file__))

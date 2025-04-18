@@ -211,7 +211,7 @@ class TestJaxGroup(unittest.TestCase):
             p.setup(mode=mode)
 
         self.assertEqual(ctx.exception.args[0],
-                         "'G' <class JaxExplicitGroup>: JAX mode is currently supported for explicit groups only, meaning they contain no implicit components and no cycles."
+                         "'G' <class JaxExplicitGroup>: JAX mode is currently supported for explicit groups only. They must contain no implicit components or cycles."
 )
 
     def test_jax_implicit_comp_group(self):

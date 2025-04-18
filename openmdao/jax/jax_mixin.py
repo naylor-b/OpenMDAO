@@ -10,12 +10,13 @@ from functools import partial
 import numpy as np
 from scipy.sparse import coo_matrix
 
-from openmdao.utils.code_utils import get_function_deps, get_return_names
+from openmdao.utils.code_utils import get_function_deps, get_return_names, is_staticmethod
 from openmdao.core.constants import _UNDEFINED
 from openmdao.utils.om_warnings import issue_warning
 import openmdao.utils.coloring as coloring_mod
-from openmdao.jax.jax_utils import jax, jit, _ensure_returns_tuple, _jax_register_pytree_class, \
-    get_vmap_tangents, _update_subjac_sparsity, _jax2np, _compute_output_shapes
+from openmdao.jax.jax_utils import jax, jit, jnp, _ensure_returns_tuple, \
+    _jax_register_pytree_class, get_vmap_tangents, _update_subjac_sparsity, _jax2np, \
+    _compute_output_shapes
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.jacobians.jacobian import SUBJAC_META_DEFAULTS
@@ -104,9 +105,16 @@ class JaxMixin(object):
         """
         Set up the compute_primal method.
         """
+        try:
+            self._has_static_compute_primal = is_staticmethod(self, 'compute_primal')
+        except AttributeError:
+            self._has_static_compute_primal = False
         self._orig_compute_primal = self.compute_primal
-        self._ret_tuple_compute_primal = \
-            MethodType(_ensure_returns_tuple(self.compute_primal.__func__), self)
+        if self._has_static_compute_primal:
+            self._ret_tuple_compute_primal = _ensure_returns_tuple(self.compute_primal)
+        else:
+            self._ret_tuple_compute_primal = \
+                MethodType(_ensure_returns_tuple(self.compute_primal.__func__), self)
         self.compute_primal = self._ret_tuple_compute_primal
 
     def _re_init_jax(self):
@@ -117,7 +125,6 @@ class JaxMixin(object):
         self._do_sparsity = False
         self._sparsity = None
         self._jac_func_ = None
-        self._jac_func_nojit = None
         self._static_hash = None
         self._jac_colored_ = None
         self._output_shapes = None
@@ -139,14 +146,19 @@ class JaxMixin(object):
         """
         Get the jax version of the compute_primal method, possibly jitted.
         """
-        compute_primal = self._ret_tuple_compute_primal.__func__
+        compute_primal = self._ret_tuple_compute_primal
+        if not self._has_static_compute_primal:
+            compute_primal = compute_primal.__func__
 
         if need_jit:
             # jit the compute_primal method
             static_argnums = self._get_static_argnums(discrete_inputs)
             compute_primal = jit(compute_primal, static_argnums=static_argnums)
 
-        return MethodType(compute_primal, self)
+        if self._has_static_compute_primal:
+            return compute_primal
+        else:
+            return MethodType(compute_primal, self)
 
     def _setup_check(self):
         """
@@ -166,6 +178,17 @@ class JaxMixin(object):
                 if name is None:
                     name = f'out_{i}'
                 self.add_output(name)
+
+    def uses_approx(self):
+        """
+        Return True if the system uses approximations to compute derivatives.
+
+        Returns
+        -------
+        bool
+            True if the system uses approximations to compute derivatives, False otherwise.
+        """
+        return self.options['derivs_method'] in ('fd', 'cs')
 
     def add_input(self, name, **kwargs):
         """
@@ -205,14 +228,16 @@ class JaxMixin(object):
 
         This happens in final_setup after all var sizes and partials are set.
         """
-        _jax_register_pytree_class(self.__class__)
+        if self.options['derivs_method'] == 'jax':
+            if not self._has_static_compute_primal:
+                _jax_register_pytree_class(self.__class__)
 
-        if not self._discrete_inputs and not self.get_self_statics():
-            # avoid unnecessary statics checks
-            self._statics_changed = self._statics_noop
+            if not self._discrete_inputs and not self.get_self_statics():
+                # avoid unnecessary statics checks
+                self._statics_changed = self._statics_noop
 
-        self.compute_primal = self._get_jax_compute_primal(self._discrete_inputs,
-                                                           self.options['use_jit'])
+            self.compute_primal = self._get_jax_compute_primal(self._discrete_inputs,
+                                                               self.options['use_jit'])
 
     def _check_first_linearize(self):
         if self._first_call_to_linearize:
@@ -266,7 +291,10 @@ class JaxMixin(object):
         """
         Get the static argnums for the compute_primal method.
         """
-        idx = self._get_num_differentiable_args() + 1
+        if self._has_static_compute_primal:
+            idx = self._get_num_differentiable_args()
+        else:
+            idx = self._get_num_differentiable_args() + 1
         if discrete_inputs:
             return list(range(idx, idx + len(discrete_inputs)))
 
@@ -316,7 +344,9 @@ class JaxMixin(object):
             self._jac_func_ = None
 
         if self._jac_func_ is None:
-            differentiable_cp = self._get_differentiable_compute_primal(discrete_inputs)
+            differentiable_cp = \
+                self._get_differentiable_compute_primal(self._ret_tuple_compute_primal,
+                                                        discrete_inputs)
 
             if self._coloring_info.use_coloring():
                 if self._coloring_info.coloring is None:
@@ -355,10 +385,9 @@ class JaxMixin(object):
                                        argnums=self._get_differentiable_argnums())
 
             if need_jit:
-                print("JITing jac", self.pathname)
                 self._jac_func_ = jax.jit(self._jac_func_)
 
-    def _get_differentiable_compute_primal(self, discrete_inputs):
+    def _get_differentiable_compute_primal(self, compute_primal, discrete_inputs):
         """
         Get the compute_primal function for the jacobian.
 
@@ -383,12 +412,12 @@ class JaxMixin(object):
                 ncontouts = self._outputs.nvars()
 
                 def differentiable_compute_primal(*contvals):
-                    return self._ret_tuple_compute_primal(*contvals, *discrete_inputs)[:ncontouts]
+                    return compute_primal(*contvals, *discrete_inputs)[:ncontouts]
 
             else:
 
                 def differentiable_compute_primal(*contvals):
-                    return self._ret_tuple_compute_primal(*contvals, *discrete_inputs)
+                    return compute_primal(*contvals, *discrete_inputs)
 
             return differentiable_compute_primal
 
@@ -396,11 +425,11 @@ class JaxMixin(object):
             ncontouts = self._outputs.nvars()
 
             def differentiable_compute_primal(*contvals):
-                return self._ret_tuple_compute_primal(*contvals)[:ncontouts]
+                return compute_primal(*contvals)[:ncontouts]
 
             return differentiable_compute_primal
 
-        return self._ret_tuple_compute_primal
+        return compute_primal
 
     def _get_tangents(self, direction, coloring=None):
         """
@@ -422,7 +451,7 @@ class JaxMixin(object):
         """
         if self._tangents[direction] is None:
             if direction == 'fwd':
-                args = tuple(self._get_compute_primal_invals(include_discrete=False))
+                args = tuple(self._get_compute_primal_invals(include_discrete=False, ret_jnp=False))
                 self._tangents[direction] = get_vmap_tangents(args, direction, fill=1.,
                                                               coloring=coloring)
             else:
@@ -473,11 +502,12 @@ class JaxMixin(object):
         idiscvals = tuple(self._discrete_inputs.values())
 
         # exclude the discrete inputs from the inputs and the discrete outputs from the outputs
-        differentiable_part = self._get_differentiable_compute_primal(idiscvals)
+        differentiable_part = \
+            self._get_differentiable_compute_primal(self._ret_tuple_compute_primal, idiscvals)
 
         # when computing tangents we only care about shapes of the values, not the values
         # themselves, so we can use the unperturbed values for the tangents
-        icontvals = tuple(self._get_compute_primal_invals(include_discrete=False))
+        icontvals = tuple(self._get_compute_primal_invals(include_discrete=False, ret_jnp=False))
         if direction == 'fwd':
             tangents = get_vmap_tangents(icontvals, 'fwd', fill=np.nan if use_nan else 1.)
 
@@ -637,6 +667,7 @@ class JaxMixin(object):
                 key = (ofname, wrtname)
                 if key not in partials:
                     # FIXME: this means that we computed a derivative that we didn't need
+                    issue_warning(f"{self.msginfo}: computed deriv for {key} but didn't need it.")
                     continue
 
                 dvals = deriv_vals
@@ -646,7 +677,8 @@ class JaxMixin(object):
                 if nof > 1 or nested_tup:
                     dvals = dvals[ofidx]
 
-                dvals = dvals[wrtidx].reshape(ofmeta['size'], in_meta_dict[wrtname]['size'])
+                dvals = np.asarray(dvals[wrtidx]).reshape(ofmeta['size'],
+                                                          in_meta_dict[wrtname]['size'])
 
                 sjmeta = partials.get_metadata(key)
                 rows = sjmeta['rows']
@@ -684,8 +716,10 @@ class JaxMixin(object):
 
     def _compute_output_shape(self, name, input_shapes):
         if self._output_shapes is None:
-            out_shapes = _compute_output_shapes(self._orig_compute_primal.__func__,
-                                                input_shapes)
+            comp_primal = self._orig_compute_primal
+            if not self._has_static_compute_primal:
+                comp_primal = comp_primal.__func__
+            out_shapes = _compute_output_shapes(comp_primal, input_shapes)
             self._output_shapes = {n: shp for n, shp in zip(self._var_rel_names['output'],
                                                             out_shapes)}
         return self._output_shapes[name]
@@ -704,6 +738,42 @@ class JaxExplicitMixin(JaxMixin):
     **kwargs : dict
         Additional arguments to be passed to the base class.
     """
+
+    def _get_compute_primal_invals(self, inputs=None, discrete_inputs=None, include_discrete=True,
+                                   ret_jnp=True):
+        """
+        Yield the inputs expected by the compute_primal method.
+
+        Parameters
+        ----------
+        inputs : Vector
+            Unscaled, dimensional input variables Vector.
+        discrete_inputs : dict or None
+            If not None, dict containing discrete input values.
+        include_discrete : bool
+            If True, include discrete inputs.
+        ret_jnp : bool
+            If True, return jnp arrays.
+
+        Yields
+        ------
+        any
+            Inputs expected by the compute_primal method.
+        """
+        if inputs is None:
+            inputs = self._inputs
+
+        if ret_jnp and self.options['derivs_method'] == 'jax':
+            for val in inputs.values():
+                yield jnp.asarray(val)
+        else:
+            yield from inputs.values()
+
+        if include_discrete:
+            if discrete_inputs is None:
+                discrete_inputs = self._discrete_inputs
+            if discrete_inputs:
+                yield from discrete_inputs.values()
 
     def _setup_partials(self):
         """
@@ -763,7 +833,7 @@ class JaxExplicitMixin(JaxMixin):
         if self._jac_colored_ is not None:
             return self._jac_colored_(inputs, partials)
 
-        derivs = self._jac_func_(*inputs.values())
+        derivs = self._jac_func_(*self._get_compute_primal_invals(inputs, include_discrete=False))
 
         # check to see if we even need this with jax.  A jax component doesn't need to map string
         # keys to partials.  We could just use the jacobian as an array to compute the derivatives.
@@ -784,7 +854,7 @@ class JaxExplicitMixin(JaxMixin):
         partials : dict
             The partials to compute.
         """
-        J = self._jac_func_(self._tangents['fwd'], tuple(inputs.values()))
+        J = self._jac_func_(self._tangents['fwd'], tuple(jnp.asarray(v) for v in inputs.values()))
         partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J), 'fwd'))
 
     def _jacrev_colored(self, inputs, partials):
@@ -798,7 +868,7 @@ class JaxExplicitMixin(JaxMixin):
         partials : dict
             The partials to compute.
         """
-        J = self._jac_func_(self._tangents['rev'], tuple(inputs.values()))
+        J = self._jac_func_(self._tangents['rev'], tuple(jnp.asarray(v) for v in inputs.values()))
         partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J).T, 'rev'))
 
     def _compute_jacvec_product(self, inputs, d_inputs, d_outputs, mode, discrete_inputs=None):
@@ -825,8 +895,9 @@ class JaxExplicitMixin(JaxMixin):
         discrete_inputs : dict or None
             If not None, dict containing discrete input values.
         """
+        # TODO: redo this to use the differentiable compute_primal
         if mode == 'fwd':
-            dx = tuple(d_inputs.values())
+            dx = tuple(jnp.asarray(v) for v in d_inputs.values())
             full_invals = tuple(self._get_compute_primal_invals(inputs, discrete_inputs))
             x = full_invals[:len(dx)]
             other = full_invals[len(dx):]
@@ -846,7 +917,7 @@ class JaxExplicitMixin(JaxMixin):
                 # recompute vjp function if inputs have changed
                 _, self._vjp_fun = jax.vjp(lambda *args: self.compute_primal(*args, *other), *x)
 
-            deriv_vals = self._vjp_fun(tuple(d_outputs.values()) +
+            deriv_vals = self._vjp_fun(tuple(jnp.asarray(v) for v in d_outputs.values()) +
                                        tuple(self._discrete_outputs.values()))
 
             d_inputs.set_vals(deriv_vals)
@@ -865,6 +936,49 @@ class JaxImplicitMixin(JaxMixin):
     **kwargs : dict
         Additional arguments to be passed to the base class.
     """
+
+    def _get_compute_primal_invals(self, inputs=None, outputs=None, discrete_inputs=None,
+                                   include_discrete=True, ret_jnp=True):
+        """
+        Yield inputs and outputs in the order expected by the compute_primal method.
+
+        Parameters
+        ----------
+        inputs : Vector
+            Unscaled, dimensional input variables read via inputs[key].
+        outputs : Vector
+            Unscaled, dimensional output variables read via outputs[key].
+        discrete_inputs : dict or None
+            If not None, dict containing discrete input values.
+        include_discrete : bool
+            If True, include discrete inputs.
+        ret_jnp : bool
+            If True, return jnp arrays.
+
+        Yields
+        ------
+        any
+            Inputs and outputs in the order expected by the compute_primal method.
+        """
+        if inputs is None:
+            inputs = self._inputs
+        if outputs is None:
+            outputs = self._outputs
+
+        if ret_jnp and self.options['derivs_method'] == 'jax':
+            for val in inputs.values():
+                yield jnp.asarray(val)
+            for val in outputs.values():
+                yield jnp.asarray(val)
+        else:
+            yield from inputs.values()
+            yield from outputs.values()
+
+        if include_discrete:
+            if discrete_inputs is None:
+                discrete_inputs = self._discrete_inputs
+            if discrete_inputs:
+                yield from discrete_inputs.values()
 
     def _setup_partials(self):
         """
@@ -927,7 +1041,7 @@ class JaxImplicitMixin(JaxMixin):
         if self._jac_colored_ is not None:
             return self._jac_colored_(inputs, outputs, partials)
 
-        derivs = self._jac_func_(*chain(inputs.values(), outputs.values()))
+        derivs = self._jac_func_(*self._get_compute_primal_invals(inputs, include_discrete=False))
         self._jax_derivs2partials(derivs, partials, self._var_rel_names['output'],
                                   chain(self._var_rel_names['input'],
                                         self._var_rel_names['output']),
@@ -1146,8 +1260,7 @@ class JaxExplicitGroupMixin(JaxMixin):
         super()._setup_global_connections()
         if not self.is_explicit():
             raise RuntimeError(f"{self.msginfo}: JAX mode is currently supported for explicit "
-                               "groups only, meaning they contain no implicit components and no "
-                               "cycles.")
+                               "groups only. They must contain no implicit components or cycles.")
 
     def _setup_jax(self):
         """
@@ -1220,8 +1333,6 @@ class JaxExplicitGroupMixin(JaxMixin):
         self._orig_compute_primal = self.compute_primal
         self._ret_tuple_compute_primal = self.compute_primal
 
-        super()._setup_jax()
-
         self._setup_jax_jacobian()
 
     def _solve_nonlinear(self):
@@ -1254,9 +1365,12 @@ class JaxExplicitGroupMixin(JaxMixin):
             Set of absolute input names in the scope of this mat-vec product.
             If None, all are in the scope.
         """
+        if jac is None:
+            jac = self._jacobian
+
         with self._matvec_context(scope_out, scope_in, mode) as vecs:
             d_inputs, d_outputs, d_residuals = vecs
-            self._jacobian._apply(self, d_inputs, d_outputs, d_residuals, mode)
+            jac._apply(self, d_inputs, d_outputs, d_residuals, mode)
 
     def _solve_linear(self, mode, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
         """
@@ -1307,6 +1421,11 @@ class JaxExplicitGroupMixin(JaxMixin):
         self._jax_derivs2partials(derivs, jac, self._goutput_map, self._ginput_map,
                                   self._var_abs2meta['input'],
                                   self._var_abs2meta['output'])
+
+    def _subjac_keys_iter(self):
+        for of in self._get_compute_primal_outputs():
+            for wrt in self._get_compute_primal_inputs():
+                yield (of, wrt)
 
     def _setup_jax_jacobian(self):
         """

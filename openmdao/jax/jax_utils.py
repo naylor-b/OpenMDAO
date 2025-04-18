@@ -319,6 +319,8 @@ def get_vmap_tangents(vals, direction, fill=1., coloring=None):
     tuple of ndarray or ndarray
         The tangents values to be passed to vmap.
     """
+    # TODO: Can we use jax sparse arrays for our tangents?
+
     sizes = [np.size(a) for a in vals]
     totsize = np.sum(sizes)
 

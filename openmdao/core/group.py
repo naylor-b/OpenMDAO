@@ -2379,8 +2379,7 @@ class Group(System):
         # recurse down the tree and setup
         # jax anywhere below where it's active, then return.
         for subsys in self._subsystems_myproc:
-            if isinstance(subsys, Group) or subsys.options['derivs_method'] == 'jax':
-                subsys._setup_jax()
+            subsys._setup_jax()
 
     def _setup_dynamic_shapes(self):
         """

@@ -398,8 +398,6 @@ class System(object, metaclass=SystemMetaclass):
         to only colored columns.
     compute_primal : function or None
         Function that computes the primal for the given system.
-    _jac_func_ : function or None
-        Function that computes the jacobian using AD (jax).  Not used if jax is not active.
     """
 
     def __init__(self, num_par_fd=1, **kwargs):
@@ -548,8 +546,6 @@ class System(object, metaclass=SystemMetaclass):
 
         if not hasattr(self, 'compute_primal'):
             self.compute_primal = None
-
-        self._jac_func_ = None  # for computing jacobian using AD (jax)
 
     if _om_dump:
         @property
@@ -1828,16 +1824,16 @@ class System(object, metaclass=SystemMetaclass):
         self._jacobian = _ColSparsityJac(self)
 
         if self.is_explicit():
-            pvecs = (self._inputs,)
+            perturb_vecs = (self._inputs,)
             save_vecs = (self._outputs, self._residuals)
         else:
-            pvecs = (self._inputs, self._outputs)
+            perturb_vecs = (self._inputs, self._outputs)
             save_vecs = (self._residuals,)
 
         from openmdao.core.group import Group
 
         if isinstance(self, Group):
-            for _ in self._perturbation_iter(num_iters, perturb_size, pvecs, save_vecs):
+            for _ in self._perturbation_iter(num_iters, perturb_size, perturb_vecs, save_vecs):
                 with self._relevance.nonlinear_active('iter'):
                     self._solve_nonlinear()
                 self.run_linearize(sub_do_ln=False)
