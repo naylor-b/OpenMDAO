@@ -29,7 +29,7 @@ from openmdao.utils.assert_utils import assert_check_partials
 from openmdao.utils.general_utils import do_nothing_context
 
 
-class PerfTestComp(om.ExplicitComponent):
+class PerfTestCompFD(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('size', types=int)
 
@@ -40,6 +40,29 @@ class PerfTestComp(om.ExplicitComponent):
         self.add_output('x', shape=(size,))
         self.add_output('y', shape=(size,))
 
+    def setup_partials(self):
+        self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size), method='fd')
+        self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
+        self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
+
+    def compute_primal(self, a, b):
+        x = a * b
+        y = b * b
+        return x, y
+
+
+class PerfTestCompAnalytic(PerfTestCompFD):
+    def initialize(self):
+        self.options.declare('size', types=int)
+
+    def setup(self):
+        size = self.options['size']
+        self.add_input('a', shape=(size,))
+        self.add_input('b', shape=(size,))
+        self.add_output('x', shape=(size,))
+        self.add_output('y', shape=(size,))
+
+    def setup_partials(self):
         self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size))
         self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size))
         self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size))
@@ -53,6 +76,7 @@ class PerfTestComp(om.ExplicitComponent):
         partials['x', 'a'] = inputs['b']
         partials['x', 'b'] = inputs['a']
         partials['y', 'b'] = 2 * inputs['b']
+
 
 class JaxPerfTestComp(om.JaxExplicitComponent):
     def initialize(self):
@@ -149,7 +173,10 @@ def do_timing(meta):
         else:
             klass = JaxPerfTestComp
     else:
-        klass = PerfTestComp
+        if use_fd:
+            klass = PerfTestCompFD
+        else:
+            klass = PerfTestCompAnalytic
 
     if use_group:
         G = model.add_subsystem('G', MyJaxGroup(ncomps, klass, kwargs) if use_jax
@@ -294,7 +321,7 @@ def read_args(args=None):
 
 if __name__ == '__main__':
     reps = 100
-    size = 50
+    size = 500
 
     meta = read_args()
     for name, val in meta.items():

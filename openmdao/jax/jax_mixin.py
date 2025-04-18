@@ -667,7 +667,7 @@ class JaxMixin(object):
                 key = (ofname, wrtname)
                 if key not in partials:
                     # FIXME: this means that we computed a derivative that we didn't need
-                    issue_warning(f"{self.msginfo}: computed deriv for {key} but didn't need it.")
+                    # issue_warning(f"{self.msginfo}: computed deriv for {key} but didn't need it.")
                     continue
 
                 dvals = deriv_vals
