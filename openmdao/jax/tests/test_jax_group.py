@@ -5,7 +5,7 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials
 import openmdao.api as om
 
 from openmdao.jax.jax_utils import jnp
-from openmdao.jax.tests.test_jax_implicit import JaxQuadraticCompPrimal
+from openmdao.jax.tests.test_jax_implicit import JaxQuadraticComp
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
 from openmdao.utils.testing_utils import parameterized_name
 
@@ -226,7 +226,7 @@ class TestJaxGroup(unittest.TestCase):
         #G = p.model.add_subsystem('G', om.Group())
         G.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
         G.linear_solver = om.ScipyKrylov()
-        G.add_subsystem('comp', JaxQuadraticCompPrimal())
+        G.add_subsystem('comp', JaxQuadraticComp())
         p.model.connect('ivc.a', 'G.comp.a')
         p.model.connect('ivc.b', 'G.comp.b')
         p.model.connect('ivc.c', 'G.comp.c')

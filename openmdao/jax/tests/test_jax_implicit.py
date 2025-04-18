@@ -15,35 +15,7 @@ except ImportError:
     from openmdao.utils.assert_utils import SkipParameterized as parameterized
 
 
-class QuadraticComp(om.ImplicitComponent):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    def setup(self):
-        self.add_input('a',)
-        self.add_input('b',)
-        self.add_input('c',)
-        self.add_output('x', val=5.,)
-
-        self.declare_partials(of=['*'], wrt=['*'])
-
-    def setup_partials(self):
-        self.nonlinear_solver = om.NewtonSolver(solve_subsystems=False)
-        if self.matrix_free:
-            self.linear_solver = om.ScipyKrylov()
-        else:
-            self.linear_solver = om.DirectSolver()
-
-    def apply_nonlinear(self, inputs, outputs, residuals):
-        a = inputs['a']
-        b = inputs['b']
-        c = inputs['c']
-        x = outputs['x']
-        residuals['x'] = a * x ** 2 + b * x + c
-
-
-
-class JaxQuadraticCompPrimal(om.JaxImplicitComponent):
+class JaxQuadraticComp(om.JaxImplicitComponent):
     def setup(self):
         self.add_input('a')
         self.add_input('b')
@@ -62,7 +34,7 @@ class JaxQuadraticCompPrimal(om.JaxImplicitComponent):
         return a * x ** 2 + b * x + c
 
 
-class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
+class JaxLinearSystemComp(om.JaxImplicitComponent):
 
     def initialize(self):
         self.options.declare('size', default=1, types=int)
@@ -88,7 +60,7 @@ class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
         return A.dot(x) - b
 
 
-class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
+class JaxLinearSystemCompwOption(om.JaxImplicitComponent):
 
     def initialize(self):
         self.options.declare('size', default=1, types=int)
@@ -118,7 +90,7 @@ class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
         return A.dot(x + self.options['adder']) - b
 
 
-class JaxLinearSystemCompPrimalwDiscrete(om.JaxImplicitComponent):
+class JaxLinearSystemCompwDiscrete(om.JaxImplicitComponent):
 
     def initialize(self):
         self.options.declare('size', default=1, types=int)
@@ -156,7 +128,7 @@ class TestJaxImplicitComp(unittest.TestCase):
         ivc = p.model.add_subsystem('ivc', om.IndepVarComp('a', shape=shape))
         ivc.add_output('b', shape=shape)
         ivc.add_output('c', shape=shape)
-        comp = p.model.add_subsystem('comp', JaxQuadraticCompPrimal(default_shape=shape))
+        comp = p.model.add_subsystem('comp', JaxQuadraticComp(default_shape=shape))
         comp.matrix_free = bool(matrix_free)
         p.model.connect('ivc.a', 'comp.a')
         p.model.connect('ivc.b', 'comp.b')
@@ -187,7 +159,7 @@ class TestJaxImplicitComp(unittest.TestCase):
         ivc.add_output('b', b)
 
         lingrp = prob.model.add_subsystem('lingrp', om.Group())
-        comp = lingrp.add_subsystem('lin', JaxLinearSystemCompPrimal(size=3))
+        comp = lingrp.add_subsystem('lin', JaxLinearSystemComp(size=3))
         comp.matrix_free = bool(matrix_free)
 
         prob.model.connect('ivc.A', 'lingrp.lin.A')
@@ -217,7 +189,7 @@ class TestJaxImplicitComp(unittest.TestCase):
         ivc.add_output('b', b)
 
         lingrp = prob.model.add_subsystem('lingrp', om.Group())
-        lin = lingrp.add_subsystem('lin', JaxLinearSystemCompPrimalwOption(size=3))
+        lin = lingrp.add_subsystem('lin', JaxLinearSystemCompwOption(size=3))
         lin.matrix_free = bool(matrix_free)
 
         prob.model.connect('ivc.A', 'lingrp.lin.A')
@@ -261,7 +233,7 @@ class TestJaxImplicitComp(unittest.TestCase):
         ivc.add_output('b', b)
 
         lingrp = prob.model.add_subsystem('lingrp', om.Group())
-        lin = lingrp.add_subsystem('lin', JaxLinearSystemCompPrimalwDiscrete(size=3))
+        lin = lingrp.add_subsystem('lin', JaxLinearSystemCompwDiscrete(size=3))
         lin.matrix_free = bool(matrix_free)
 
         prob.model.connect('ivc.A', 'lingrp.lin.A')

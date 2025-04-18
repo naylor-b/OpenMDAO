@@ -166,13 +166,14 @@ class TestJaxComp(unittest.TestCase):
             self.assertEqual(coloring.total_solves(), 6 if mode=='fwd' else 4)
 
     @parameterized.expand(itertools.product(['fwd', 'rev'], ['jax','fd', 'cs'],
-                                            ['coloring', 'nocoloring']), name_func=parameterized_name)
-    def test_jax_explicit_comp2primal_nodecl(self, mode, derivs_method, slvtype):
+                                            ['coloring', 'nocoloring'], [True, False]), name_func=parameterized_name)
+    def test_jax_explicit_comp2primal_nodecl(self, mode, derivs_method, slvtype, is_static):
         # this component defines its own compute_primal method
         p = om.Problem()
         ivc = p.model.add_subsystem('ivc', om.IndepVarComp('x', val=np.ones(x_shape)))
         ivc.add_output('y', val=np.ones(y_shape))
-        comp = p.model.add_subsystem('comp', DotProd(derivs_method=derivs_method))
+        klass = DotProdStatic if is_static else DotProd
+        comp = p.model.add_subsystem('comp', klass(derivs_method=derivs_method))
         p.model.connect('ivc.x', 'comp.x')
         p.model.connect('ivc.y', 'comp.y')
 
@@ -203,11 +204,12 @@ class TestJaxComp(unittest.TestCase):
         assert_sparsity_matches_fd(comp, outstream=None)
 
     @parameterized.expand(itertools.product(['fwd', 'rev'], ['jax','fd', 'cs'],
-                                            ['coloring', 'nocoloring']), name_func=parameterized_name)
-    def test_jax_explicit_comp2primal_nodecl_shape_by_conn(self, mode, derivs_method, slvtype):
+                                            ['coloring', 'nocoloring'], [True, False]), name_func=parameterized_name)
+    def test_jax_explicit_comp2primal_nodecl_shape_by_conn(self, mode, derivs_method, slvtype, is_static):
         # this component defines its own compute_primal method
         p = om.Problem()
-        comp = p.model.add_subsystem('comp', DotProd(derivs_method=derivs_method))
+        klass = DotProdStatic if is_static else DotProd
+        comp = p.model.add_subsystem('comp', klass(derivs_method=derivs_method))
 
         if slvtype == 'coloring':
             comp.declare_coloring()
