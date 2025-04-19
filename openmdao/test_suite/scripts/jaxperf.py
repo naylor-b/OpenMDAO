@@ -30,6 +30,7 @@ from openmdao.utils.general_utils import do_nothing_context
 class PerfTestCompFD(om.ExplicitComponent):
     def initialize(self):
         self.options.declare('size', types=int)
+        self.options.declare('sparse', types=bool)
 
     def setup(self):
         size = self.options['size']
@@ -39,9 +40,14 @@ class PerfTestCompFD(om.ExplicitComponent):
         self.add_output('y', shape=(size,))
 
     def setup_partials(self):
-        self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size), method='fd')
-        self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
-        self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
+        if self.options['sparse']:
+            self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size), method='fd')
+            self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
+            self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size), method='fd')
+        else:
+            self.declare_partials('x', 'a', method='fd')
+            self.declare_partials('x', 'b', method='fd')
+            self.declare_partials('y', 'b', method='fd')
 
     def compute_primal(self, a, b):
         x = a * b
@@ -52,6 +58,7 @@ class PerfTestCompFD(om.ExplicitComponent):
 class PerfTestCompAnalytic(PerfTestCompFD):
     def initialize(self):
         self.options.declare('size', types=int)
+        self.options.declare('sparse', types=bool)
 
     def setup(self):
         size = self.options['size']
@@ -61,9 +68,14 @@ class PerfTestCompAnalytic(PerfTestCompFD):
         self.add_output('y', shape=(size,))
 
     def setup_partials(self):
-        self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size))
-        self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size))
-        self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size))
+        if self.options['sparse']:
+            self.declare_partials('x', 'a', rows=np.arange(size), cols=np.arange(size))
+            self.declare_partials('x', 'b', rows=np.arange(size), cols=np.arange(size))
+            self.declare_partials('y', 'b', rows=np.arange(size), cols=np.arange(size))
+        else:
+            self.declare_partials('x', 'a')
+            self.declare_partials('x', 'b')
+            self.declare_partials('y', 'b')
 
     def compute_primal(self, a, b):
         x = a * b
@@ -71,9 +83,14 @@ class PerfTestCompAnalytic(PerfTestCompFD):
         return x, y
 
     def compute_partials(self, inputs, partials):
-        partials['x', 'a'] = inputs['b']
-        partials['x', 'b'] = inputs['a']
-        partials['y', 'b'] = 2 * inputs['b']
+        if self.options['sparse']:
+            partials['x', 'a'] = inputs['b']
+            partials['x', 'b'] = inputs['a']
+            partials['y', 'b'] = 2 * inputs['b']
+        else:
+            partials['x', 'a'] = np.diag(inputs['b'])
+            partials['x', 'b'] = np.diag(inputs['a'])
+            partials['y', 'b'] = 2 * np.diag(inputs['b'])
 
 
 class JaxPerfTestComp(om.JaxExplicitComponent):
@@ -128,7 +145,7 @@ def do_timing(meta):
     ncomps = meta['ncomps']
     nsinks = meta['nsinks']
     show = meta['show']
-
+    sparse = meta['sparse']
     class MyJaxGroup(om.JaxExplicitGroup):
         def __init__(self, ncomps, klass, klass_kwargs, **kwargs):
             super().__init__(**kwargs)
@@ -170,6 +187,7 @@ def do_timing(meta):
         else:
             klass = JaxPerfTestComp
     else:
+        kwargs['sparse'] = sparse
         if use_fd:
             klass = PerfTestCompFD
         else:
@@ -205,6 +223,7 @@ def do_timing(meta):
         'jit': use_jit,
         'color': use_coloring,
         'fd': use_fd,
+        'sparse': sparse,
     })
 
     print("Performance for:")
@@ -290,7 +309,8 @@ def read_args(args=None):
         'fd': 'fd' in args,
         'group': 'group' in args,
         'static': 'static' in args,
-        'nsinks': int('nsinks' in args)
+        'nsinks': int('nsinks' in args),
+        'sparse': 'sparse' in args,
     }
     ncomps = 0
     if not meta['group']:
@@ -328,53 +348,58 @@ if __name__ == '__main__':
             sys.exit()
 
     meta['reps'] = reps
-    meta['size'] = size
 
     reslist = []
     metalist = []
 
-    if meta['group']:
-        meta['ncomps'] = 5
-        for nsinks in [1, 5]:
-            meta['nsinks'] = nsinks
-            for with_jax in [True, False]:
+    for size in [10, 100, 500]:
+        meta['size'] = size
+        if meta['group']:
+            meta['ncomps'] = 5
+            for nsinks in [1, 5]:
+                meta['nsinks'] = nsinks
+                for with_jax in [True, False]:
+                    meta['jax'] = with_jax
+                    meta['group'] = True
+                    if with_jax:
+                        meta['jax_comps'] = False
+                        for with_jit, with_coloring in [(True, True), (True, False), (False, False)]:
+                            meta['jit'] = with_jit
+                            meta['color'] = with_coloring
+                            results = do_timing(meta)
+                            reslist.append(results)
+                    else:  # non-jax
+                        for sparse, use_fd in [(True, False), (False, True), (False, False)]:
+                            meta['sparse'] = sparse
+                            meta['fd'] = use_fd
+                            for jaxcomps in [True, False]:
+                                meta['jax_comps'] = jaxcomps
+                                meta['jit'] = jaxcomps
+                                for static in [True, False]:
+                                    meta['static'] = static
+                                    results = do_timing(meta)
+                                    reslist.append(results)
+        else:  # single component tests
+            for with_jax, with_jit in [(True, True), (True, False), (False, False)]:
                 meta['jax'] = with_jax
-                meta['group'] = True
+                meta['jit'] = with_jit
                 if with_jax:
-                    meta['jax_comps'] = False
-                    for with_jit, with_coloring in [(True, True), (True, False), (False, False)]:
-                        meta['jit'] = with_jit
-                        meta['color'] = with_coloring
-                        results = do_timing(meta)
-                        reslist.append(results)
+                    for static in [True, False]:
+                        meta['static'] = static
+                        if not static:
+                            for coloring in [True, False]:
+                                meta['color'] = coloring
+                                results = do_timing(meta)
+                                reslist.append(results)
+                        else:
+                            results = do_timing(meta)
+                            reslist.append(results)
                 else:
-                    for jaxcomps in [True, False]:
-                        meta['jax_comps'] = jaxcomps
-                        meta['jit'] = jaxcomps
-                        for static in [True, False]:
-                            meta['static'] = static
-                            results = do_timing(meta)
-                            reslist.append(results)
-    else:  # single component tests
-        for with_jax, with_jit in [(True, True), (True, False), (False, False)]:
-            meta['jax'] = with_jax
-            meta['jit'] = with_jit
-            if with_jax:
-                for static in [True, False]:
-                    meta['static'] = static
-                    if not static:
-                        for coloring in [True, False]:
-                            meta['color'] = coloring
-                            results = do_timing(meta)
-                            reslist.append(results)
-                    else:
+                    for sparse, use_fd in [(True, False), (False, True), (False, False)]:
+                        meta['sparse'] = sparse
+                        meta['fd'] = use_fd
                         results = do_timing(meta)
                         reslist.append(results)
-            else:
-                for do_fd in [True, False]:
-                    meta['fd'] = do_fd
-                    results = do_timing(meta)
-                    reslist.append(results)
 
     om.generate_table(reslist, headers='keys', tablefmt='tabulator').display()
 
