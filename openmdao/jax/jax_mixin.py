@@ -139,6 +139,9 @@ class JaxMixin(object):
                              'scalar and whose shape is not explicitly set. Inputs will use '
                              'shape_by_conn and outputs will use a compute_shape method based '
                              'on jax.eval_shape. Default is False.')
+        self.options.declare('use_jit', types=bool, default=True,
+                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
+                             'some other AD package capable of jitting is active.')
 
         self.options.undeclare("distributed")
 
@@ -855,7 +858,12 @@ class JaxExplicitMixin(JaxMixin):
             The partials to compute.
         """
         J = self._jac_func_(self._tangents['fwd'], tuple(jnp.asarray(v) for v in inputs.values()))
-        partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J), 'fwd'))
+        J = _jax2np(J)
+        if self._coloring_info.coloring is not None:
+            J = self._coloring_info.coloring._expand_jac(J, 'fwd')
+            partials.set_csc_jac(self, J)
+        else:
+            partials.set_dense_jac(self, J)
 
     def _jacrev_colored(self, inputs, partials):
         """
@@ -869,7 +877,12 @@ class JaxExplicitMixin(JaxMixin):
             The partials to compute.
         """
         J = self._jac_func_(self._tangents['rev'], tuple(jnp.asarray(v) for v in inputs.values()))
-        partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J).T, 'rev'))
+        J = _jax2np(J).T
+        if self._coloring_info.coloring is not None:
+            J = self._coloring_info.coloring._expand_jac(J, 'rev')
+            partials.set_csc_jac(self, J)
+        else:
+            partials.set_dense_jac(self, J)
 
     def _compute_jacvec_product(self, inputs, d_inputs, d_outputs, mode, discrete_inputs=None):
         r"""
@@ -1060,8 +1073,14 @@ class JaxImplicitMixin(JaxMixin):
         partials : dict
             The partials to compute.
         """
-        J = self._jac_func_(self._tangents['fwd'], tuple(chain(inputs.values(), outputs.values())))
-        partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J), 'fwd'))
+        J = self._jac_func_(self._tangents['fwd'],
+                            tuple(jnp.asarray(v) for v in chain(inputs.values(), outputs.values())))
+        J = _jax2np(J)
+        if self._coloring_info.coloring is not None:
+            J = self._coloring_info.coloring._expand_jac(J, 'fwd')
+            partials.set_csc_jac(self, J)
+        else:
+            partials.set_dense_jac(self, J)
 
     def _jacrev_colored(self, inputs, outputs, partials):
         """
@@ -1076,8 +1095,14 @@ class JaxImplicitMixin(JaxMixin):
         partials : dict
             The partials to compute.
         """
-        J = self._jac_func_(self._tangents['rev'], tuple(chain(inputs.values(), outputs.values())))
-        partials.set_dense_jac(self, self._uncompress_jac(_jax2np(J).T, 'rev'))
+        J = self._jac_func_(self._tangents['rev'],
+                            tuple(jnp.asarray(v) for v in chain(inputs.values(), outputs.values())))
+        J = _jax2np(J).T
+        if self._coloring_info.coloring is not None:
+            J = self._coloring_info.coloring._expand_jac(J, 'rev')
+            partials.set_csc_jac(self, J)
+        else:
+            partials.set_dense_jac(self, J)
 
     def _jax_apply_linear(self, inputs, outputs, d_inputs, d_outputs, d_residuals, mode):
         r"""
@@ -1182,14 +1207,22 @@ class JaxExplicitGroupMixin(JaxMixin):
         self._compute_primal_ins = None
         super().__init__(*args, **kwargs)
 
-    def _declare_options(self):
+    def _setup_partials(self):
         """
-        Declare options before kwargs are processed in the init method.
+        Call setup_partials in components.
         """
-        super()._declare_options()
-        self.options.declare('use_jit', types=bool, default=True,
-                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
-                             'some other AD package capable of jitting is active.')
+        self._subjacs_info = {}
+
+        if self._has_distrib_vars and self._owns_approx_jac:
+            # We currently cannot approximate across a group with a distributed component if the
+            # inputs are distributed via src_indices.
+            for iname, meta in self._var_allprocs_abs2meta['input'].items():
+                if meta['has_src_indices'] and \
+                   meta['distributed'] and \
+                   iname not in self._conn_abs_in2out:
+                    msg = "{}: Approx_totals is not supported on a group with a distributed "
+                    msg += "component whose input '{}' is distributed using src_indices. "
+                    raise RuntimeError(msg.format(self.msginfo, iname))
 
     def _setup_compute_primal(self):
         """

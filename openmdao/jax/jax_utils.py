@@ -319,8 +319,6 @@ def get_vmap_tangents(vals, direction, fill=1., coloring=None):
     tuple of ndarray or ndarray
         The tangents values to be passed to vmap.
     """
-    # TODO: Can we use jax sparse arrays for our tangents?
-
     sizes = [np.size(a) for a in vals]
     totsize = np.sum(sizes)
 
@@ -339,6 +337,7 @@ def get_vmap_tangents(vals, direction, fill=1., coloring=None):
         for i, nzs in enumerate(colors):
             tangent[nzs, i] = 1.
         ncols = len(colors)
+
     # take the 2D tangent array and reshape it to match the shape of each input variable.
     # (with the additional batching dimension as the last axis)
     tangents = []
@@ -348,9 +347,7 @@ def get_vmap_tangents(vals, direction, fill=1., coloring=None):
         tangents.append(jnp.array(tangent[start:end].reshape(np.shape(v) + (ncols,))))
         start = end
 
-    tangents = tuple(tangents)
-
-    return tangents
+    return tuple(tangents)
 
 
 def _update_subjac_sparsity(sparsity_iter, pathname, subjacs_info):

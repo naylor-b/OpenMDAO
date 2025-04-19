@@ -1,5 +1,5 @@
 """
-This script is used to compare performance of JAX sparsity comp vs. plain sparsity comp.
+This script is used to compare performance of JAX components/groups vs. plain components/groups.
 
 Cmd line args control the following:
 
@@ -9,7 +9,6 @@ rev: use reverse mode
 check: check partials
 jax: use JAX sparsity comp
 group: use group of sparsity comps
-sparse: use sparse partials
 fd: use finite difference partials
 show: show sparsity
 
@@ -20,7 +19,6 @@ import sys
 from pprint import pprint
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 
 import openmdao.api as om
@@ -96,7 +94,7 @@ class JaxPerfTestComp(om.JaxExplicitComponent):
 
 
 
-class SimpleJaxPerfTestComp(om.JaxExplicitComponent):
+class StaticJaxPerfTestComp(om.JaxExplicitComponent):
     def initialize(self):
         self.options.declare('size', types=int)
 
@@ -117,7 +115,6 @@ class SimpleJaxPerfTestComp(om.JaxExplicitComponent):
 def do_timing(meta):
     size = meta['size']
     reps = meta['reps']
-    use_sparse = meta['sparse']
     use_group = meta['group']
     use_jax = meta['jax']
     use_jit = meta['jit']
@@ -126,7 +123,7 @@ def do_timing(meta):
     use_prof = meta['prof']
     use_jax_prof = meta['jax_prof']
     check = meta['check']
-    simple = meta['simple']
+    static = meta['static']
     use_fd = meta['fd']
     ncomps = meta['ncomps']
     nsinks = meta['nsinks']
@@ -165,11 +162,11 @@ def do_timing(meta):
     p = om.Problem()
     model = p.model
 
-    kwargs = {'use_jit': use_jit, 'size': size}
+    kwargs = {'size': size, 'use_jit': use_jit}
 
     if use_jax or jax_comps:
-        if simple:
-            klass = SimpleJaxPerfTestComp
+        if static:
+            klass = StaticJaxPerfTestComp
         else:
             klass = JaxPerfTestComp
     else:
@@ -206,7 +203,6 @@ def do_timing(meta):
     results.update({
         'size': size,
         'jit': use_jit,
-        'sparse': use_sparse,
         'color': use_coloring,
         'fd': use_fd,
     })
@@ -251,10 +247,8 @@ def do_timing(meta):
             profname = 'group_' + profname
         if use_fd:
             profname = profname + '_fd'
-        if not use_sparse:
-            profname = profname + '_dense'
-        if simple:
-            profname = profname + '_simple'
+        if static:
+            profname = profname + '_static'
         profname = profname + f'_{size}'
 
         if use_jax_prof:
@@ -294,9 +288,8 @@ def read_args(args=None):
         'jax_comps': 'jaxcomps' in args,
         'show': 'show' in args,
         'fd': 'fd' in args,
-        'sparse': 'sparse' in args,
         'group': 'group' in args,
-        'simple': 'simple' in args,
+        'static': 'static' in args,
         'nsinks': int('nsinks' in args)
     }
     ncomps = 0
@@ -320,7 +313,7 @@ def read_args(args=None):
 
 
 if __name__ == '__main__':
-    reps = 100
+    reps = 500
     size = 500
 
     meta = read_args()
@@ -349,19 +342,17 @@ if __name__ == '__main__':
                 meta['group'] = True
                 if with_jax:
                     meta['jax_comps'] = False
-                    for with_jit in [True, False]:
+                    for with_jit, with_coloring in [(True, True), (True, False), (False, False)]:
                         meta['jit'] = with_jit
-                        if with_jit:
-                            meta['color'] = True
+                        meta['color'] = with_coloring
                         results = do_timing(meta)
-                        meta['color'] = False
                         reslist.append(results)
                 else:
                     for jaxcomps in [True, False]:
                         meta['jax_comps'] = jaxcomps
                         meta['jit'] = jaxcomps
-                        for simple in [True, False]:
-                            meta['simple'] = simple
+                        for static in [True, False]:
+                            meta['static'] = static
                             results = do_timing(meta)
                             reslist.append(results)
     else:  # single component tests
@@ -369,9 +360,9 @@ if __name__ == '__main__':
             meta['jax'] = with_jax
             meta['jit'] = with_jit
             if with_jax:
-                for simple in [True, False]:
-                    meta['simple'] = simple
-                    if not simple:
+                for static in [True, False]:
+                    meta['static'] = static
+                    if not static:
                         for coloring in [True, False]:
                             meta['color'] = coloring
                             results = do_timing(meta)
