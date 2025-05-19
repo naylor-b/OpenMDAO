@@ -6001,11 +6001,10 @@ class System(object, metaclass=SystemMetaclass):
                             vshape = None
                             has_src_indices = False
                     else:
-                        shp = inds.indexed_src_shape
                         src_indices = inds
                         has_src_indices = True
                         if is_prom:
-                            vshape = shp
+                            vshape = inds.indexed_src_shape
                     break
 
                 parent, _, child = n.partition('.')
@@ -6074,8 +6073,7 @@ class System(object, metaclass=SystemMetaclass):
                         val = val.ravel()[src_indices.flat()]
                         # if at component level, just keep shape of the target and don't flatten
                         if not flat and not is_prom:
-                            shp = vmeta['shape']
-                            val = np.reshape(val, shp)
+                            val = np.reshape(val, vmeta['shape'])
                     else:
                         val = val[src_indices()]
                         if vshape is not None and val.shape != vshape:

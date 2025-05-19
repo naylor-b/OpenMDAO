@@ -1479,7 +1479,7 @@ class IndexMaker(object):
                 raise RuntimeError("Can't use a multdimensional index into a flat source.")
         else:
             arr = np.atleast_1d(idx)
-            if arr.ndim == 1:
+            if arr.ndim == 1 or flat_src:
                 idxer = ArrayIndexer(arr, flat_src=flat_src)
             else:
                 issue_warning("Using a non-tuple sequence for multidimensional indexing is "
