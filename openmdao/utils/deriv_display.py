@@ -29,6 +29,283 @@ SYSTEM = {'bold', 'bright_cyan'}
 VAR = {'bold', 'bright_green'}
 
 
+class _ErrorData(object):
+    __slots__ = ['forward', 'reverse', 'fwd_rev']
+
+    def __init__(self, forward=None, reverse=None, fwd_rev=None):
+        self.forward = forward
+        self.reverse = reverse
+        self.fwd_rev = fwd_rev
+
+    def __iter__(self):
+        yield self.forward
+        yield self.reverse
+        yield self.fwd_rev
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(forward={self.forward}, reverse={self.reverse}, " \
+            f"fwd_rev={self.fwd_rev})"
+
+    def max(self, use_abs=True):
+        if use_abs:
+            func = np.abs
+        else:
+            def func(x):
+                return x
+
+        ret = 0.0
+        for err in self:
+            if err is not None:
+                if isinstance(err, tuple):
+                    mx = max(func(e) for e in err)
+                    if ret < mx:
+                        ret = mx
+                else:
+                    mx = func(err)
+                    if ret < mx:
+                        ret = mx
+        return ret
+
+    def __getitem__(self, idx):
+        return tuple(self)[idx]
+
+
+class _MagnitudeData(object):
+    __slots__ = ['forward', 'reverse', 'fd']
+
+    def __init__(self):
+        self.forward = 0.
+        self.reverse = 0.
+        self.fd = 0.
+
+    def __iter__(self):
+        yield self.forward
+        yield self.reverse
+        yield self.fd
+
+    def __repr__(self):
+        return f"_MagnitudeData(forward={self.forward}, reverse={self.reverse}, fd={self.fd})"
+
+    def max(self):
+        ret = 0.0
+        for mag in self:
+            if mag is not None and mag > ret:
+                ret = mag
+        return ret
+
+    def __getitem__(self, idx):
+        return tuple(self)[idx]
+
+    def update(self, J, Jtype):
+        if J is not None and J.size > 0:
+            if Jtype == 'fwd':
+                self.forward = max(self.forward, np.max(np.abs(J)))
+            elif Jtype == 'rev':
+                self.reverse = max(self.reverse, np.max(np.abs(J)))
+            elif Jtype == 'fd':
+                self.fd = max(self.fd, np.max(np.abs(J)))
+
+
+def _compute_deriv_errors(derivative_info, matrix_free, directional, totals, atol, rtol):
+    """
+    Compute the errors between derivatives that were computed using different modes or methods.
+
+    Error information in the derivative_info dict is updated by this function.
+
+    Parameters
+    ----------
+    derivative_info : dict
+        Metadata dict corresponding to a particular (of, wrt) pair.
+    matrix_free : bool
+        True if the current dirivatives are computed in a matrix free manner.
+    directional : bool
+        True if the current dirivtives are directional.
+    totals : bool or _TotalJacInfo
+        _TotalJacInfo if the current derivatives are total derivatives.
+    atol : float
+        Absolute error tolerance.
+    rtol : float
+        Relative error tolerance.
+
+    Returns
+    -------
+    bool
+        True if any errors are above the tolerance, i.e., they violate the inequality
+        abs(err) <= atol + rtol * abs(err_ref).
+    """
+    Jforward = derivative_info.get('J_fwd')
+    Jreverse = derivative_info.get('J_rev')
+
+    try:
+        fdinfo = derivative_info['J_fd']
+        steps = derivative_info['steps']
+    except KeyError:
+        # this can happen when a partial is not declared, which means it should be zero
+        fdinfo = (None,)
+        steps = (None,)
+
+    derivative_info['tol violation'] = []
+    derivative_info['magnitude'] = []
+    derivative_info['vals_at_max_error'] = []
+    derivative_info['abs error'] = []
+    derivative_info['rel error'] = []
+    derivative_info['steps'] = []
+
+    abs_mags = _MagnitudeData()
+    abs_mags.update(Jforward, 'fwd')
+    abs_mags.update(Jreverse, 'rev')
+
+    above_tol = above = False
+    errs_fwd_rev = err_vals_fwd_rev = None
+    if matrix_free:
+        derivative_info['matrix_free'] = True
+        if directional:
+            if Jforward is not None and Jreverse is not None:
+                mhatdotm, dhatdotd = derivative_info['directional_fwd_rev']
+                errs_fwd_rev, err_vals_fwd_rev, above, abs_errs_fwd_rev, rel_errs_fwd_rev = \
+                    get_tol_violation(dhatdotd, mhatdotm, atol, rtol)
+                above_tol |= above
+        elif not totals:
+            errs_fwd_rev, err_vals_fwd_rev, above, abs_errs_fwd_rev, rel_errs_fwd_rev = \
+                get_tol_violation(Jforward, Jreverse, atol, rtol)
+            above_tol |= above
+
+    for i, Jfd in enumerate(fdinfo):
+        above = False
+        errs = _ErrorData()
+        abs_errs = _ErrorData()
+        rel_errs = _ErrorData()
+        err_vals = _ErrorData()
+
+        step = steps[i]
+        abs_mags.update(Jfd, 'fd')
+
+        if directional:
+            if Jforward is not None:
+                if totals:
+                    mhatdotm, dhatdotd = derivative_info['directional_fd_fwd'][i]
+                    errs.forward, err_vals.forward, above, abs_errs.forward, rel_errs.forward = \
+                        get_tol_violation(dhatdotd, mhatdotm, atol, rtol)
+                else:
+                    errs.forward, err_vals.forward, above, abs_errs.forward, rel_errs.forward = \
+                        get_tol_violation(Jforward, Jfd, atol, rtol)
+                above_tol |= above
+
+            if Jreverse is not None and 'directional_fd_rev' in derivative_info:
+                dhatdotd, mhatdotm = derivative_info['directional_fd_rev'][i]
+                errs.reverse, err_vals.reverse, above, abs_errs.reverse, rel_errs.reverse = \
+                    get_tol_violation(dhatdotd, mhatdotm, atol, rtol)
+                above_tol |= above
+        else:
+            if Jforward is not None:
+                errs.forward, err_vals.forward, above, abs_errs.forward, rel_errs.forward = \
+                    get_tol_violation(Jforward, Jfd, atol, rtol)
+                above_tol |= above
+            if Jreverse is not None:
+                errs.reverse, err_vals.reverse, above, abs_errs.reverse, rel_errs.reverse = \
+                    get_tol_violation(Jreverse, Jfd, atol, rtol)
+                above_tol |= above
+
+        if Jfd is not None and Jforward is None and Jreverse is None:
+            errs.reverse, err_vals.reverse, above, abs_errs.reverse, rel_errs.reverse = \
+                get_tol_violation(np.zeros_like(Jfd), Jfd, atol, rtol)
+            above_tol |= above
+
+        if errs_fwd_rev is not None:
+            errs.fwd_rev = errs_fwd_rev
+            err_vals.fwd_rev = err_vals_fwd_rev
+            abs_errs.fwd_rev = abs_errs_fwd_rev
+            rel_errs.fwd_rev = rel_errs_fwd_rev
+
+        derivative_info['tol violation'].append(errs)
+        derivative_info['magnitude'].append(abs_mags)
+        derivative_info['vals_at_max_error'].append(err_vals)
+        derivative_info['abs error'].append(abs_errs)
+        derivative_info['rel error'].append(rel_errs)
+        derivative_info['steps'].append(step)
+
+    return above_tol
+
+
+def _iter_derivs(derivatives, show_only_incorrect, all_fd_opts, totals, nondep_derivs,
+                 matrix_free, abs_error_tol=0.0, rel_error_tol=1e-6, incon_keys=(),
+                 sort=True):
+    """
+    Iterate over all of the derivatives.
+
+    If show_only_incorrect is True, only the derivatives with abs or rel errors outside of
+    tolerance or derivatives wrt serial variables that are inconsistent across ranks will be
+    returned.
+
+    Parameters
+    ----------
+    derivatives : dict
+        Dict of metadata for derivative groups, keyed on (of, wrt) pairs.
+    show_only_incorrect : bool
+        If True, yield only derivatives with errors outside of tolerance.
+    all_fd_opts : dict
+        Dictionary containing the options for the approximation.
+    totals : bool
+        True if derivatives are totals.
+    nondep_derivs : set
+        Contains the of/wrt keys that are declared not dependent or not declared at all.
+    matrix_free : bool
+        True if the system computes matrix free derivatives.
+    abs_error_tol : float
+        Absolute error tolerance.
+    rel_error_tol : float
+        Relative error tolerance.
+    incon_keys : set or tuple
+        Keys where there are serial d_inputs variables that are inconsistent across processes.
+    sort : bool
+        If True, sort the derivatives alphabetically.
+
+    Yields
+    ------
+    tuple
+        The (of, wrt) pair for the current derivatives being compared.
+    dict
+        The FD options.
+    bool
+        True if the current derivatives are directional.
+    bool
+        True if the differences for the current derivatives are above tolerance.
+    bool
+        True if the current derivative was computed where some serial d_inputs variables were not
+        consistent across processes.
+    """
+    keys = sorted(derivatives) if sort else derivatives
+
+    for key in keys:
+
+        inconsistent = False
+        derivative_info = derivatives[key]
+
+        if totals:
+            fd_opts = all_fd_opts
+        else:
+            _, wrt = key
+            fd_opts = all_fd_opts[wrt]
+
+        if key in incon_keys:
+            inconsistent = True
+
+        directional = bool(fd_opts) and fd_opts.get('directional')
+
+        above_tol = _compute_deriv_errors(derivative_info, matrix_free, directional, totals,
+                                          abs_error_tol, rel_error_tol)
+
+        # Skip printing the non-dependent keys if the derivatives are fine.
+        if key in nondep_derivs and not above_tol:
+            del derivatives[key]
+            continue
+
+        if show_only_incorrect and not (above_tol or inconsistent):
+            continue
+
+        yield key, fd_opts, directional, above_tol, inconsistent
+
+
 def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, out_stream,
                    fd_opts, totals=False, show_only_incorrect=False, lcons=None, rich_print=True):
     """

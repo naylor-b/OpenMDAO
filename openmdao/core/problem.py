@@ -24,7 +24,7 @@ from openmdao.core.constants import _SetupStatus
 from openmdao.core.component import Component
 from openmdao.core.driver import Driver, record_iteration
 from openmdao.core.explicitcomponent import ExplicitComponent
-from openmdao.core.system import System, _iter_derivs
+from openmdao.core.system import System
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import _DEFAULT_COLORING_DIR, _DEFAULT_OUT_STREAM, \
@@ -38,7 +38,8 @@ from openmdao.error_checking.check_config import _default_checks, _all_checks, \
 from openmdao.recorders.recording_iteration_stack import _RecIteration
 from openmdao.recorders.recording_manager import RecordingManager, record_viewer_data, \
     record_model_options
-from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, _deriv_display_compact
+from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, \
+    _deriv_display_compact, _iter_derivs
 from openmdao.utils.mpi import MPI, FakeComm, multi_proc_exception_check, check_mpi_env
 from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.units import simplify_unit
