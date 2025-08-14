@@ -13,6 +13,7 @@ import scipy.sparse as sp
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import INT_DTYPE, _SetupStatus
+from openmdao.vectors.vector import _full_slice, _flat_full_indexer
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
@@ -21,8 +22,8 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
-from openmdao.vectors.vector import _full_slice, _flat_full_indexer
 from openmdao.utils.indexer import indexer
+from openmdao.utils.configuration import dict_like_config
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, OMDeprecationWarning, warn_deprecation
 
@@ -2000,6 +2001,21 @@ class Driver(object, metaclass=DriverMetaclass):
             active_cons[key]['multipliers'] = val
 
         return active_dvs, active_cons
+
+    def set_config(self, cfg, scope, verbose=True):
+        ignored = []
+        config_funcs = {
+            'options': dict_like_config,
+        }
+        for name, subcfg in cfg.items():
+            if name in config_funcs:
+                config_funcs[name](self, name, subcfg, scope)
+            elif name != 'type':
+                ignored.append(name)
+
+        if verbose and ignored:
+            issue_warning(f"{self.msginfo}: During loading of a configuration, the following items "
+                          f"were ignored: {sorted(ignored)}.")
 
 
 class SaveOptResult(object):

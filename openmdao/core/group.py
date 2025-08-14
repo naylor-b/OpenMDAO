@@ -39,6 +39,8 @@ from openmdao.utils.om_warnings import issue_warning, UnitsWarning, UnusedOption
     PromotionWarning, MPIWarning, DerivativesWarning
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.jax_utils import jax
+from openmdao.utils.configuration import connection_list_config, subsystem_list_config, \
+    attr_config, voi_list_config
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.name_maps import LOCAL, CONTINUOUS, DISTRIBUTED
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
@@ -5406,6 +5408,28 @@ class Group(System):
                 self._key_owner = {}
 
         return self._key_owner
+
+    def set_config(self, cfg, scope, verbose=True):
+        ignored = []
+        config_funcs = {
+            'connections': connection_list_config,
+            'subsystems': subsystem_list_config,
+            'nonlinear_solver': attr_config,
+            'linear_solver': attr_config,
+            'design_variables': voi_list_config,
+            'constraints': voi_list_config,
+            'objectives': voi_list_config,
+        }
+        for name, subcfg in cfg.items():
+            if name in config_funcs:
+                config_funcs[name](self, name, subcfg, scope)
+            elif name != 'type':
+                ignored.append(name)
+
+        if verbose and ignored:
+            path = self.msginfo if self.pathname else '.'.join(scope)
+            issue_warning(f"{path}: During loading of a configuration, the following items "
+                          f"were ignored: {sorted(ignored)}.")
 
 
 def iter_solver_info(system):

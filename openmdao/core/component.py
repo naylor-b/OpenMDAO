@@ -2627,6 +2627,9 @@ class Component(System):
         """
         return _no_matvec_scope
 
+    def set_config(self, cfg, scope, verbose=True):
+        pass
+
 
 class _DictValues(object):
     """

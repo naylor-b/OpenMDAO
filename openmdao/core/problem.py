@@ -56,6 +56,7 @@ from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, warn_d
     OMInvalidCheckDerivativesOptionsWarning
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.file_utils import _get_outputs_dir, text2html, _get_work_dir
+from openmdao.utils.configuration import attr_config
 from openmdao.utils.testing_utils import _fix_comp_check_data
 from openmdao.utils.name_maps import DISTRIBUTED
 
@@ -217,6 +218,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         # this function doesn't do anything after the first call
         _load_report_plugins()
 
+        self._name = None
         self._driver = None
         self._reports = get_reports_to_activate(reports)
 
@@ -344,6 +346,10 @@ class Problem(object, metaclass=ProblemMetaclass):
             atexit.register(self.cleanup)
 
     def _set_name(self, name):
+        if self._name is not None:
+            # remove previous name
+            _problem_names.remove(self._name)
+
         if not MPI or self.comm.rank == 0:
             # Set the Problem name so that it can be referenced from command line tools (e.g. check)
             # that accept a Problem argument, and to name the corresponding outputs subdirectory.
@@ -385,6 +391,14 @@ class Problem(object, metaclass=ProblemMetaclass):
             True if the named report is active for this Problem.
         """
         return name in self._reports
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, probname):
+        self._set_name(probname)
 
     @property
     def driver(self):
@@ -949,7 +963,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         # this metadata will be shared by all Systems/Solvers in the system tree
         self._metadata.update({
             'name': self._name,  # the name of this Problem
-            'pathname': None,  # the pathname of this Problem in the current tree of Problems
+            'pathname': self._name,  # the pathname of this Problem in the current tree of Problems
             'comm': comm,
             'work_dir': pathlib.Path(self.options['work_dir']),
             'coloring_dir': _DEFAULT_COLORING_DIR,  # directory for input coloring files
@@ -1014,13 +1028,8 @@ class Problem(object, metaclass=ProblemMetaclass):
                 parent_prob_meta = parent._problem_meta
             else:
                 raise ValueError('Problem parent must be another Problem or System instance.')
-        else:
-            parent_prob_meta = None
-
-        if parent_prob_meta and parent_prob_meta['pathname']:
-            self._metadata['pathname'] = parent_prob_meta['pathname'] + f'/{self._name}'
-        else:
-            self._metadata['pathname'] = self._name
+            if parent_prob_meta and parent_prob_meta['pathname']:
+                self._metadata['pathname'] = parent_prob_meta['pathname'] + f'/{self._name}'
 
         # We don't want to delete the outputs directory because we may be using the coloring files
         # from a previous run.
@@ -2526,6 +2535,19 @@ class Problem(object, metaclass=ProblemMetaclass):
                 return coloring_info.coloring
 
             return coloring
+
+    def set_config(self, cfg, scope, verbose=True):
+        ignored = []
+        attrs = {'driver', 'model', 'name'}
+        for name, subcfg in cfg.items():
+            if name in attrs:
+                attr_config(self, name, subcfg, scope)
+            elif name != 'type':
+                ignored.append(name)
+
+        if verbose and ignored:
+            issue_warning("During loading of a configuration, the following items were ignored: "
+                          f"{sorted(ignored)}.")
 
 
 def _fix_check_data(data):

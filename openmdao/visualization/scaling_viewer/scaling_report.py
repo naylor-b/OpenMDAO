@@ -508,7 +508,7 @@ def _exitfunc(probname):
         probnames = _problem_names
     else:
         probnames = [probname]
-    missing = [p for p in probnames if p not in _scaling_report_done]
+    missing = [p for p in probnames if p is not None and p not in _scaling_report_done]
     if missing:
         print(f"\n\nDriver scaling report(s) not generated for Problem(s) {sorted(missing)}\n")
 

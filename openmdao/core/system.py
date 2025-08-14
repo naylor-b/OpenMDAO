@@ -3459,7 +3459,7 @@ class System(object, metaclass=SystemMetaclass):
         linear : bool
             Set to True if constraint is linear. Default is False.
         parallel_deriv_color : str
-            If specified, this design var will be grouped for parallel derivative
+            If specified, this response will be grouped for parallel derivative
             calculations with other variables sharing the same parallel_deriv_color.
         cache_linear_solution : bool
             If True, store the linear solution vectors for this variable so they can

@@ -1,0 +1,85 @@
+
+problem:
+  type: openmdao.core.problem.Problem
+  name: "Sellar_MDA"
+
+  model:
+    type: "openmdao.core.group.Group"
+    subsystems:
+      - add:
+          cycle:
+            type: "openmdao.core.group.Group"
+            subsystems:
+              - add:
+                  d1: "openmdao.test_suite.components.sellar.SellarDis1"
+                  kwargs:
+                    promotes_inputs: ["x", "z"]
+              - add:
+                  d2:
+                    type: "openmdao.test_suite.components.sellar.SellarDis2"
+                  kwargs:
+                    promotes_inputs: ["z"]
+            connections:
+              - "d1.y1": "d2.y1"
+              # Note: d2.y2 to d1.y2 connection is commented out in original code
+            # input_defaults:
+            #   x: 1.0
+            #   z: [5.0, 2.0]
+            nonlinear_solver:
+              type: "openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS"
+          kwargs:
+            promotes_inputs: ["x", "z"]
+
+      - add:
+          obj_cmp:
+            type: "openmdao.components.exec_comp.ExecComp"
+            kwargs:
+              exprs: "obj = x**2 + z[1] + y1 + exp(-y2)"
+              z: [0.0, 0.0]
+              x: 0.0
+          kwargs:
+            promotes_inputs: ["x", "z"]
+
+      - add:
+          con_cmp1:
+            type: "openmdao.components.exec_comp.ExecComp"
+            kwargs:
+              exprs: "con1 = 3.16 - y1"
+
+      - add:
+          con_cmp2:
+            type: "openmdao.components.exec_comp.ExecComp"
+            kwargs:
+              exprs: "con2 = y2 - 24.0"
+
+    connections:
+      - "cycle.d1.y1": ["obj_cmp.y1", "con_cmp1.y1"]
+      - "cycle.d2.y2": ["obj_cmp.y2", "con_cmp2.y2"]
+
+    design_variables:
+      - x:
+          lower: 0
+          upper: 10
+      - z:
+          lower: 0
+          upper: 10
+
+    objectives:
+      - obj_cmp.obj
+
+    constraints:
+      - con_cmp1.con1:
+          upper: 0
+      - con_cmp2.con2:
+          upper: 0
+
+  driver:
+    type: "openmdao.drivers.scipy_optimizer.ScipyOptimizeDriver"
+    options:
+      optimizer: "SLSQP"
+      tol: 1.0e-8
+
+
+  # initial_values:
+  #   x: 2.0
+  #   z: [0.0, 0.0]

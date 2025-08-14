@@ -119,7 +119,7 @@ class ExecComp(ExplicitComponent):
         views/values.
     """
 
-    def __init__(self, exprs=[], **kwargs):
+    def __init__(self, exprs=(), **kwargs):
         r"""
         Create a <Component> using only an expression string.
 
@@ -228,7 +228,7 @@ class ExecComp(ExplicitComponent):
         if isinstance(exprs, str):
             exprs = [exprs]
 
-        self._exprs = exprs[:]
+        self._exprs =list(exprs)
         self._exprs_info = []
         self._codes = []
         self._kwargs = kwargs
