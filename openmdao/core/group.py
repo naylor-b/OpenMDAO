@@ -151,6 +151,18 @@ def _chk_scale_factor(factor):
     return factor
 
 
+# functions used when processing a configuration
+_config_funcs = {
+    'connections': connection_list_config,
+    'subsystems': subsystem_list_config,
+    'nonlinear_solver': attr_config,
+    'linear_solver': attr_config,
+    'design_variables': voi_list_config,
+    'constraints': voi_list_config,
+    'objectives': voi_list_config,
+}
+
+
 class Group(System):
     """
     Class used to group systems together; instantiate or inherit.
@@ -5410,19 +5422,11 @@ class Group(System):
         return self._key_owner
 
     def set_config(self, cfg, scope, verbose=True):
+        global _config_funcs
         ignored = []
-        config_funcs = {
-            'connections': connection_list_config,
-            'subsystems': subsystem_list_config,
-            'nonlinear_solver': attr_config,
-            'linear_solver': attr_config,
-            'design_variables': voi_list_config,
-            'constraints': voi_list_config,
-            'objectives': voi_list_config,
-        }
         for name, subcfg in cfg.items():
-            if name in config_funcs:
-                config_funcs[name](self, name, subcfg, scope)
+            if name in _config_funcs:
+                _config_funcs[name](self, name, subcfg, scope)
             elif name != 'type':
                 ignored.append(name)
 

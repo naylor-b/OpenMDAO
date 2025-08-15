@@ -1,6 +1,10 @@
+"""
+Utility functions for working with configuration of an OpenMDAO problem.
+"""
+
 import os
-import yaml
 import importlib
+import yaml
 from io import StringIO
 
 from openmdao.utils.om_warnings import issue_warning
@@ -41,7 +45,11 @@ def resolve_config(cfg):
 
     # assume it's a YAML string
     if isinstance(cfg, str):
-        return yaml.safe_load(StringIO(cfg))
+        if '\n' in cfg:
+            newcfg = yaml.safe_load(StringIO(cfg))
+            if isinstance(newcfg, dict) and newcfg:
+                return newcfg
+        raise RuntimeError("Given configuration is not a YAML filename or a YAML string.")
 
     raise RuntimeError(f"resolve_config expects a dict or string, but got a {type(cfg).__name__}.")
 
@@ -66,6 +74,8 @@ def process_config(cfg, topname='problem'):
         default_type_path = _top_map.get(topname)
         top = configure_type(topname, cfg[topname], scope=scope,
                              default_type_path=default_type_path)
+    else:
+        raise RuntimeError(f"Key '{topname}' not found in configuration.")
 
     keyset = set(cfg) - {topname}
     if len(keyset) > 0:

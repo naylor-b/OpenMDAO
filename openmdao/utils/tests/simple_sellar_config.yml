@@ -1,60 +1,61 @@
 
 problem:
   type: openmdao.core.problem.Problem
-  name: "Sellar_MDA"
+  kwargs:
+    name: Sellar_MDA
 
   model:
-    type: "openmdao.core.group.Group"
+    type: openmdao.core.group.Group
     subsystems:
-      - add:
+      - subsystem:
           cycle:
-            type: "openmdao.core.group.Group"
+            type: openmdao.core.group.Group
             subsystems:
-              - add:
-                  d1: "openmdao.test_suite.components.sellar.SellarDis1"
+              - subsystem:
+                  d1: openmdao.test_suite.components.sellar.SellarDis1
                   kwargs:
-                    promotes_inputs: ["x", "z"]
-              - add:
+                    promotes_inputs: [x, z]
+              - subsystem:
                   d2:
-                    type: "openmdao.test_suite.components.sellar.SellarDis2"
+                    type: openmdao.test_suite.components.sellar.SellarDis2
                   kwargs:
-                    promotes_inputs: ["z"]
+                    promotes_inputs: [z]
             connections:
-              - "d1.y1": "d2.y1"
+              - d1.y1: d2.y1
               # Note: d2.y2 to d1.y2 connection is commented out in original code
             # input_defaults:
             #   x: 1.0
             #   z: [5.0, 2.0]
             nonlinear_solver:
-              type: "openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS"
+              type: openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS
           kwargs:
-            promotes_inputs: ["x", "z"]
+            promotes_inputs: [x, z]
 
-      - add:
+      - subsystem:
           obj_cmp:
-            type: "openmdao.components.exec_comp.ExecComp"
+            type: openmdao.components.exec_comp.ExecComp
             kwargs:
-              exprs: "obj = x**2 + z[1] + y1 + exp(-y2)"
+              exprs: obj = x**2 + z[1] + y1 + exp(-y2)
               z: [0.0, 0.0]
               x: 0.0
           kwargs:
-            promotes_inputs: ["x", "z"]
+            promotes_inputs: [x, z]
 
-      - add:
+      - subsystem:
           con_cmp1:
-            type: "openmdao.components.exec_comp.ExecComp"
+            type: openmdao.components.exec_comp.ExecComp
             kwargs:
-              exprs: "con1 = 3.16 - y1"
+              exprs: con1 = 3.16 - y1
 
-      - add:
+      - subsystem:
           con_cmp2:
-            type: "openmdao.components.exec_comp.ExecComp"
+            type: openmdao.components.exec_comp.ExecComp
             kwargs:
-              exprs: "con2 = y2 - 24.0"
+              exprs: con2 = y2 - 24.0
 
     connections:
-      - "cycle.d1.y1": ["obj_cmp.y1", "con_cmp1.y1"]
-      - "cycle.d2.y2": ["obj_cmp.y2", "con_cmp2.y2"]
+      - cycle.d1.y1: [obj_cmp.y1, con_cmp1.y1]
+      - cycle.d2.y2: [obj_cmp.y2, con_cmp2.y2]
 
     design_variables:
       - x:
@@ -74,9 +75,9 @@ problem:
           upper: 0
 
   driver:
-    type: "openmdao.drivers.scipy_optimizer.ScipyOptimizeDriver"
+    type: openmdao.drivers.scipy_optimizer.ScipyOptimizeDriver
     options:
-      optimizer: "SLSQP"
+      optimizer: SLSQP
       tol: 1.0e-8
 
 
