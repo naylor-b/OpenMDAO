@@ -7084,3 +7084,9 @@ class System(object, metaclass=SystemMetaclass):
 
     def _get_subjac_owners(self):
         return {}
+
+    def _get_config_scope_stack(self):
+        """
+        Get the scope stack for the system.
+        """
+        return [self.pathname if self.pathname is not None else self.name]

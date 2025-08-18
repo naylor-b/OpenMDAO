@@ -20,6 +20,7 @@ from openmdao.jacobians.dictionary_jacobian import _CheckingJacobian
 from openmdao.utils.units import simplify_unit
 from openmdao.utils.name_maps import abs_key_iter, abs_key2rel_key, rel_key2abs_key
 from openmdao.utils.mpi import MPI
+from openmdao.utils.configuration import dict_like_config
 from openmdao.utils.array_utils import shape_to_len, submat_sparsity_iter, sparsity_diff_viz
 from openmdao.utils.deriv_display import _deriv_display, _deriv_display_compact, _iter_derivs
 from openmdao.utils.general_utils import format_as_float_or_array, ensure_compatible, \
@@ -2627,8 +2628,14 @@ class Component(System):
         """
         return _no_matvec_scope
 
-    def set_config(self, cfg, scope, verbose=True):
-        pass
+    @classmethod
+    def get_config_handlers(cls):
+        """
+        Return the configuration handlers for this class.
+        """
+        return {
+            'options': dict_like_config,
+        }
 
 
 class _DictValues(object):

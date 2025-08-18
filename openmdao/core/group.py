@@ -40,7 +40,7 @@ from openmdao.utils.om_warnings import issue_warning, UnitsWarning, UnusedOption
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.jax_utils import jax
 from openmdao.utils.configuration import connection_list_config, subsystem_list_config, \
-    attr_config, voi_list_config
+    attr_config, voi_list_config, input_defaults_list_config
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.name_maps import LOCAL, CONTINUOUS, DISTRIBUTED
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
@@ -149,18 +149,6 @@ def _chk_scale_factor(factor):
     except ValueError:
         pass
     return factor
-
-
-# functions used when processing a configuration
-_config_funcs = {
-    'connections': connection_list_config,
-    'subsystems': subsystem_list_config,
-    'nonlinear_solver': attr_config,
-    'linear_solver': attr_config,
-    'design_variables': voi_list_config,
-    'constraints': voi_list_config,
-    'objectives': voi_list_config,
-}
 
 
 class Group(System):
@@ -3427,15 +3415,15 @@ class Group(System):
                     if recorder not in self._auto_ivc_recorders:
                         self._auto_ivc_recorders.append(recorder)
 
-    def connect(self, src_name, tgt_name, src_indices=None, flat_src_indices=None):
+    def connect(self, src, tgt, src_indices=None, flat_src_indices=None):
         """
-        Connect source src_name to target tgt_name in this namespace.
+        Connect source src to target tgt in this namespace.
 
         Parameters
         ----------
-        src_name : str
+        src : str
             Name of the source variable to connect.
-        tgt_name : str or [str, ... ] or (str, ...)
+        tgt : str or [str, ... ] or (str, ...)
             Name of the target variable(s) to connect.
         src_indices : int or list of ints or tuple of ints or int ndarray or Iterable or None
             The global indices of the source variable to transfer data from.
@@ -3448,17 +3436,17 @@ class Group(System):
         """
         # if src_indices argument is given, it should be valid
         if isinstance(src_indices, str):
-            if isinstance(tgt_name, str):
-                tgt_name = [tgt_name]
-            tgt_name.append(src_indices)
+            if isinstance(tgt, str):
+                tgt = [tgt]
+            tgt.append(src_indices)
             self._collect_error(f"{self.msginfo}: src_indices must be a slice, int, or index array."
-                                f" Did you mean connect('{src_name}', '{tgt_name}')?")
+                                f" Did you mean connect('{src}', '{tgt}')?")
             return
 
         # if multiple targets are given, recursively connect to each
-        if not isinstance(tgt_name, str) and isinstance(tgt_name, Iterable):
-            for name in tgt_name:
-                self.connect(src_name, name, src_indices, flat_src_indices=flat_src_indices)
+        if not isinstance(tgt, str) and isinstance(tgt, Iterable):
+            for name in tgt:
+                self.connect(src, name, src_indices, flat_src_indices=flat_src_indices)
             return
 
         if src_indices is not None:
@@ -3466,15 +3454,15 @@ class Group(System):
                 src_indices = indexer(src_indices, flat_src=flat_src_indices)
             except Exception:
                 type_exc, exc, tb = sys.exc_info()
-                self._collect_error(f"{self.msginfo}: When connecting from '{src_name}' to "
-                                    f"'{tgt_name}': {exc}", exc_type=type_exc, tback=tb)
+                self._collect_error(f"{self.msginfo}: When connecting from '{src}' to "
+                                    f"'{tgt}': {exc}", exc_type=type_exc, tback=tb)
                 return
 
         # target should not already be connected
         for manual_connections in [self._manual_connections, self._static_manual_connections]:
-            if tgt_name in manual_connections:
-                srcname = manual_connections[tgt_name][0]
-                self._collect_error(f"{self.msginfo}: Input '{tgt_name}' is already connected to "
+            if tgt in manual_connections:
+                srcname = manual_connections[tgt][0]
+                self._collect_error(f"{self.msginfo}: Input '{tgt}' is already connected to "
                                     f"'{srcname}'.")
                 return
 
@@ -3483,7 +3471,7 @@ class Group(System):
         else:
             manual_connections = self._manual_connections
 
-        manual_connections[tgt_name] = (src_name, src_indices, flat_src_indices)
+        manual_connections[tgt] = (src, src_indices, flat_src_indices)
 
     def set_order(self, new_order):
         """
@@ -5421,19 +5409,21 @@ class Group(System):
 
         return self._key_owner
 
-    def set_config(self, cfg, scope, verbose=True):
-        global _config_funcs
-        ignored = []
-        for name, subcfg in cfg.items():
-            if name in _config_funcs:
-                _config_funcs[name](self, name, subcfg, scope)
-            elif name != 'type':
-                ignored.append(name)
-
-        if verbose and ignored:
-            path = self.msginfo if self.pathname else '.'.join(scope)
-            issue_warning(f"{path}: During loading of a configuration, the following items "
-                          f"were ignored: {sorted(ignored)}.")
+    @classmethod
+    def get_config_handlers(cls):
+        """
+        Return the configuration handlers for this class.
+        """
+        return {
+            'connections': connection_list_config,
+            'subsystems': subsystem_list_config,
+            'input_defaults': input_defaults_list_config,
+            'nonlinear_solver': attr_config,
+            'linear_solver': attr_config,
+            'design_variables': voi_list_config,
+            'constraints': voi_list_config,
+            'objectives': voi_list_config,
+        }
 
 
 def iter_solver_info(system):

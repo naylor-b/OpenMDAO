@@ -2002,20 +2002,20 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return active_dvs, active_cons
 
-    def set_config(self, cfg, scope, verbose=True):
-        ignored = []
-        config_funcs = {
+    def _get_config_scope_stack(self):
+        """
+        Get the scope stack for the driver.
+        """
+        return ['driver']
+
+    @classmethod
+    def get_config_handlers(cls):
+        """
+        Return the configuration handlers for this class.
+        """
+        return {
             'options': dict_like_config,
         }
-        for name, subcfg in cfg.items():
-            if name in config_funcs:
-                config_funcs[name](self, name, subcfg, scope)
-            elif name != 'type':
-                ignored.append(name)
-
-        if verbose and ignored:
-            issue_warning(f"{self.msginfo}: During loading of a configuration, the following items "
-                          f"were ignored: {sorted(ignored)}.")
 
 
 class SaveOptResult(object):

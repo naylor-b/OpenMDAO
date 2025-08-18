@@ -10,6 +10,13 @@ from io import StringIO
 from openmdao.utils.om_warnings import issue_warning
 
 
+# if a module path is not specified, use this map to find the default module path for a given key
+_key2module_map = {
+    'problem': 'openmdao.core.problem.Problem',
+    'group': 'openmdao.core.group.Group',
+}
+
+
 def load_config(fname):
     """
     Load a configuration file and return the corresponding dict.
@@ -54,24 +61,18 @@ def resolve_config(cfg):
     raise RuntimeError(f"resolve_config expects a dict or string, but got a {type(cfg).__name__}.")
 
 
-_top_map = {
-    'problem': 'openmdao.core.problem.Problem',
-    'group': 'openmdao.core.group.Group',
-}
-
-
 def process_config(cfg, topname='problem'):
     """
     Use this to create a top level object with the given name.
     """
-    global _top_map
+    global _key2module_map
 
     cfg = resolve_config(cfg)
 
     scope = []  # name stack to keep track of pathname for error reporting
 
     if topname in cfg:
-        default_type_path = _top_map.get(topname)
+        default_type_path = _key2module_map.get(topname)
         top = configure_type(topname, cfg[topname], scope=scope,
                              default_type_path=default_type_path)
     else:
@@ -84,13 +85,46 @@ def process_config(cfg, topname='problem'):
     return top
 
 
+def set_config(instance, cfg, scope=None, verbose=False):
+    """
+    Set the configuration for an instance.
+    """
+    if scope is None:
+        scope = instance._get_config_scope_stack()
+    klass = type(instance)
+    config_functs = klass.get_config_handlers()
+    ignored = []
+    for name, subcfg in resolve_config(cfg).items():
+        if name in config_functs:
+            config_functs[name](instance, name, subcfg, scope)
+        elif verbose and name != 'type':
+            ignored.append(name)
+    if ignored:
+        issue_warning(scope_msg(scope,
+                                f"During loading of a configuration, the following items "
+                                f"were ignored: {sorted(ignored)}."))
+
+
 def scope_msg(scope, msg):
     return f"{'.'.join(scope)}: {msg}"
 
 
 def import_type(module_path, scope):
-    # return the type referred to by the module_path
+    """
+    Return the type referred to by the module_path.
 
+    Parameters
+    ----------
+    module_path : str
+        The module path of the type to import.
+    scope : list
+        Stack of names to determine current pathname.
+
+    Returns
+    -------
+    type or None
+        The type referred to by the module_path.
+    """
     # TODO: add support for nested classes by changing split location and retrying until module
     #       is found
     parts = module_path.split('.')
@@ -109,7 +143,7 @@ def import_type(module_path, scope):
                                            f"module '{mod_name}'."))
 
 
-def configure_type(name, cfg, scope, strict=True, default_type_path=None):
+def configure_type(name, cfg, scope, strict=True, default_type_path=None, verbose=False):
     """
     Instantiate an object based on type information and optional args and/kwargs.
 
@@ -148,7 +182,8 @@ def configure_type(name, cfg, scope, strict=True, default_type_path=None):
         module_path = cfg.get('type')
         if module_path is None:
             if default_type_path is None:
-                raise RuntimeError(f"'type' not specified for instance '{name}'.")
+                raise RuntimeError(scope_msg(scope,
+                                             f"'type' not specified for instance '{name}'."))
             else:
                 module_path = default_type_path
         # instantiate a type specified by the given module path to the class, passing it
@@ -168,7 +203,7 @@ def configure_type(name, cfg, scope, strict=True, default_type_path=None):
         instance = klass(*args, **kwargs)
         if nkeys > 0:
             scope.append(name)
-            instance.set_config(cfg, scope)
+            set_config(instance, cfg, scope, verbose=verbose)
             scope.pop()
 
     elif isinstance(cfg, str) and '.' in cfg:
@@ -274,19 +309,15 @@ def connection_list_config(instance, connsname, lst, scope):
     scope.append(connsname)
     for conndct in lst:
         if isinstance(conndct, dict):
-            assert len(conndct) == 1, scope_msg(scope, "Connection dict should only have 1 entry.")
-            for src, val in conndct.items():
-                if isinstance(val, dict):
-                    try:
-                        tgt = val['target']
-                    except KeyError:
-                        raise RuntimeError(scope_msg(scope,
-                                                     "'target' not found for connection source "
-                                                     f"'{src}'."))
-                    kwargs = {val.get(n) for n in ('src_indices', 'flat_src_indices')}
-                    instance.connect(src, tgt, **kwargs)
-                else:
-                    instance.connect(src, val)
+            skip = ('src', 'tgt')
+            kwargs = {k: v for k, v in conndct.items() if k not in skip}
+            missing = [n for n in ('src', 'tgt') if n not in conndct]
+            if missing:
+                raise RuntimeError(scope_msg(scope,
+                                             f"Key(s) {missing} were not found when declaring "
+                                             "a connection."))
+            else:
+                instance.connect(conndct['src'], conndct['tgt'], **kwargs)
         else:
             raise TypeError(scope_msg(scope,
                                       "Entries in connections list should be dicts, but got "
@@ -296,31 +327,62 @@ def connection_list_config(instance, connsname, lst, scope):
 
 def subsystem_list_config(instance, lstname, lst, scope):
     scope.append(lstname)
+    kwargnames = {'promotes_inputs', 'promotes_outputs', 'promotes', 'min_procs', 'max_procs',
+                  'proc_weight', 'proc_group'}
     for subsysdct in lst:
         if isinstance(subsysdct, dict):
-            assert len(subsysdct) == 1, scope_msg(scope,
-                                                  "List entry dict should only have 1 entry.")
-            try:
-                add_dct = subsysdct['add']
-            except KeyError:
-                raise RuntimeError(scope_msg(scope, "Expected 'add' key in subsystem dict."))
-
             kwargs = {}
             sub = None
             subname = None
-            for name, val in add_dct.items():
-                if name == 'kwargs':
-                    kwargs = val
+            for name, val in subsysdct.items():
+                if name in kwargnames:
+                    kwargs[name] = val
                 elif sub is None:
                     sub = configure_type(name, val, scope)
                     subname = name
                 else:
                     raise RuntimeError(scope_msg(scope,
-                                                 "Only one subsystem per 'add' config is allowed."))
+                                                 "Only one subsystem per list entry is allowed."))
 
             instance.add_subsystem(subname, sub, **kwargs)
         else:
             raise TypeError(scope_msg(scope,
                                       "Entries in subsystems list should be dicts, but got "
                                       f"{type(subsysdct).__name__} instead."))
+    scope.pop()
+
+
+def input_defaults_list_config(instance, lstname, lst, scope):
+    scope.append(lstname)
+    for dct in lst:
+        if isinstance(dct, dict):
+            if len(dct) == 1:
+                # single key, so assume key is variable name
+                for vname, data in dct.items():
+                    break
+                if isinstance(data, dict):
+                    kwargs = data
+                else:
+                    kwargs = {'val': data}
+            else:
+                kwargnames = {'val', 'units', 'src_shape'}
+                kwargs = {}
+                vname = None
+                for key, data in dct.items():
+                    if key in kwargnames:
+                        kwargs[key] = data
+                    elif vname is None:
+                        vname = key
+                    else:
+                        raise RuntimeError(scope_msg(scope, f"Unrecognized key: '{key}'."))
+
+                if vname is None:
+                    raise RuntimeError(scope_msg(scope, "No variable name specified when "
+                                                 "specifying input defaults."))
+
+            instance.set_input_defaults(vname, **kwargs)
+        else:
+            raise TypeError(scope_msg(scope,
+                                      "Entries in input_defaults list should be dicts, but got "
+                                      f"{type(dct).__name__} instead."))
     scope.pop()

@@ -17,6 +17,7 @@ from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.record_util import create_local_meta, check_path
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 from openmdao.utils.general_utils import SolverMetaclass, is_undefined
+from openmdao.utils.configuration import attr_config
 
 
 class SolverInfo(object):
@@ -593,6 +594,15 @@ class Solver(object, metaclass=SolverMetaclass):
            The path of the outputs directory for the problem.
         """
         return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
+
+    @classmethod
+    def get_config_handlers(cls):
+        """
+        Return the configuration handlers for this class.
+        """
+        return {
+            'linesearch': attr_config,
+        }
 
 
 class NonlinearSolver(Solver):

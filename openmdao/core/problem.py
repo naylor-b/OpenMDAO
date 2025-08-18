@@ -56,7 +56,7 @@ from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, warn_d
     OMInvalidCheckDerivativesOptionsWarning
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.file_utils import _get_outputs_dir, text2html, _get_work_dir
-from openmdao.utils.configuration import attr_config
+from openmdao.utils.configuration import attr_config, dict_like_config
 from openmdao.utils.testing_utils import _fix_comp_check_data
 from openmdao.utils.name_maps import DISTRIBUTED
 
@@ -2536,18 +2536,17 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             return coloring
 
-    def set_config(self, cfg, scope, verbose=True):
-        ignored = []
-        attrs = {'driver', 'model', 'name'}
-        for name, subcfg in cfg.items():
-            if name in attrs:
-                attr_config(self, name, subcfg, scope)
-            elif name != 'type':
-                ignored.append(name)
-
-        if verbose and ignored:
-            issue_warning("During loading of a configuration, the following items were ignored: "
-                          f"{sorted(ignored)}.")
+    @classmethod
+    def get_config_handlers(cls):
+        """
+        Return the configuration handlers for this class.
+        """
+        return {
+            'driver': attr_config,
+            'model': attr_config,
+            'name': attr_config,
+            'options': dict_like_config,
+        }
 
 
 def _fix_check_data(data):
