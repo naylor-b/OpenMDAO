@@ -1217,7 +1217,7 @@ class _TotalJacInfo(object):
                 scratch[self.rev_allreduce_mask] = self.J[i][self.rev_allreduce_mask]
                 self.comm.Allreduce(scratch, self.J[i], op=MPI.SUM)
 
-    def single_jac_setter(self, i, mode, meta):
+    def single_jac_setter(self, i, mode):
         """
         Set the appropriate part of the total jacobian for a single input index.
 
@@ -1227,14 +1227,12 @@ class _TotalJacInfo(object):
             Total jacobian row or column index.
         mode : str
             Direction of derivative solution.
-        meta : dict
-            Metadata dict.
         """
         self.simple_single_jac_scatter(i, mode)
         if self.comm.size > 1:
             self._jac_setter_dist(i, mode)
 
-    def par_deriv_jac_setter(self, inds, mode, meta):
+    def par_deriv_jac_setter(self, inds, mode):
         """
         Set the appropriate part of the total jacobian for multiple input indices.
 
@@ -1244,8 +1242,6 @@ class _TotalJacInfo(object):
             Total jacobian row or column indices.
         mode : str
             Direction of derivative solution.
-        meta : dict
-            Metadata dict.
         """
         if self.comm.size > 1:
             for i in inds:
@@ -1274,7 +1270,7 @@ class _TotalJacInfo(object):
             for i in inds:
                 self.simple_single_jac_scatter(i, mode)
 
-    def simul_coloring_jac_setter(self, inds, mode, meta):
+    def simul_coloring_jac_setter(self, inds, mode):
         """
         Set the appropriate part of the total jacobian for simul coloring input indices.
 
@@ -1284,8 +1280,6 @@ class _TotalJacInfo(object):
             Total jacobian row or column indices.
         mode : str
             Direction of derivative solution.
-        meta : dict
-            Metadata dict.
         """
         row_col_map = self.simul_coloring.get_row_col_map(mode)
         fwd = mode == 'fwd'
@@ -1318,7 +1312,7 @@ class _TotalJacInfo(object):
                 if dist:
                     self._jac_setter_dist(i, mode)
 
-    def directional_jac_setter(self, inds, mode, meta):
+    def directional_jac_setter(self, inds, mode):
         """
         Set the appropriate part of the total jacobian for directional input indices.
 
@@ -1328,8 +1322,6 @@ class _TotalJacInfo(object):
             Total jacobian row or column indices.
         mode : str
             Direction of derivative solution.
-        meta : dict
-            Metadata dict.
         """
         fwd = mode == 'fwd'
         dist = self.comm.size > 1
@@ -1468,7 +1460,7 @@ class _TotalJacInfo(object):
                                 print(f'Elapsed Time: {time.perf_counter() - t0} secs\n',
                                       flush=True)
 
-                            jac_setter(inds, mode, imeta)
+                            jac_setter(inds, mode)
 
                             # reset any Problem level data for the current iteration
                             self.system._problem_meta['parallel_deriv_color'] = None
