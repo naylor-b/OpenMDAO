@@ -1,11 +1,11 @@
 """Define the DictionaryJacobian class."""
 import numpy as np
 
-from openmdao.jacobians.jacobian import Jacobian
+from openmdao.jacobians.partialjac import PartialJacobian
 from openmdao.jacobians.subjac import SUBJAC_META_DEFAULTS
 
 
-class DictionaryJacobian(Jacobian):
+class DictionaryJacobian(PartialJacobian):
     """
     A Jacobian that stores nonzero subjacobians in a dictionary.
 
@@ -236,7 +236,7 @@ class _CheckingJacobian(DictionaryJacobian):
                     subjac.set_col(loc_idx, column[start:end], self._uncovered_threshold)
 
 
-class ExplicitDictionaryJacobian(Jacobian):
+class ExplicitDictionaryJacobian(PartialJacobian):
     """
     A DictionaryJacobian that is a collection of sub-Jacobians.
 

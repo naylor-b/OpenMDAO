@@ -28,6 +28,7 @@ from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import FakeComm, MPI
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
+from openmdao.utils.coloring import get_total_coloring
 
 # what version of pyoptspare are we working with
 if pyoptsparse and hasattr(pyoptsparse, '__version__'):
@@ -418,7 +419,7 @@ class pyOptSparseDriver(Driver):
         nl_dvs = self._get_nl_dvs()
 
         # compute dynamic simul deriv coloring
-        problem.get_total_coloring(self._coloring_info, run_model=not model_ran)
+        get_total_coloring(model, self._coloring_info, run_model=not model_ran, driver=self)
 
         # Calculate and save derivatives for any linear constraints.
         if linear_constraints:

@@ -270,7 +270,9 @@ class ExplicitComponent(Component):
             with self._unscaled_context(outputs=[self._outputs]):
                 self._compute_wrapper()
 
-            # Iteration counter is incremented in the Recording context manager at exit.
+        self.iter_count += 1
+        if not self.under_approx:
+            self.iter_count_without_approx += 1
 
     def _compute_jacvec_product_wrapper(self, inputs, d_inputs, d_resids, mode,
                                         discrete_inputs=None):

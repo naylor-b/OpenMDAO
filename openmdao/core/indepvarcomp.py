@@ -228,6 +228,10 @@ class IndepVarComp(ExplicitComponent):
         with Recording(self.pathname + '._solve_nonlinear', self.iter_count, self):
             pass
 
+        self.iter_count += 1
+        if not self.under_approx:
+            self.iter_count_without_approx += 1
+
 
 class _AutoIndepVarComp(IndepVarComp):
     """

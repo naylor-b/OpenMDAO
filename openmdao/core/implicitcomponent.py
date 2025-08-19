@@ -174,7 +174,9 @@ class ImplicitComponent(Component):
                             else:
                                 self.solve_nonlinear(self._inputs, self._outputs)
 
-        # Iteration counter is incremented in the Recording context manager at exit.
+        self.iter_count += 1
+        if not self.under_approx:
+            self.iter_count_without_approx += 1
 
     def _guess_nonlinear(self):
         """

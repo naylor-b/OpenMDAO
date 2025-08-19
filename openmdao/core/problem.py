@@ -1485,7 +1485,8 @@ class Problem(object, metaclass=ProblemMetaclass):
         # Calculate Total Derivatives
         total_info = _TotalJacInfo(self, of, wrt, return_format='flat_dict',
                                    approx=model._owns_approx_jac,
-                                   driver_scaling=driver_scaling, directional=directional)
+                                   driver_scaling=driver_scaling, directional=directional,
+                                   driver=self.driver)
         self._metadata['checking'] = True
         try:
             Jcalc = total_info.compute_totals()
@@ -1532,7 +1533,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                                 step_calc=step_calc if method == 'fd' else None)
             fd_tot_info = _TotalJacInfo(self, of, wrt, return_format='flat_dict',
                                         approx=True, driver_scaling=driver_scaling,
-                                        directional=directional)
+                                        directional=directional, driver=self.driver)
             if directional:
                 # for fd, use the same fwd mode seeds as the analytical derives used
                 fd_tot_info.seeds = total_info.seeds
@@ -1686,9 +1687,15 @@ class Problem(object, metaclass=ProblemMetaclass):
             with multi_proc_exception_check(self.comm):
                 self.final_setup()
 
+        if of is None or wrt is None:
+            driver = self.driver
+        else:
+            driver = None
+
         total_info = _TotalJacInfo(self, of, wrt, return_format, approx=self.model._owns_approx_jac,
                                    driver_scaling=driver_scaling, get_remote=get_remote,
-                                   debug_print=debug_print, coloring_info=coloring_info)
+                                   debug_print=debug_print, coloring_info=coloring_info,
+                                   driver=driver)
         return total_info.compute_totals()
 
     def set_solver_print(self, level=2, depth=1e99, type_='all'):
@@ -2481,51 +2488,6 @@ class Problem(object, metaclass=ProblemMetaclass):
                             seen.add(msg)
 
         return unique_errors
-
-    def get_total_coloring(self, coloring_info=None, of=None, wrt=None, run_model=None):
-        """
-        Get the total coloring.
-
-        If necessary, dynamically generate it.
-
-        Parameters
-        ----------
-        coloring_info : dict
-            Coloring metadata dict.
-        of : list of str or None
-            List of response names.
-        wrt : list of str or None
-            List of design variable names.
-        run_model : bool or None
-            If False, don't run model.  If None, use problem._run_counter to determine if model
-            should be run.
-
-        Returns
-        -------
-        Coloring or None
-            Coloring object, possibly dynamically generated, or None.
-        """
-        if coloring_mod._use_total_sparsity:
-            coloring = None
-            # if no coloring_info is supplied, copy the coloring_info from the driver but
-            # remove any existing coloring, and force dynamic coloring
-            if coloring_info is None:
-                coloring_info = self.driver._coloring_info.copy()
-                coloring_info.coloring = None
-                coloring_info.dynamic = True
-
-            if coloring_info.do_compute_coloring():
-                if coloring_info.dynamic:
-                    do_run = run_model if run_model is not None else self._run_counter < 0
-                    coloring = \
-                        coloring_mod.dynamic_total_coloring(
-                            self.driver, run_model=do_run,
-                            fname=self.model.get_coloring_fname(mode='output'),
-                            of=of, wrt=wrt)
-            else:
-                return coloring_info.coloring
-
-            return coloring
 
 
 def _fix_check_data(data):

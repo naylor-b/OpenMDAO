@@ -1308,7 +1308,7 @@ class Driver(object, metaclass=DriverMetaclass):
             total_jac = _TotalJacInfo(problem, of, wrt, return_format,
                                       approx=problem.model._owns_approx_jac,
                                       debug_print=debug_print,
-                                      driver_scaling=driver_scaling)
+                                      driver_scaling=driver_scaling, driver=self)
 
             if total_jac.has_lin_cons and self.supports['linear_constraints']:
                 self._total_jac_linear = total_jac

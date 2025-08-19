@@ -3817,7 +3817,8 @@ class Group(System):
             initialize the approximations.
         """
         if driver is not None and self.pathname == '' and self._owns_approx_jac:
-            self._tot_jac = _TotalJacInfo(driver._problem(), None, None, 'flat_dict', approx=True)
+            self._tot_jac = _TotalJacInfo(driver._problem(), None, None, 'flat_dict', approx=True,
+                                          driver=driver)
 
         try:
             super().run_linearize(sub_do_ln=sub_do_ln)
@@ -3845,7 +3846,9 @@ class Group(System):
             with self._relevance.active(self._nonlinear_solver.use_relevance()):
                 self._nonlinear_solver._solve_with_cache_check()
 
-        # Iteration counter is incremented in the Recording context manager at exit.
+        self.iter_count += 1
+        if not self.under_approx:
+            self.iter_count_without_approx += 1
 
     def _guess_nonlinear(self):
         """

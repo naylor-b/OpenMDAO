@@ -19,7 +19,8 @@ import numpy as np
 
 from openmdao.core.constants import _DEFAULT_COLORING_DIR, _DEFAULT_OUT_STREAM, \
     _UNDEFINED, INT_DTYPE, INF_BOUND, _SetupStatus
-from openmdao.jacobians.dictionary_jacobian import Jacobian
+from openmdao.jacobians.jacobian import Jacobian
+from openmdao.jacobians.partialjac import DenseJacobian, CSCJacobian, CSRJacobian
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
@@ -43,7 +44,6 @@ from openmdao.utils.general_utils import determine_adder_scaler, is_undefined, \
 from openmdao.utils.file_utils import _get_outputs_dir
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
-from openmdao.jacobians.jacobian import DenseJacobian, CSCJacobian, CSRJacobian
 
 
 # Suppored methods for derivatives
@@ -5361,10 +5361,10 @@ class System(object, metaclass=SystemMetaclass):
 
             self._rec_mgr.record_iteration(self, data, metadata)
 
-        # All calls to _solve_nonlinear are recorded, The counter is incremented after recording.
-        self.iter_count += 1
-        if not self.under_approx:
-            self.iter_count_without_approx += 1
+        # # All calls to _solve_nonlinear are recorded, The counter is incremented after recording.
+        # self.iter_count += 1
+        # if not self.under_approx:
+        #     self.iter_count_without_approx += 1
 
     def _clear_iprint(self):
         """

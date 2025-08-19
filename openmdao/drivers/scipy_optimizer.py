@@ -14,6 +14,7 @@ from openmdao.core.driver import Driver, RecordingDebugging
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
+from openmdao.utils.coloring import get_total_coloring
 
 
 # Optimizers in scipy.minimize
@@ -476,7 +477,7 @@ class ScipyOptimizeDriver(Driver):
             hess = None
 
         # compute dynamic simul deriv coloring if option is set
-        prob.get_total_coloring(self._coloring_info, run_model=False)
+        get_total_coloring(model, self._coloring_info, run_model=False, driver=self)
 
         # optimize
         try:

@@ -14,6 +14,7 @@ import numpy as np
 from openmdao.core.constants import INT_DTYPE
 from openmdao.utils.mpi import MPI, check_mpi_env
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning
+from openmdao.utils.coloring import get_total_coloring
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.relevance import get_relevance
 from openmdao.utils.array_utils import get_random_arr
@@ -138,7 +139,7 @@ class _TotalJacInfo(object):
         model._clear_jac_caches()
 
         self.comm = model.comm
-        self._orig_mode = problem._orig_mode
+        self._orig_mode = model._problem_meta['orig_mode']
         self.has_scaling = driver and driver._has_scaling and driver_scaling
         self.return_format = return_format
         self.lin_sol_cache = {}
@@ -150,7 +151,7 @@ class _TotalJacInfo(object):
         self.approx = approx
         self.coloring_info = coloring_info
         self.nsolves = 0
-        self.add_coloring_noise = problem._metadata['randomize_seeds']
+        self.add_coloring_noise = model._problem_meta['randomize_seeds']
 
         try:
             self._linear_only_dvs = set(driver._lin_dvs).difference(driver._nl_dvs)
@@ -226,10 +227,10 @@ class _TotalJacInfo(object):
                 if do_coloring:
                     run_model = coloring_info.run_model if 'run_model' in coloring_info else None
 
-                    coloring_info.coloring = problem.get_total_coloring(coloring_info,
-                                                                        of=of_metadata,
-                                                                        wrt=wrt_metadata,
-                                                                        run_model=run_model)
+                    coloring_info.coloring = get_total_coloring(model, coloring_info,
+                                                                of=of_metadata, wrt=wrt_metadata,
+                                                                run_model=run_model,
+                                                                driver=driver)
 
                 if coloring_info:
                     self.simul_coloring = coloring_info.coloring

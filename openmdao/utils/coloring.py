@@ -3273,6 +3273,56 @@ def dynamic_total_coloring(driver, run_model=True, fname=None, of=None, wrt=None
     return coloring
 
 
+def get_total_coloring(group, coloring_info=None, of=None, wrt=None, run_model=None, driver=None):
+    """
+    Get the total coloring.
+
+    If necessary, dynamically generate it.
+
+    Parameters
+    ----------
+    group : Group
+        The Group where the coloring will be computed.
+    coloring_info : dict
+        Coloring metadata dict.
+    of : list of str or None
+        List of response names.
+    wrt : list of str or None
+        List of design variable names.
+    run_model : bool or None
+        If False, don't run model.  If None, use problem._run_counter to determine if model
+        should be run.
+    driver : Driver or None
+        The driver that owns this jacobian.
+
+    Returns
+    -------
+    Coloring or None
+        Coloring object, possibly dynamically generated, or None.
+    """
+    if _use_total_sparsity:
+        coloring = None
+        # if no coloring_info is supplied, copy the coloring_info from the driver but
+        # remove any existing coloring, and force dynamic coloring
+        if coloring_info is None and driver is not None:
+            coloring_info = driver._coloring_info.copy()
+            coloring_info.coloring = None
+            coloring_info.dynamic = True
+
+        if coloring_info.do_compute_coloring():
+            if coloring_info.dynamic:
+                do_run = run_model if run_model is not None else group.iter_count == 0
+                coloring = \
+                    dynamic_total_coloring(
+                        driver, run_model=do_run,
+                        fname=group.get_coloring_fname(mode='output'),
+                        of=of, wrt=wrt)
+        else:
+            return coloring_info.coloring
+
+        return coloring
+
+
 def _run_total_coloring_report(driver):
     reports_dir = driver._problem().get_reports_dir()
     htmlpath = reports_dir / 'total_coloring.html'
