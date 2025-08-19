@@ -2891,7 +2891,6 @@ def _compute_total_coloring_context(problem, coloring_info):
         Metadata object for coloring.
     """
     problem._metadata['coloring_randgen'] = np.random.default_rng(41)  # set seed for consistency
-    problem._computing_coloring = True
     saved_rand_subjacs = problem._metadata['randomize_subjacs']
     saved_rand_seeds = problem._metadata['randomize_seeds']
 
@@ -2903,7 +2902,6 @@ def _compute_total_coloring_context(problem, coloring_info):
         yield
     finally:
         problem._metadata['coloring_randgen'] = None
-        problem._computing_coloring = False
         problem._metadata['randomize_subjacs'] = saved_rand_subjacs
         problem._metadata['randomize_seeds'] = saved_rand_seeds
 
@@ -2957,7 +2955,7 @@ def _get_total_jac_sparsity(prob, num_full_jacs=_DEF_COMP_SPARSITY_ARGS['num_ful
         driver = prob.driver
         driver._con_subjacs = {}
 
-    if not prob._computing_coloring:
+    if prob._metadata['coloring_randgen'] is None:
         if setup:
             prob.setup(mode=prob._orig_mode)
 

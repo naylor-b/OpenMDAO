@@ -202,8 +202,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         Problem level metadata.
     _run_counter : int
         The number of times run_driver or run_model has been called.
-    _computing_coloring : bool
-        When True, we are computing coloring.
     """
 
     def __init__(self, model=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
@@ -220,7 +218,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         self._reports = get_reports_to_activate(reports)
 
         self.cite = CITATION
-        self._computing_coloring = False
 
         if comm is None:
             use_mpi = check_mpi_env()
@@ -1483,7 +1480,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                 of = list(self.driver._responses)
 
         # Calculate Total Derivatives
-        total_info = _TotalJacInfo(self, of, wrt, return_format='flat_dict',
+        total_info = _TotalJacInfo(model, of, wrt, return_format='flat_dict',
                                    approx=model._owns_approx_jac,
                                    driver_scaling=driver_scaling, directional=directional,
                                    driver=self.driver)
@@ -1531,7 +1528,7 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             model.approx_totals(method=method, step=step, form=form,
                                 step_calc=step_calc if method == 'fd' else None)
-            fd_tot_info = _TotalJacInfo(self, of, wrt, return_format='flat_dict',
+            fd_tot_info = _TotalJacInfo(model, of, wrt, return_format='flat_dict',
                                         approx=True, driver_scaling=driver_scaling,
                                         directional=directional, driver=self.driver)
             if directional:
@@ -1687,12 +1684,13 @@ class Problem(object, metaclass=ProblemMetaclass):
             with multi_proc_exception_check(self.comm):
                 self.final_setup()
 
-        if of is None or wrt is None:
+        if driver_scaling or of is None or wrt is None:
             driver = self.driver
         else:
             driver = None
 
-        total_info = _TotalJacInfo(self, of, wrt, return_format, approx=self.model._owns_approx_jac,
+        total_info = _TotalJacInfo(self.model, of, wrt, return_format,
+                                   approx=self.model._owns_approx_jac,
                                    driver_scaling=driver_scaling, get_remote=get_remote,
                                    debug_print=debug_print, coloring_info=coloring_info,
                                    driver=driver)

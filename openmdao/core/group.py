@@ -3817,7 +3817,7 @@ class Group(System):
             initialize the approximations.
         """
         if driver is not None and self.pathname == '' and self._owns_approx_jac:
-            self._tot_jac = _TotalJacInfo(driver._problem(), None, None, 'flat_dict', approx=True,
+            self._tot_jac = _TotalJacInfo(self, None, None, 'flat_dict', approx=True,
                                           driver=driver)
 
         try:

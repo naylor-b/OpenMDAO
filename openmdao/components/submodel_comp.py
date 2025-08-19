@@ -446,11 +446,11 @@ class SubmodelComp(ExplicitComponent):
             coloring_info.display()
 
         # save the _TotJacInfo object so we can use it in future calls to compute_partials
-        self._totjacinfo = _TotalJacInfo(p, of=self._submodel_outputs, wrt=self._submodel_inputs,
+        self._totjacinfo = _TotalJacInfo(p.model, of=self._submodel_outputs,
+                                         wrt=self._submodel_inputs,
                                          return_format='flat_dict', get_remote=True,
                                          approx=p.model._owns_approx_jac,
-                                         coloring_info=coloring_info,
-                                         driver=False)
+                                         coloring_info=coloring_info)
 
         coloring = coloring_info.coloring
 

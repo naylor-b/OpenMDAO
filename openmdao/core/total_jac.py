@@ -93,7 +93,7 @@ class _TotalJacInfo(object):
         If True, add noise to the seed during coloring (sparsity) generation.
     """
 
-    def __init__(self, problem, of, wrt, return_format, approx=False,
+    def __init__(self, model, of, wrt, return_format, approx=False,
                  debug_print=False, driver_scaling=True, get_remote=True, directional=False,
                  coloring_info=None, driver=None):
         """
@@ -101,8 +101,8 @@ class _TotalJacInfo(object):
 
         Parameters
         ----------
-        problem : <Problem>
-            Reference to that Problem object that contains this _TotalJacInfo.
+        model : <System>
+            The top level System of the System tree.
         of : iter of str
             Response names.
         wrt : iter of str
@@ -126,13 +126,10 @@ class _TotalJacInfo(object):
             use or generate a new coloring based on the state of the coloring_info object.
         nsolves : int
             Number of linear solves that have been performed.
-        driver : <Driver>, None, or False
-            The driver that owns the total jacobian.  If None, use the driver from the problem.
-            If False, this total jacobian will be computed directly by the problem.
+        driver : <Driver> or None
+            The driver that owns the total jacobian.
         """
-        if driver is None:
-            driver = problem.driver
-        self.model = model = problem.model
+        self.model = model
 
         # reset the of and wrt caches just in case we've previously built a total jac with
         # linear constraints (which will have different ofs and wrts than the nl total jac).
@@ -222,7 +219,7 @@ class _TotalJacInfo(object):
 
                 do_coloring = coloring_info and \
                     coloring_info.do_compute_coloring() and (coloring_info.dynamic) \
-                    and not problem._computing_coloring
+                    and model._problem_meta['coloring_randgen'] is None
 
                 if do_coloring:
                     run_model = coloring_info.run_model if 'run_model' in coloring_info else None

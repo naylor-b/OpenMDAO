@@ -1305,7 +1305,7 @@ class Driver(object, metaclass=DriverMetaclass):
             print(len(header) * '-' + '\n')
 
         if self._total_jac is None:
-            total_jac = _TotalJacInfo(problem, of, wrt, return_format,
+            total_jac = _TotalJacInfo(problem.model, of, wrt, return_format,
                                       approx=problem.model._owns_approx_jac,
                                       debug_print=debug_print,
                                       driver_scaling=driver_scaling, driver=self)
