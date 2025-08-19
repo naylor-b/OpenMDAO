@@ -247,9 +247,9 @@ class _TotalJacInfo(object):
 
         self.modes = modes
 
-        self.of_size, _ = self._get_tuple_map(of_metadata, all_abs2meta_out)
+        self.of_size, _ = self._get_lac_slices(of_metadata, all_abs2meta_out)
         self.wrt_size, self.has_wrt_dist = \
-            self._get_tuple_map(wrt_metadata, all_abs2meta_out)
+            self._get_lac_slices(wrt_metadata, all_abs2meta_out)
 
         # always allocate a 2D dense array and we can assign views to dict keys later if
         # return format is 'dict' or 'flat_dict'.
@@ -508,6 +508,18 @@ class _TotalJacInfo(object):
 
             return PETSc.Scatter().create(src_vec, src_indexset, tgt_vec, tgt_indexset)
 
+    def _subjac_iter(self):
+        get_remote = self.get_remote
+        J = self.J
+        wrtmetas = self.input_meta['fwd']
+        for of, ofmeta in self.output_meta['fwd'].items():
+            if not get_remote and ofmeta['remote']:
+                continue
+            of_slice = ofmeta['jac_slice']
+            for wrt, wrtmeta in wrtmetas.items():
+                if get_remote or not wrtmeta['remote']:
+                    yield of, wrt, J[of_slice, wrtmeta['jac_slice']]
+
     def _get_dict_J(self, J, wrt_metadata, of_metadata, return_format):
         """
         Create a dict or flat-dict jacobian that maps to views in the given 2D array jacobian.
@@ -529,36 +541,22 @@ class _TotalJacInfo(object):
             Dict form of the total jacobian that contains views of the ndarray jacobian.
         """
         J_dict = {}
-        get_remote = self.get_remote
+
         if return_format == 'dict':
-            for out, ofmeta in of_metadata.items():
-                if not get_remote and ofmeta['remote']:
-                    continue
-                J_dict[out] = outer = {}
-                out_slice = ofmeta['jac_slice']
-                for inp, wrtmeta in wrt_metadata.items():
-                    if get_remote or not wrtmeta['remote']:
-                        outer[inp] = J[out_slice, wrtmeta['jac_slice']]
+            for of, wrt, val in self._subjac_iter():
+                if of not in J_dict:
+                    J_dict[of] = {}
+                J_dict[of][wrt] = val
 
         elif return_format == 'flat_dict':
-            for out, ofmeta in of_metadata.items():
-                if not get_remote and ofmeta['remote']:
-                    continue
-                out_slice = ofmeta['jac_slice']
-                for inp, wrtmeta in wrt_metadata.items():
-                    if get_remote or not wrtmeta['remote']:
-                        J_dict[out, inp] = J[out_slice, wrtmeta['jac_slice']]
+            for of, wrt, val in self._subjac_iter():
+                J_dict[of, wrt] = val
 
         elif return_format == 'flat_dict_structured_key':
             # This format is supported by the recorders (specifically the sql recorder), which use
             # numpy structured arrays.
-            for out, ofmeta in of_metadata.items():
-                if not get_remote and ofmeta['remote']:
-                    continue
-                out_slice = ofmeta['jac_slice']
-                for inp, wrtmeta in wrt_metadata.items():
-                    if get_remote or not wrtmeta['remote']:
-                        J_dict[f"{out}!{inp}"] = J[out_slice, wrtmeta['jac_slice']]
+            for of, wrt, val in self._subjac_iter():
+                J_dict[f"{of}!{wrt}"] = val
         else:
             raise ValueError("'%s' is not a valid jacobian return format." % return_format)
 
@@ -863,7 +861,7 @@ class _TotalJacInfo(object):
 
         return sol_idxs, jac_idxs, name2jinds
 
-    def _get_tuple_map(self, vois, abs2meta_out):
+    def _get_lac_slices(self, vois, abs2meta_out):
         """
         Create a dict that maps var name to metadata tuple.
 
@@ -1026,7 +1024,7 @@ class _TotalJacInfo(object):
     #
     # input setter functions
     #
-    def single_input_setter(self, idx, imeta, mode):
+    def single_input_setter(self, idx, itermeta, mode):
         """
         Set seed into the input vector in the single index case.
 
@@ -1034,7 +1032,7 @@ class _TotalJacInfo(object):
         ----------
         idx : int
             Total jacobian row or column index.
-        imeta : dict
+        itermeta : dict
             Dictionary of iteration metadata.
         mode : str
             Direction of derivative solution.
@@ -1095,7 +1093,7 @@ class _TotalJacInfo(object):
         else:
             return None, None
 
-    def par_deriv_input_setter(self, inds, imeta, mode):
+    def par_deriv_input_setter(self, inds, itermeta, mode):
         """
         Set -1's into the input vector in the parallel derivative case.
 
@@ -1103,7 +1101,7 @@ class _TotalJacInfo(object):
         ----------
         inds : tuple of int
             Total jacobian row or column indices.
-        imeta : dict
+        itermeta : dict
             Dictionary of iteration metadata.
         mode : str
             Direction of derivative solution.
@@ -1121,11 +1119,11 @@ class _TotalJacInfo(object):
 
         for i in inds:
             if self.in_loc_idxs[mode][i] >= 0:
-                vnames, _ = self.single_input_setter(i, imeta, mode)
+                vnames, _ = self.single_input_setter(i, itermeta, mode)
                 if vnames is not None:
                     vec_names.add(vnames[0])
 
-        self.system._problem_meta['parallel_deriv_color'] = imeta['par_deriv_color']
+        self.system._problem_meta['parallel_deriv_color'] = itermeta['par_deriv_color']
 
         if vec_names:
             return sorted(vec_names), (inds[0], mode)
@@ -1484,6 +1482,7 @@ class _TotalJacInfo(object):
                 # where each part of the distrib var exists
                 if self.get_remote and mode == 'fwd' and self.has_wrt_dist and \
                         self.dist_input_range_map:
+                    # TODO: fix this to scatter/gather instead of Bcast for each variable
                     for start, stop, rank in self.dist_input_range_map[mode]:
                         contig = self.J[:, start:stop].copy()
                         system.comm.Bcast(contig, root=rank)
@@ -1739,57 +1738,23 @@ class _TotalJacInfo(object):
         desvars = self.input_meta['fwd']
         responses = self.output_meta['fwd']
 
-        if self.return_format in ('dict', 'array'):
-            for prom_out, odict in J.items():
-                oscaler = responses[prom_out].get('total_scaler')
-
-                for prom_in, val in odict.items():
-                    iscaler = desvars[prom_in].get('total_scaler')
-
-                    # Scale response side
-                    if oscaler is not None:
-                        val[:] = (oscaler * val.T).T
-
-                    # Scale design var side
-                    if iscaler is not None:
-                        val *= 1.0 / iscaler
-
-        elif self.return_format == 'flat_dict':
-            for tup, val in J.items():
-                prom_out, prom_in = tup
-                oscaler = responses[prom_out]['total_scaler']
-                iscaler = desvars[prom_in]['total_scaler']
-
-                # Scale response side
-                if oscaler is not None:
-                    val[:] = (oscaler * val.T).T
-
-                # Scale design var side
-                if iscaler is not None:
-                    val *= 1.0 / iscaler
-        else:
-            raise RuntimeError("Derivative scaling by the driver only supports 'dict', "
-                               "'array' and 'flat_array' formats at present.")
+        for of, wrt, val in self._subjac_iter():
+            oscaler = responses[of]['total_scaler']
+            iscaler = desvars[wrt]['total_scaler']
+            if oscaler is not None:
+                val[:] = (oscaler * val.T).T
+            if iscaler is not None:
+                val *= 1.0 / iscaler
 
     def _print_derivatives(self):
         """
         Print out the derivatives when debug_print is True.
         """
-        if self.return_format == 'dict':
-            J_dict = self.J_dict
-            for of, wrt_dict in J_dict.items():
-                for wrt, J_sub in wrt_dict.items():
-                    pprint.pprint({(of, wrt): J_sub})
-        else:
-            J = self.J
-            for of, ofmeta in self.output_meta['fwd'].items():
-                if not self.get_remote and ofmeta['remote']:
-                    continue
-                out_slice = ofmeta['jac_slice']
-                for wrt, wrtmeta in self.input_meta['fwd'].items():
-                    if self.get_remote or not wrtmeta['remote']:
-                        deriv = J[out_slice, wrtmeta['jac_slice']]
-                        pprint.pprint({(of, wrt): deriv})
+        ofmetas = self.output_meta['fwd']
+        for of, wrt, val in self._subjac_iter():
+            if not self.get_remote and ofmetas[of]['remote']:
+                continue
+            pprint.pprint({(of, wrt): val})
 
         print('')
         sys.stdout.flush()

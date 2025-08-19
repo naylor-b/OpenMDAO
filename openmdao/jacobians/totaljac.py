@@ -24,7 +24,7 @@ class TotalJacobian(Jacobian):
         Full shape of the jacobian.
     """
 
-    def __init__(self, of, wrt, driver):
+    def __init__(self, system, of, wrt, driver):
         """
         Initialize the TotalJacobian.
 
@@ -37,6 +37,6 @@ class TotalJacobian(Jacobian):
         driver : Driver
             The driver that owns this jacobian.
         """
+        super().__init__(system)
         self.shape = 0
-        # super().__init__(system)
         # self.shape = (len(system._outputs), len(system._outputs) + len(system._inputs))
