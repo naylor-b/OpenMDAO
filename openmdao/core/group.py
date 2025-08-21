@@ -14,7 +14,6 @@ import networkx as nx
 from openmdao.core.configinfo import _ConfigInfo
 from openmdao.core.system import System, collect_errors
 from openmdao.core.component import Component, _DictValues
-from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.core.constants import _UNDEFINED, INT_DTYPE, _SetupStatus
 from openmdao.vectors.vector import _full_slice
 from openmdao.proc_allocators.default_allocator import DefaultAllocator, ProcAllocationError
@@ -29,7 +28,7 @@ from openmdao.utils.general_utils import convert_src_inds, shape2tuple, get_conn
     ensure_compatible, meta2src_iter, get_rev_conns, is_undefined
 from openmdao.utils.units import is_compatible, unit_conversion, _has_val_mismatch, _find_unit, \
     _is_unitless, simplify_unit, PhysicalUnit
-from openmdao.utils.graph_utils import get_out_of_order_nodes, get_sccs_topo, \
+from openmdao.utils.graph_utils import get_out_of_order_nodes, \
     get_unresolved_knowns, is_unresolved, get_active_edges, add_shape_node, \
     add_units_node, are_connected
 from openmdao.utils.mpi import MPI, check_mpi_exceptions, multi_proc_exception_check
@@ -277,6 +276,14 @@ class Group(System):
                              desc='If True the order of subsystems is determined automatically '
                              'based on the dependency graph.  It will not break or reorder '
                              'cycles.')
+        self.options.declare('exported_inputs', types=(list, tuple), default=(),
+                             desc='Setting this will activate functional form. These inputs will '
+                             'be visible outside of this Group. Glob patterns are allowed. Use '
+                             'promoted names to specify the inputs.')
+        self.options.declare('exported_outputs', types=(list, tuple), default=(),
+                             desc='Setting this will activate functional form. These outputs will '
+                             'be visible outside of this Group. Glob patterns are allowed. Use '
+                             'promoted names to specify the outputs.')
 
     def setup(self):
         """
@@ -5374,22 +5381,24 @@ class Group(System):
 
         return out
 
-    def _get_totals_metadata(self, driver=None, of=None, wrt=None):
+    def _get_totals_metadata(self, of=None, wrt=None, driver=None):
         if isinstance(of, str):
             of = [of]
         if isinstance(wrt, str):
             wrt = [wrt]
 
         if not driver:
+            has_custom_derivs = True
             if of is None or wrt is None:
-                raise RuntimeError("driver must be specified if of and wrt variables are not "
-                                   "provided.")
+                raise RuntimeError("driver must be specified if of or wrt variables are not "
+                                   "provided.  If you are calling compute_totals directly, "
+                                   "you must pass a driver.")
 
             if driver is False:  # force to not use any existing desvar or response metadata
                 return self._active_responses(of, responses=False), \
-                    self._active_desvars(wrt, designvars=False), True
+                    self._active_desvars(wrt, designvars=False), has_custom_derivs
 
-            return self._active_responses(of), self._active_desvars(wrt), True
+            return self._active_responses(of), self._active_desvars(wrt), has_custom_derivs
 
         has_custom_derivs = False
         list_wrt = list(wrt) if wrt is not None else []
@@ -5442,7 +5451,7 @@ class Group(System):
             Iterator of user facing design variable names.
         designvars : dict, None, or False
             Dictionary of design variables.  If None, get_design_vars will be called. If False,
-            no design vars will be used.
+            no design var metadata will be used.
 
         Returns
         -------
@@ -5621,91 +5630,3 @@ class Group(System):
                 self._key_owner = {}
 
         return self._key_owner
-
-
-def iter_solver_info(system):
-    """
-    Return solver information for this System.
-
-    Parameters
-    ----------
-    system : System
-        Return solver information for this System.
-
-    Returns
-    -------
-    str
-        System pathname.
-    str
-        Class name.
-    list of sets of str
-        Strongly connected components in this Group's subsystem graph.  If not a Group, this will
-        be an empty list.
-    str
-        Linear solver class name.
-    str
-        Nonlinear solver class name.
-    int
-        Linear solver max iterations.
-    int
-        Nonlinear solver max iterations.
-    int
-        Number of subsystems that are not part of any strongly connected component. If this
-        number is greater than 0 and strongly connected components exist in this group, it
-        indicates that this group contains subcycles and that it may be more efficient to
-        separate those subcyles into their own groups and apply iterative solvers to them.
-    bool
-        True if this is a Group, False if it is an ImplicitComponent.
-    bool
-        True if the linear solver found for this System can solve a cycle or implicit component.
-    bool
-        True if the nonlinear solver found for this System can solve a cycle or implicit component.
-    """
-    sccs = []
-    missing = 0
-    lnmaxiter = nlmaxiter = 1
-    nl_can_solve = lin_can_solve = False
-    nlslvname = lnslvname = None
-
-    if isinstance(system, Group):
-        isgrp = True
-        for s in get_sccs_topo(system.compute_sys_graph()):
-            if len(s) > 1:
-                sccs.append(s)
-            else:
-                missing += 1
-    elif isinstance(system, ImplicitComponent):
-        isgrp = False
-    else:
-        return (system.pathname, system.__class__.__name__, sccs, None, None, 0, 0, 0, False,
-                False, False)
-
-    if system.nonlinear_solver:
-        if isgrp:
-            nl_can_solve = system.nonlinear_solver.can_solve_cycle()
-        else:
-            nl_can_solve = system.nonlinear_solver.supports['implicit_components']
-        nlslvname = system.nonlinear_solver.__class__.__name__
-        if 'maxiter' in system.nonlinear_solver.options:
-            nlmaxiter = system.nonlinear_solver.options['maxiter']
-
-    if system.linear_solver:
-        if isgrp:
-            lin_can_solve = system.linear_solver.can_solve_cycle()
-        else:
-            lin_can_solve = system.linear_solver.supports['implicit_components']
-        lnslvname = system.linear_solver.__class__.__name__
-
-    if lnslvname and 'maxiter' in system.linear_solver.options:
-        lnmaxiter = system.linear_solver.options['maxiter']
-
-    if not isgrp:
-        if lnslvname is None and system._has_solve_linear:
-            lnslvname = 'solve_linear'
-            lin_can_solve = True
-        if nlslvname is None and system._has_solve_nl:
-            nlslvname = 'solve_nonlinear'
-            nl_can_solve = True
-
-    return (system.pathname, system.__class__.__name__, sccs, lnslvname, nlslvname, lnmaxiter,
-            nlmaxiter, missing, isgrp, nl_can_solve, lin_can_solve)

@@ -162,7 +162,7 @@ class _TotalJacInfo(object):
             raise RuntimeError("Derivative support has been turned off but compute_totals "
                                "was called.")
 
-        of_metadata, wrt_metadata, has_custom_derivs = system._get_totals_metadata(driver, of, wrt)
+        of_metadata, wrt_metadata, has_custom_derivs = system._get_totals_metadata(of, wrt, driver)
 
         ofsize = sum(meta['global_size'] for meta in of_metadata.values())
         wrtsize = sum(meta['global_size'] for meta in wrt_metadata.values())

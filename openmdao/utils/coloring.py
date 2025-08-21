@@ -3149,7 +3149,7 @@ def compute_total_coloring(problem, mode=None, of=None, wrt=None,
     if driver is None:
         driver = problem.driver
 
-    ofs, wrts, _ = problem.model._get_totals_metadata(driver, of, wrt)
+    ofs, wrts, _ = problem.model._get_totals_metadata(of, wrt, driver)
 
     model = problem.model
 
@@ -3656,7 +3656,7 @@ def _initialize_model_approx(model, driver, of=None, wrt=None):
     Set up internal data structures needed for computing approx totals.
     """
     if of is None or wrt is None:
-        of, wrt, _ = model._get_totals_metadata(driver, of, wrt)
+        of, wrt, _ = model._get_totals_metadata(of, wrt, driver)
 
     # Initialization based on driver (or user) -requested "of" and "wrt".
     if (not model._owns_approx_jac or model._owns_approx_of is None or

@@ -75,7 +75,8 @@ def get_cycle_tree(group):
         A mapping of group path name to a tuple of the form
         (children, recursive_scc, unique_scc, scc_index, path, parent path or None).
     """
-    from openmdao.core.group import iter_solver_info, Group
+    from openmdao.core.group import Group
+    from openmdao.error_checking.check_config import iter_solver_info
 
     G = group.compute_sys_graph(comps_only=True, add_edge_info=False)
 

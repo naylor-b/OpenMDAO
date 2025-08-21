@@ -430,8 +430,8 @@ class SubmodelComp(ExplicitComponent):
 
         ofs = list(self._submodel_outputs)
         wrts = list(self._submodel_inputs)
-        of_metadata, wrt_metadata, _ = p.model._get_totals_metadata(driver=p.driver,
-                                                                    of=ofs, wrt=wrts)
+        of_metadata, wrt_metadata, _ = p.model._get_totals_metadata(of=ofs, wrt=wrts,
+                                                                    driver=p.driver)
 
         if len(inputs) == 0 or len(outputs) == 0:
             return

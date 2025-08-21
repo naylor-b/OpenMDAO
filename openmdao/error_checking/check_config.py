@@ -343,6 +343,94 @@ def _has_ancestor_solver(path, solvers):
     return False
 
 
+def iter_solver_info(system):
+    """
+    Return solver information for this System.
+
+    Parameters
+    ----------
+    system : System
+        Return solver information for this System.
+
+    Returns
+    -------
+    str
+        System pathname.
+    str
+        Class name.
+    list of sets of str
+        Strongly connected components in this Group's subsystem graph.  If not a Group, this will
+        be an empty list.
+    str
+        Linear solver class name.
+    str
+        Nonlinear solver class name.
+    int
+        Linear solver max iterations.
+    int
+        Nonlinear solver max iterations.
+    int
+        Number of subsystems that are not part of any strongly connected component. If this
+        number is greater than 0 and strongly connected components exist in this group, it
+        indicates that this group contains subcycles and that it may be more efficient to
+        separate those subcyles into their own groups and apply iterative solvers to them.
+    bool
+        True if this is a Group, False if it is an ImplicitComponent.
+    bool
+        True if the linear solver found for this System can solve a cycle or implicit component.
+    bool
+        True if the nonlinear solver found for this System can solve a cycle or implicit component.
+    """
+    sccs = []
+    missing = 0
+    lnmaxiter = nlmaxiter = 1
+    nl_can_solve = lin_can_solve = False
+    nlslvname = lnslvname = None
+
+    if isinstance(system, Group):
+        isgrp = True
+        for s in get_sccs_topo(system.compute_sys_graph()):
+            if len(s) > 1:
+                sccs.append(s)
+            else:
+                missing += 1
+    elif isinstance(system, ImplicitComponent):
+        isgrp = False
+    else:
+        return (system.pathname, system.__class__.__name__, sccs, None, None, 0, 0, 0, False,
+                False, False)
+
+    if system.nonlinear_solver:
+        if isgrp:
+            nl_can_solve = system.nonlinear_solver.can_solve_cycle()
+        else:
+            nl_can_solve = system.nonlinear_solver.supports['implicit_components']
+        nlslvname = system.nonlinear_solver.__class__.__name__
+        if 'maxiter' in system.nonlinear_solver.options:
+            nlmaxiter = system.nonlinear_solver.options['maxiter']
+
+    if system.linear_solver:
+        if isgrp:
+            lin_can_solve = system.linear_solver.can_solve_cycle()
+        else:
+            lin_can_solve = system.linear_solver.supports['implicit_components']
+        lnslvname = system.linear_solver.__class__.__name__
+
+    if lnslvname and 'maxiter' in system.linear_solver.options:
+        lnmaxiter = system.linear_solver.options['maxiter']
+
+    if not isgrp:
+        if lnslvname is None and system._has_solve_linear:
+            lnslvname = 'solve_linear'
+            lin_can_solve = True
+        if nlslvname is None and system._has_solve_nl:
+            nlslvname = 'solve_nonlinear'
+            nl_can_solve = True
+
+    return (system.pathname, system.__class__.__name__, sccs, lnslvname, nlslvname, lnmaxiter,
+            nlmaxiter, missing, isgrp, nl_can_solve, lin_can_solve)
+
+
 def _check_solvers(problem, logger):
     """
     Search over all solvers and warn about unsupported configurations.
@@ -360,7 +448,7 @@ def _check_solvers(problem, logger):
     logger : object
         The object that manages logging output.
     """
-    from openmdao.core.group import Group, iter_solver_info
+    from openmdao.core.group import Group
     from openmdao.core.implicitcomponent import ImplicitComponent
 
     has_nl_solver = {}
