@@ -12,7 +12,7 @@ from openmdao.core.constants import _SetupStatus, _DEFAULT_OUT_STREAM
 from openmdao.utils.mpi import MPI
 from openmdao.utils.reports_system import register_report
 from openmdao.utils.file_utils import text2html, _load_and_exec
-from openmdao.utils.rangemapper import RangeMapper
+from openmdao.utils.rangemapper import TwoWayRangeMapper
 from openmdao.visualization.tables.table_builder import generate_table
 
 
@@ -662,6 +662,41 @@ def is_full_slice(range, inds):
     return len(inds) == 1 and inds[0] == 0
 
 
+def dist_size_iter(group, io, top_comm):
+    """
+    Yield names and distributed ranges of all local and remote variables in this system.
+
+    Parameters
+    ----------
+    group : Group
+        The group to iterate over.
+    io : str
+        Either 'input' or 'output'.
+    top_comm : MPI.Comm or None
+        The top-level MPI communicator.
+
+    Yields
+    ------
+    tuple
+        A tuple of the form ((abs_name, rank), start, end).
+    """
+    sizes = group._var_sizes
+    vmeta = group._var_allprocs_abs2meta
+
+    topranks = np.arange(top_comm.size)
+
+    myrank = group.comm.rank
+    toprank = top_comm.rank
+
+    mytopranks = topranks[toprank - myrank: toprank - myrank + group.comm.size]
+
+    for rank in range(group.comm.size):
+        for ivar, vname in enumerate(vmeta[io]):
+            sz = sizes[io][rank, ivar]
+            if sz > 0:
+                yield (vname, mytopranks[rank]), sz
+
+
 def show_dist_var_conns(group, rev=False, out_stream=_DEFAULT_OUT_STREAM):
     """
     Show all distributed variable connections in the given group and below.
@@ -702,11 +737,11 @@ def show_dist_var_conns(group, rev=False, out_stream=_DEFAULT_OUT_STREAM):
 
     for g in group.system_iter(typ=Group, include_self=True):
         if g._transfers[direction]:
-            in_ranges = list(g.dist_size_iter('input', group.comm))
-            out_ranges = list(g.dist_size_iter('output', group.comm))
+            in_ranges = dist_size_iter(g, 'input', group.comm)
+            out_ranges = dist_size_iter(g, 'output', group.comm)
 
-            inmapper = RangeMapper.create(in_ranges)
-            outmapper = RangeMapper.create(out_ranges)
+            inmapper = TwoWayRangeMapper.create(in_ranges)
+            outmapper = TwoWayRangeMapper.create(out_ranges)
 
             gprint = False
 
@@ -721,9 +756,9 @@ def show_dist_var_conns(group, rev=False, out_stream=_DEFAULT_OUT_STREAM):
 
                     conns = {}
                     for iidx, oidx in zip(transfer._in_inds, transfer._out_inds):
-                        idata, irind = inmapper.index2key_rel(iidx)
+                        idata, irind = inmapper.get_key_rel(iidx)
                         ivar, irank = idata
-                        odata, orind = outmapper.index2key_rel(oidx)
+                        odata, orind = outmapper.get_key_rel(oidx)
                         ovar, orank = odata
 
                         if odata not in conns:
@@ -746,8 +781,8 @@ def show_dist_var_conns(group, rev=False, out_stream=_DEFAULT_OUT_STREAM):
                             oinds = [d[0] for d in dlist]
                             iinds = [d[1] for d in dlist]
 
-                            orange = outmapper.key2range(odata)
-                            irange = inmapper.key2range(idata)
+                            orange = outmapper[odata]
+                            irange = inmapper[idata]
 
                             if is_full_slice(orange, oinds) and is_full_slice(irange, iinds):
                                 s = f"{ovar} {arrow} {ivar}"

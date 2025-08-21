@@ -3,7 +3,7 @@ import numpy as np
 
 from openmdao.utils.iter_utils import meta2range_iter
 from openmdao.jacobians.subjac import Subjac
-from openmdao.utils.rangemapper import RangeMapper
+from openmdao.utils.rangemapper import TwoWayRangeMapper
 from openmdao.utils.general_utils import do_nothing_context
 from openmdao.utils.coloring import _ColSparsityJac
 
@@ -41,7 +41,7 @@ class Jacobian(object):
         Dictionary of the sub-Jacobian objects keyed by absolute names.
     _under_complex_step : bool
         When True, this Jacobian is under complex step, using a complex jacobian.
-    _col_mapper : RangeMapper
+    _col_mapper : TwoWayRangeMapper
         Maps variable names to column indices and vice versa.
     _problem_meta : dict
         Problem metadata.
@@ -207,7 +207,7 @@ class Jacobian(object):
 
     def _setup_index_maps(self, system):
         namesize_iter = [(n, end - start) for n, start, end, _, _, _ in system._get_jac_wrts()]
-        self._col_mapper = RangeMapper.create(namesize_iter)
+        self._col_mapper = TwoWayRangeMapper.create(namesize_iter)
 
     def set_col(self, system, icol, column):
         """
@@ -230,7 +230,7 @@ class Jacobian(object):
         if self._col_mapper is None:
             self._setup_index_maps(system)
 
-        wrt, loc_idx = self._col_mapper.index2key_rel(icol)  # local col index into subjacs
+        wrt, loc_idx = self._col_mapper.get_key_rel(icol)  # local col index into subjacs
 
         subjacs = self._subjacs
 

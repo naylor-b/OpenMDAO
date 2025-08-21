@@ -1223,8 +1223,7 @@ class Problem(object, metaclass=ProblemMetaclass):
             absolute, 'rel_avg' for a size relative to the absolute value of the vector input, or
             'rel_element' for a size relative to each value in the vector input. In addition, it
             can be 'rel_legacy' for a size relative to the norm of the vector.  For backwards
-            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to None,
-            in which case the approximation method provides its default value.
+            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to 'abs'.
         minimum_step : float
             Minimum step size allowed when using one of the relative step_calc options.
         force_dense : bool
@@ -1684,16 +1683,11 @@ class Problem(object, metaclass=ProblemMetaclass):
             with multi_proc_exception_check(self.comm):
                 self.final_setup()
 
-        if driver_scaling or of is None or wrt is None:
-            driver = self.driver
-        else:
-            driver = None
-
         total_info = _TotalJacInfo(self.model, of, wrt, return_format,
                                    approx=self.model._owns_approx_jac,
                                    driver_scaling=driver_scaling, get_remote=get_remote,
                                    debug_print=debug_print, coloring_info=coloring_info,
-                                   driver=driver)
+                                   driver=self.driver)
         return total_info.compute_totals()
 
     def set_solver_print(self, level=2, depth=1e99, type_='all'):

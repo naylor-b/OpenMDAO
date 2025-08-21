@@ -13,7 +13,7 @@ from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.general_utils import format_as_float_or_array, _subjac_meta2value, \
     is_undefined
 from openmdao.utils.units import simplify_unit
-from openmdao.utils.rangemapper import RangeMapper
+from openmdao.utils.rangemapper import TwoWayRangeMapper
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.coloring import _ColSparsityJac
 from openmdao.jacobians.jacobian import JacobianUpdateContext
@@ -597,18 +597,21 @@ class ImplicitComponent(Component):
             # if we have renamed resids, remap them to use output naming
 
             plen = len(self.pathname) + 1
-            resid_mapper = RangeMapper.create([(n, shape_to_len(meta['shape']))
-                                               for n, meta in self._declared_residuals.items()],
-                                              max_flat_range_size=100)
-            out_mapper = RangeMapper.create([(n[plen:], shape_to_len(meta['shape']))
-                                             for n, meta in self._var_abs2meta['output'].items()],
-                                            max_flat_range_size=100)
+            resid_mapper = \
+                TwoWayRangeMapper.create([(n, shape_to_len(meta['shape']))
+                                          for n, meta in self._declared_residuals.items()],
+                                         max_flat_range_size=100)
+            out_mapper = \
+                TwoWayRangeMapper.create([(n[plen:], shape_to_len(meta['shape']))
+                                          for n, meta in self._var_abs2meta['output'].items()],
+                                         max_flat_range_size=100)
 
-            if resid_mapper.size != out_mapper.size:
-                raise RuntimeError(f"{self.msginfo}: The number of residuals ({resid_mapper.size}) "
-                                   f"doesn't match number of outputs ({out_mapper.size}).  If any "
-                                   "residuals are added using 'add_residuals', their total size "
-                                   "must match the total size of the outputs.")
+            if resid_mapper.total_size != out_mapper.total_size:
+                raise RuntimeError(f"{self.msginfo}: The number of residuals "
+                                   f"({resid_mapper.total_size}) doesn't match number of outputs "
+                                   f"({out_mapper.total_size}).  If any residuals are added using "
+                                   "'add_residuals', their total size must match the total size of "
+                                   "the outputs.")
 
             rmap = self._resid2out_subjac_map
             omap = {}

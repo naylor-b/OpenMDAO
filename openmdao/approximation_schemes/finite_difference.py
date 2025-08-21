@@ -317,26 +317,29 @@ class FiniteDifference(ApproximationScheme):
         deltas, coeffs, current_coeff = data
         rel_element = False
 
-        if isinstance(current_coeff, np.ndarray) and current_coeff.size > 0:
+        if isinstance(current_coeff, np.ndarray):
             # rel_element - each element has its own relative step.
-            rel_element = True
+            if current_coeff.size > 0:
+                rel_element = True
 
-            if current_coeff[0]:
-                current_vec = system._outputs if total else system._residuals
-                # copy data from outputs (if doing total derivs) or residuals (if doing partials)
-                results_array[:] = current_vec.asarray()
+                if current_coeff[0]:
+                    current_vec = system._outputs if total else system._residuals
+                    # copy data from outputs (if totals) or residuals (if partials)
+                    results_array[:] = current_vec.asarray()
 
-                for vec, idxs in idx_info:
-                    if vec is not None and idxs is not None:
+                    for vec, idxs in idx_info:
+                        if vec is not None and idxs is not None:
 
-                        results_array *= current_coeff[idxs - idx_range[0]]
-                        # We don't allow mixed fd forms, so first one is all we need.
-                        break
+                            results_array *= current_coeff[idxs - idx_range[0]]
+                            # We don't allow mixed fd forms, so first one is all we need.
+                            break
 
+                else:
+                    results_array[:] = 0.
             else:
                 results_array[:] = 0.
 
-        elif not isinstance(current_coeff, np.ndarray) and current_coeff:
+        elif current_coeff:
             current_vec = system._outputs if total else system._residuals
             # copy data from outputs (if doing total derivs) or residuals (if doing partials)
             results_array[:] = current_vec.asarray()

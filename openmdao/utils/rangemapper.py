@@ -2,77 +2,116 @@
 A collection of classes for mapping indices to variable names and vice versa.
 """
 
+import sys
+import numpy as np
 
-# default size of array for which we use a FlatRangeMapper instead of a RangeTree
-MAX_FLAT_RANGE_SIZE = 10000
+from openmdao.core.constants import INT_DTYPE
 
 
-class RangeMapper(object):
+# default size of array for which we use a FlatTwoWayRangeMapper instead of a TwoWayRangeTree
+MAX_FLAT_RANGE_SIZE = 1000
+
+
+def key_size2range_iter(key_size_iter):
     """
-    A mapper of indices to variable names and vice versa.
+    Convert an iterable of (key, size) tuples to an iterable of (key, start, stop) tuples.
 
     Parameters
     ----------
-    sizes : iterable of (key, size) tuples
+    key_size_iter : iterable of (key, size) tuples
         Iterable of (key, size) tuples.  key must be hashable.
+
+    Yields
+    ------
+    key, (start, stop)
+        key, (start, stop) tuples, where start and stop define the range of indices for the key.
+    """
+    start = end = 0
+    for key, size in key_size_iter:
+        end += size
+        yield key, (start, end)
+        start = end
+
+
+class RangeMapper(dict):
+    """
+    A mapper of variable names to ranges.
+
+    Parameters
+    ----------
+    key_size_iter : iterator over (key, size) tuples
+        Iterator over (key, size) tuples.
+    key_ind_iter : iterator over (key, ind) tuples, optional
+        Iterator over (key, ind) tuples.
 
     Attributes
     ----------
-    size : int
-        Total size of all of the sizes combined.
-    _key2range : dict
-        Dictionary mapping key to an index range.
+    total_size : int
+        The total size of the mapper.
+    inds : dict
+        A dictionary of indices for each key that has indices.
     """
 
-    def __init__(self, sizes):
+    def __init__(self, key_size_iter, key_ind_iter=None):
         """
         Initialize a RangeMapper.
         """
-        self._key2range = {}
-        start = 0
-        for key, size in sizes:
-            self._key2range[key] = (start, start + size)
-            start += size
-        self.size = start
+        super().__init__()
+        for key, tup in key_size2range_iter(key_size_iter):
+            self[key] = tup
+        try:
+            self.total_size = tup[1]
+        except Exception:
+            self.total_size = 0
 
-    @staticmethod
-    def create(sizes, max_flat_range_size=MAX_FLAT_RANGE_SIZE):
+        # these inds, if they exist, are used when mapping matching indices from one mapper to
+        # another, for example, when mapping from a solution vector into a row or column of a
+        # jacobian.
+        self.inds = {}
+        if key_ind_iter is not None:
+            for key, ind in key_ind_iter:
+                self.inds[key] = ind
+
+    def local_index(self, key, full_index):
         """
-        Return a mapper that maps indices to variable names and relative indices.
+        Get the local index into the key's range.
 
         Parameters
         ----------
-        sizes : iterable of (key, size)
-            Iterable of (key, size) tuples.
-        max_flat_range_size : int
-            If the total array size is less than this, a FlatRangeMapper will be returned instead
-            of a RangeTree.
+        key : object
+            Key corresponding to an index range.
+        full_index : int
+            The index into the full array.
 
         Returns
         -------
-        FlatRangeMapper or RangeTree
-            A mapper that maps indices to variable key and relative indices.
+        int or None
+            The local index into the key's range.  None if the full index is not in the key's range.
         """
-        size = sum(size for _, size in sizes)
-        return FlatRangeMapper(sizes) if size <= max_flat_range_size else RangeTree(sizes)
+        start, stop = self[key]
+        if full_index < start or full_index >= stop:
+            return None
+        return full_index - start
 
-    def key2range(self, key):
+    def global_index(self, key, local_index):
         """
-        Get the range corresponding to the given key.
+        Get the index into the full array corresponding to the given local index.
 
         Parameters
         ----------
-        key : object (must be hashable)
-            Data corresponding to an index range.
+        key : object
+            Key corresponding to an index range.
+        local_index : int
+            The local index into the key's range.
 
         Returns
         -------
-        tuple of (int, int)
-            The range of indices corresponding to the given key.
+        int
+            The index into the full array corresponding to the given local index.
         """
-        return self._key2range[key]
+        return self[key][0] + local_index
 
-    def key2offset(self, key):
+    def offset(self, key):
         """
         Get the offset corresponding to the given key.
 
@@ -86,9 +125,9 @@ class RangeMapper(object):
         int
             The offset corresponding to the given key.
         """
-        return self._key2range[key][0]
+        return self[key][0]
 
-    def key2size(self, key):
+    def sizeof(self, key):
         """
         Get the size corresponding to the given key.
 
@@ -102,10 +141,48 @@ class RangeMapper(object):
         int
             The size corresponding to the given key.
         """
-        start, stop = self._key2range[key]
+        start, stop = self[key]
         return stop - start
 
-    def __getitem__(self, idx):
+
+class TwoWayRangeMapper(RangeMapper):
+    """
+    A mapper of indices to variable names and vice versa.
+
+    Parameters
+    ----------
+    key_size_iter : iterator over (key, size) tuples
+        Iterator over (key, size) tuples.
+    key_ind_iter : iterator over (key, ind) tuples, optional
+        Iterator over (key, ind) tuples.
+    """
+
+    @staticmethod
+    def create(key_size_iter, max_flat_range_size=MAX_FLAT_RANGE_SIZE):
+        """
+        Return a TwoWayRangeMapper that maps indices to variable names and vice versa.
+
+        Parameters
+        ----------
+        key_size_iter : iterator over (key, size) tuples
+            Iterator over (key, size) tuples.
+        max_flat_range_size : int
+            If the total array size is less than this, a FlatTwoWayRangeMapper will be returned
+            instead of a TwoWayRangeTree.  Default is 1000.
+
+        Returns
+        -------
+        FlatTwoWayRangeMapper or TwoWayRangeTree
+            A TwoWayRangeMapper that maps indices to variable key and relative indices.
+        """
+        ranges = list(key_size_iter)
+        total_size = sum(size for _, size in ranges)
+        if total_size <= max_flat_range_size:
+            return FlatTwoWayRangeMapper(ranges)
+        else:
+            return TwoWayRangeTree(ranges)
+
+    def get_key(self, idx):
         """
         Find the key corresponding to the given index.
 
@@ -114,18 +191,29 @@ class RangeMapper(object):
         idx : int
             The index into the full array.
         """
-        raise NotImplementedError("__getitem__ method must be implemented by subclass.")
+        raise NotImplementedError("get_key method must be implemented by subclass.")
 
-    def __iter__(self):
+    def get_key_rel(self, idx):
         """
-        Iterate over (key, start, stop) tuples.
+        Find the key and relative index corresponding to the matched range.
 
-        Yields
-        ------
-        (obj, int, int)
-            (key, start index, stop index), where key is a hashable object.
+        Parameters
+        ----------
+        idx : int
+            The index into the full array.
+
+        Returns
+        -------
+        object or None
+            The key corresponding to the matched range, or None if not found.
+        int or None
+            The relative index into the matched range, or None if not found.
         """
-        raise NotImplementedError("__getitem__ method must be implemented by subclass.")
+        key = self.get_key(idx)
+        if key is None:
+            return (None, None)
+
+        return (key, idx - self.offset(key))
 
     def inds2keys(self, inds):
         """
@@ -141,7 +229,7 @@ class RangeMapper(object):
         set of object
             The set of keys corresponding to the given indices.
         """
-        return {self[idx] for idx in inds}
+        return {self.get_key(idx) for idx in inds}
 
     def between_iter(self, start_key, stop_key):
         """
@@ -160,7 +248,7 @@ class RangeMapper(object):
             (key, relative start index, relative stop index), where key is a hashable object.
         """
         started = False
-        for key, (start, stop) in self._key2range.items():
+        for key, (start, stop) in self.items():
             if key == start_key:
                 yield (key, 0, stop - start)
                 if start_key == stop_key:
@@ -181,7 +269,7 @@ class RangeMapper(object):
         ----------
         key : object
             Key corresponding to an index range.
-        other : RangeMapper
+        other : TwoWayRangeMapper
             Another mapper.
 
         Yields
@@ -189,13 +277,13 @@ class RangeMapper(object):
         (obj, int, int, obj, int, int)
             (key, start, stop, otherkey, otherstart, otherstop).
         """
-        start, stop = self._key2range[key]
+        start, stop = self[key]
 
-        start_key, start_rel = other.index2key_rel(start)
+        start_key, start_rel = other.get_key_rel(start)
         if start_key is None:
             return
 
-        stop_key, stop_rel = other.index2key_rel(stop - 1)
+        stop_key, stop_rel = other.get_key_rel(stop - 1)
 
         overlaps = [list(tup) for tup in other.between_iter(start_key, stop_key)]
         overlaps[0][1] = start_rel
@@ -207,15 +295,20 @@ class RangeMapper(object):
             yield (key, start, stop, k, kstart, kstop)
             start = stop
 
-    def dump(self):
+    def dump(self, stream=sys.stdout):
         """
         Dump the contents of the mapper to stdout.
+
+        Parameters
+        ----------
+        stream : file-like object, optional
+            The stream to dump the contents to. Default is sys.stdout.
         """
-        for key, (start, stop) in self._key2range.items():
-            print(f'{key}: {start} - {stop}')
+        for key, (start, stop) in self.items():
+            print(f'{key}: {start} - {stop}', file=stream)
 
 
-class RangeTreeNode(RangeMapper):
+class RangeTreeNode(object):
     """
     A node in a binary search tree of sizes, mapping key to an index range.
 
@@ -261,21 +354,20 @@ class RangeTreeNode(RangeMapper):
         return f"RangeTreeNode({self.key}, ({self.start}:{self.stop}))"
 
 
-class RangeTree(RangeMapper):
+class TwoWayRangeTree(TwoWayRangeMapper):
     """
     A binary search tree of sizes, mapping key to an index range.
 
     Allows for fast lookup of the key corresponding to a given index. The sizes must be
     contiguous, but they can be of different sizes.
 
-    Search complexity is O(log2 n). Uses less memory than FlatRangeMapper when total array size is
-    large.
+    Search complexity is O(log2 n). Uses less memory than FlatTwoWayRangeMapper when total array
+    size is large.
 
     Parameters
     ----------
-    sizes : list of (key, start, stop)
-        Ordered list of (key, start, stop) tuples, where start and stop define the range of
-        indices for the key. Ranges must be contiguous.  key must be hashable.
+    key_size_iter : iterator over (key, size) tuples
+        Iterator over (key, size) tuples.
 
     Attributes
     ----------
@@ -283,21 +375,14 @@ class RangeTree(RangeMapper):
         Root node of the binary search tree.
     """
 
-    def __init__(self, sizes):
+    def __init__(self, key_size_iter):
         """
-        Initialize a RangeTree.
+        Initialize a TwoWayRangeTree.
         """
-        super().__init__(sizes)
-        ranges = []
-        start = stop = 0
-        for key, size in sizes:
-            stop += size
-            ranges.append((key, start, stop))
-            start = stop
+        super().__init__(key_size_iter)
+        self.root = self.build([(key, start, stop) for key, (start, stop) in self.items()])
 
-        self.root = self.build(ranges)
-
-    def __getitem__(self, idx):
+    def get_key(self, idx):
         """
         Find the key corresponding to the given index.
 
@@ -321,58 +406,6 @@ class RangeTree(RangeMapper):
                 node = node.right
             else:
                 return node.key
-
-    def __iter__(self):
-        """
-        Iterate over (key, start, stop) tuples.
-
-        Yields
-        ------
-        (obj, int, int)
-            (key, start index, stop index), where key is a hashable object.
-        """
-        node = self.root
-        stack = [[node, node.left, node.right]]
-        while stack:
-            sub = stack[-1]
-            node, left, right = sub
-            if left:
-                stack.append([left, left.left, left.right])
-                sub[1] = None  # zero left
-            else:
-                if right:
-                    stack.append([right, right.left, right.right])
-                    sub[2] = None  # zero right
-                else:
-                    stack.pop()
-                yield (node.key, node.start, node.stop)
-
-    def index2key_rel(self, idx):
-        """
-        Find the key and relative index corresponding to the matched range.
-
-        Parameters
-        ----------
-        idx : int
-            The index into the full array.
-
-        Returns
-        -------
-        obj or None
-            The key corresponding to the matched range, or None if not found.
-        int or None
-            The relative index into the matched range, or None if not found.
-        """
-        node = self.root
-        while node is not None:
-            if idx < node.start:
-                node = node.left
-            elif idx >= node.stop:
-                node = node.right
-            else:
-                return node.key, idx - node.start
-
-        return None, None
 
     def build(self, ranges):
         """
@@ -408,14 +441,14 @@ class RangeTree(RangeMapper):
         return node
 
 
-class FlatRangeMapper(RangeMapper):
+class FlatTwoWayRangeMapper(TwoWayRangeMapper):
     """
     A flat list mapping indices to variable key and relative indices.
 
     Parameters
     ----------
-    sizes : list of (key, size)
-        Ordered list of (key, size) tuples.  key must be hashable.
+    key_size_iter : iterator over (key, size) tuples
+        Iterator over (key, size) tuples.
 
     Attributes
     ----------
@@ -424,19 +457,16 @@ class FlatRangeMapper(RangeMapper):
         indices for that key. Ranges must be contiguous. key must be hashable.
     """
 
-    def __init__(self, sizes):
+    def __init__(self, key_size_iter):
         """
-        Initialize a FlatRangeMapper.
+        Initialize a FlatTwoWayRangeMapper.
         """
-        super().__init__(sizes)
-        self.ranges = [None] * self.size
-        start = stop = 0
-        for key, size in sizes:
-            stop += size
-            self.ranges[start:stop] = [(key, start, stop)] * size
-            start = stop
+        super().__init__(key_size_iter)
+        self.ranges = [None] * self.total_size
+        for key, (start, stop) in self.items():
+            self.ranges[start:stop] = [(key, start, stop)] * (stop - start)
 
-    def __getitem__(self, idx):
+    def get_key(self, idx):
         """
         Find the key corresponding to the given index.
 
@@ -455,37 +485,53 @@ class FlatRangeMapper(RangeMapper):
         except IndexError:
             return None
 
-    def __iter__(self):
-        """
-        Iterate over (key, start, stop) tuples.
 
-        Yields
-        ------
-        (obj, int, int)
-            (key, start index, stop index), where key is a hashable object.
-        """
-        for key, (start, stop) in self._key2range.items():
-            yield (key, start, stop)
+def get_scatter_arrays(src_mapper, dest_mapper):
+    """
+    Get the scatter arrays to copy data from the src_mapper to the dest_mapper.
 
-    def index2key_rel(self, idx):
-        """
-        Find the key and relative index corresponding to the matched range.
+    Not all keys in the dest_mapper need to be in the src_mapper. In cases where a jacobian
+    has both inputs and outputs as column variables, two sets of scatter arrays will need to
+    be computed, one for the inputs and one for the outputs.
 
-        Parameters
-        ----------
-        idx : int
-            The index into the full array.
+    Parameters
+    ----------
+    src_mapper : TwoWayRangeMapper
+        The mapper to copy data from.
+    dest_mapper : TwoWayRangeMapper
+        The mapper to copy data to.
 
-        Returns
-        -------
-        object or None
-            The key corresponding to the matched range, or None if not found.
-        int or None
-            The relative index into the matched range, or None if not found.
-        """
-        try:
-            key, start, _ = self.ranges[idx]
-        except IndexError:
-            return (None, None)
+    Returns
+    -------
+    (ndarray, ndarray)
+        The scatter arrays to copy data from the src_mapper to the dest_mapper.
+    """
+    src_inds = []
+    dest_inds = []
 
-        return (key, idx - start)
+    for key, (start, stop) in dest_mapper.items():
+        if key in src_mapper:
+            src_start, src_stop = src_mapper[key]
+            if key in dest_mapper.inds:
+                inds = dest_mapper.inds[key]
+                # Handle the case where inds might be a list or array
+                if isinstance(inds, (list, np.ndarray)):
+                    src_inds.append(np.array(inds, dtype=INT_DTYPE) + src_start)
+                else:
+                    src_inds.append(np.array([inds], dtype=INT_DTYPE) + src_start)
+                dest_inds.append(np.arange(start, stop, dtype=INT_DTYPE))
+            else:
+                src_inds.append(range(src_start, src_stop))
+                dest_inds.append(range(start, stop))
+
+    if src_inds:
+        src_array = np.concatenate(src_inds)
+    else:
+        src_array = np.zeros(0, dtype=INT_DTYPE)
+
+    if dest_inds:
+        dest_array = np.concatenate(dest_inds)
+    else:
+        dest_array = np.zeros(0, dtype=INT_DTYPE)
+
+    return src_array, dest_array

@@ -207,7 +207,7 @@ class _CheckingJacobian(DictionaryJacobian):
         if self._col_mapper is None:
             self._setup_index_maps(system)
 
-        wrt, loc_idx = self._col_mapper.index2key_rel(icol)  # local col index into subjacs
+        wrt, loc_idx = self._col_mapper.get_key_rel(icol)  # local col index into subjacs
 
         # If we are doing a directional derivative, then the sparsity will be violated.
         # Skip sparsity check if that is the case.

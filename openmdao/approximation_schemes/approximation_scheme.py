@@ -9,7 +9,7 @@ from openmdao.utils.array_utils import get_input_idx_split, ValueRepeater
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.general_utils import LocalRangeIterable
 from openmdao.utils.mpi import check_mpi_env
-from openmdao.utils.rangemapper import RangeMapper
+from openmdao.utils.rangemapper import TwoWayRangeMapper
 
 
 use_mpi = check_mpi_env()
@@ -188,7 +188,7 @@ class ApproximationScheme(object):
 
         if is_total:
             it = ((of, end - start) for of, start, end, _, _ in system._get_jac_ofs())
-            rangemapper = RangeMapper.create(wrt_ranges)
+            rangemapper = TwoWayRangeMapper.create(wrt_ranges)
         else:
             it = ((n, arr.size) for n, arr in system._outputs._abs_item_iter())
 

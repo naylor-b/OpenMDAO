@@ -6914,38 +6914,6 @@ class System(object, metaclass=SystemMetaclass):
             for s in self._subsystems_myproc:
                 yield from s.comm_info_iter()
 
-    def dist_size_iter(self, io, top_comm):
-        """
-        Yield names and distributed ranges of all local and remote variables in this system.
-
-        Parameters
-        ----------
-        io : str
-            Either 'input' or 'output'.
-        top_comm : MPI.Comm or None
-            The top-level MPI communicator.
-
-        Yields
-        ------
-        tuple
-            A tuple of the form ((abs_name, rank), start, end).
-        """
-        sizes = self._var_sizes
-        vmeta = self._var_allprocs_abs2meta
-
-        topranks = np.arange(top_comm.size)
-
-        myrank = self.comm.rank
-        toprank = top_comm.rank
-
-        mytopranks = topranks[toprank - myrank: toprank - myrank + self.comm.size]
-
-        for rank in range(self.comm.size):
-            for ivar, vname in enumerate(vmeta[io]):
-                sz = sizes[io][rank, ivar]
-                if sz > 0:
-                    yield (vname, mytopranks[rank]), sz
-
     def get_var_dup_info(self, name, io):
         """
         Return information about how the given variable is duplicated across MPI processes.

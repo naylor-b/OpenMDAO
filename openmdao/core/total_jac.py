@@ -1281,7 +1281,6 @@ class _TotalJacInfo(object):
         mode : str
             Direction of derivative solution.
         """
-        row_col_map = self.simul_coloring.get_row_col_map(mode)
         fwd = mode == 'fwd'
         dist = self.comm.size > 1
 
@@ -1298,6 +1297,7 @@ class _TotalJacInfo(object):
             reduced_derivs[:] = 0.0
             reduced_derivs[jac_idxs] = deriv_val[deriv_idxs]
 
+        row_col_map = self.simul_coloring.get_row_col_map(mode)
         if fwd:
             for i in inds:
                 row = row_col_map[i]
@@ -1326,7 +1326,6 @@ class _TotalJacInfo(object):
         fwd = mode == 'fwd'
         dist = self.comm.size > 1
 
-        J = self.J
         deriv_idxs, jac_idxs, _ = self.sol2jac_map[mode]
 
         deriv_val = self.output_vec[mode].asarray()
@@ -1339,6 +1338,7 @@ class _TotalJacInfo(object):
             reduced_derivs[:] = 0.0
             reduced_derivs[jac_idxs] = deriv_val[deriv_idxs]
 
+        J = self.J
         if fwd:
             for i in inds:
                 J[:, i] = reduced_derivs
@@ -1468,7 +1468,7 @@ class _TotalJacInfo(object):
 
                 # Driver scaling.
                 if self.has_scaling:
-                    self._do_driver_scaling(self.J_dict)
+                    self._do_driver_scaling()
 
                 # if some of the wrt vars are distributed in fwd mode, we bcast from the rank
                 # where each part of the distrib var exists
@@ -1570,7 +1570,7 @@ class _TotalJacInfo(object):
 
             # Driver scaling.
             if self.has_scaling:
-                self._do_driver_scaling(totals)
+                self._do_driver_scaling()
 
             if return_format == 'array':
                 totals = self.J  # change back to array version
@@ -1717,14 +1717,9 @@ class _TotalJacInfo(object):
         """
         self.lin_sol_cache[key][:] = self.output_vec[mode].asarray()
 
-    def _do_driver_scaling(self, J):
+    def _do_driver_scaling(self):
         """
         Apply scalers to the jacobian if the driver defined any.
-
-        Parameters
-        ----------
-        J : dict
-            Jacobian to be scaled.
         """
         # use promoted names for design vars and responses
         desvars = self.input_meta['fwd']

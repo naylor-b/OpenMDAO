@@ -2197,8 +2197,7 @@ class Component(System):
             absolute, 'rel_avg' for a size relative to the absolute value of the vector input, or
             'rel_element' for a size relative to each value in the vector input. In addition, it
             can be 'rel_legacy' for a size relative to the norm of the vector.  For backwards
-            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to None,
-            in which case the approximation method provides its default value.
+            compatibilty, it can be 'rel', which is now equivalent to 'rel_avg'. Defaults to 'abs'.
         minimum_step : float
             Minimum step size allowed when using one of the relative step_calc options.
         force_dense : bool
