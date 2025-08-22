@@ -6,6 +6,7 @@ does not break the recording of the JSON data structures needed for the model vi
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.core.driver import Driver
@@ -53,22 +54,35 @@ class NonSerIComp(om.ImplicitComponent):
         self.options.declare('problem')
 
 
-class NonSerNL(om.NonlinearRunOnce):
+class _NonSerNLOptions(om.NonlinearRunOnce.options):
+    bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
+    bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
+    nonrec: float = Field(3.0, exclude=True)
 
-    def _declare_options(self):
-        super()._declare_options()
-        self.options.declare('bad', [{(1, BadOpt): (2, 3)}])
-        self.options.declare('bad2', {((1, ), (2, )): 'stuff'})
-        self.options.declare('nonrec', 3.0, recordable=False)
+class NonSerNL(om.NonlinearRunOnce):
+    options = _NonSerNLOptions
+
+    #def _declare_options(self):
+        #super()._declare_options()
+        #self.options.declare('bad', [{(1, BadOpt): (2, 3)}])
+        #self.options.declare('bad2', {((1, ), (2, )): 'stuff'})
+        #self.options.declare('nonrec', 3.0, recordable=False)
+
+
+class _NonSerLNOptions(om.LinearRunOnce.options):
+    bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
+    bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
+    nonrec: float = Field(3.0, exclude=True)
 
 
 class NonSerLN(om.LinearRunOnce):
+    options = _NonSerLNOptions
 
-    def _declare_options(self):
-        super()._declare_options()
-        self.options.declare('bad', [{(1, BadOpt): (2, 3)}])
-        self.options.declare('bad2', {((1, ), (2, )): 'stuff'})
-        self.options.declare('nonrec', 3.0, recordable=False)
+    #def _declare_options(self):
+        #super()._declare_options()
+        #self.options.declare('bad', [{(1, BadOpt): (2, 3)}])
+        #self.options.declare('bad2', {((1, ), (2, )): 'stuff'})
+        #self.options.declare('nonrec', 3.0, recordable=False)
 
 
 class NonSerDriver(Driver):

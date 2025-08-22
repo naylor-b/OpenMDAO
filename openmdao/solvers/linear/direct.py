@@ -6,8 +6,9 @@ import numpy as np
 import scipy.linalg
 import scipy.sparse.linalg
 from scipy.sparse import csc_matrix
+from pydantic import Field
 
-from openmdao.solvers.solver import LinearSolver
+from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.utils.array_utils import identity_column_iter
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
@@ -171,6 +172,18 @@ def format_nan_error(system, matrix):
     return msg.format(system.msginfo, ', '.join(varnames))
 
 
+class _DirectSolverOptions(_NonIterLinearSolverOptions):
+    err_on_singular: bool = Field(True,
+                                  description="Raise an error if LU decomposition is singular.")
+
+    rhs_checking: bool = Field(False,
+                               description="If True, check RHS vs. cache and/or zero to avoid "
+                               "some solves. Can also be set to a dict of options for the "
+                               "LinearRHSChecker to allow finer control over it. Allowed "
+                               "options are: "
+                               f"{LinearRHSChecker.options}")
+
+
 class DirectSolver(LinearSolver):
     """
     LinearSolver that uses linalg.solve or LU factor/solve.
@@ -188,6 +201,8 @@ class DirectSolver(LinearSolver):
 
     SOLVER = 'LN: Direct'
 
+    options = _DirectSolverOptions
+
     def __init__(self, **kwargs):
         """
         Declare the solver options.
@@ -201,26 +216,7 @@ class DirectSolver(LinearSolver):
         """
         super()._declare_options()
 
-        self.options.declare('err_on_singular', types=bool, default=True,
-                             desc="Raise an error if LU decomposition is singular.")
-
-        self.options.declare('rhs_checking', types=(bool, dict),
-                             default=False,
-                             desc="If True, check RHS vs. cache and/or zero to avoid some solves."
-                             "Can also be set to a dict of options for the LinearRHSChecker to "
-                             "allow finer control over it. Allowed options are: "
-                             f"{LinearRHSChecker.options}")
-
-        # this solver does not iterate
-        self.options.undeclare("maxiter")
-        self.options.undeclare("err_on_non_converge")
-
-        self.options.undeclare("atol")
-        self.options.undeclare("rtol")
-
-        # Use an assembled jacobian by default.
         self.options['assemble_jac'] = True
-
         self.supports['implicit_components'] = True
 
     def _setup_solvers(self, system, depth):

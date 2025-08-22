@@ -4,9 +4,13 @@ from packaging.version import Version
 import numpy as np
 import scipy
 from scipy.sparse.linalg import LinearOperator, gmres
-from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
+from pydantic import Field
+from typing import Union, Dict
 
-from openmdao.solvers.solver import LinearSolver
+from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
+from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
+    _IterSolverOptions
+
 
 _SOLVER_TYPES = {
     # 'bicg': bicg,
@@ -15,6 +19,21 @@ _SOLVER_TYPES = {
     # 'cgs': cgs,
     'gmres': gmres,
 }
+
+
+class _ScipyKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+
+    solver: str = Field(default='gmres', description='function handle for actual solver')
+    restart: int = Field(default=20,
+                         description='Number of iterations between restarts. Larger values '
+                         'increase iteration cost, but may be necessary for convergence. '
+                         'This option applies only to gmres.')
+    rhs_checking: Union[bool, Dict] = Field(default=False,
+                                            description="If True, check RHS vs. cache and/or "
+                                            "zero to avoid some solves. Can also be set to a "
+                                            "dict of options for the LinearRHSChecker to allow "
+                                            "finer control over it. Allowed options are: "
+                                            f"{LinearRHSChecker.options}")
 
 
 class ScipyKrylov(LinearSolver):
@@ -35,6 +54,8 @@ class ScipyKrylov(LinearSolver):
     """
 
     SOLVER = 'LN: SCIPY'
+
+    options = _ScipyKrylovOptions
 
     def __init__(self, **kwargs):
         """
@@ -60,21 +81,6 @@ class ScipyKrylov(LinearSolver):
         Declare options before kwargs are processed in the init method.
         """
         super()._declare_options()
-
-        self.options.declare('solver', default='gmres', values=tuple(_SOLVER_TYPES.keys()),
-                             desc='function handle for actual solver')
-
-        self.options.declare('restart', default=20, types=int,
-                             desc='Number of iterations between restarts. Larger values increase '
-                                  'iteration cost, but may be necessary for convergence. This '
-                                  'option applies only to gmres.')
-
-        self.options.declare('rhs_checking', types=(bool, dict),
-                             default=False,
-                             desc="If True, check RHS vs. cache and/or zero to avoid some solves."
-                             "Can also be set to a dict of options for the LinearRHSChecker to "
-                             "allow finer control over it. Allowed options are: "
-                             f"{LinearRHSChecker.options}")
 
         # changing the default maxiter from the base class
         self.options['maxiter'] = 1000

@@ -1,5 +1,10 @@
 """Define the LinearBlockJac class."""
-from openmdao.solvers.solver import BlockLinearSolver
+from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptions, \
+    _IterSolverOptions
+
+
+class _LinearBlockJacOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+    pass
 
 
 class LinearBlockJac(BlockLinearSolver):
@@ -13,6 +18,8 @@ class LinearBlockJac(BlockLinearSolver):
     """
 
     SOLVER = 'LN: LNBJ'
+
+    options = _LinearBlockJacOptions
 
     def _single_iteration(self):
         """

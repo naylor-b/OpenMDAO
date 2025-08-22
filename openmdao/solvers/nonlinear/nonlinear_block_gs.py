@@ -1,8 +1,29 @@
 """Define the NonlinearBlockGS class."""
 
 import numpy as np
+from pydantic import Field
 
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions, \
+    _IterNonlinearSolverOptions
+
+
+class _NonlinearBlockGSOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    use_aitken: bool = Field(False, description='set to True to use Aitken relaxation')
+    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
+    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
+    aitken_initial_factor: float = Field(1.0, description='initial value for Aitken relaxation '
+                                         'factor')
+    cs_reconverge: bool = Field(True, description='When True, when this driver solves under a '
+                                'complex step, nudge the Solution vector by a small amount so that '
+                                'it reconverges.')
+    use_apply_nonlinear: bool = Field(False, description="Set to True to always call "
+                                      "apply_nonlinear on the solver's system after "
+                                      "solve_nonlinear has been called.")
+    reraise_child_analysiserror: bool = Field(False,
+                                              description='When the option is true, a solver '
+                                              'will reraise any AnalysisError that arises '
+                                              'during subsolve; when false, it will '
+                                              'continue solving.')
 
 
 class NonlinearBlockGS(NonlinearSolver):
@@ -25,6 +46,8 @@ class NonlinearBlockGS(NonlinearSolver):
     """
 
     SOLVER = 'NL: NLBGS'
+
+    options = _NonlinearBlockGSOptions
 
     def __init__(self, **kwargs):
         """
@@ -51,31 +74,6 @@ class NonlinearBlockGS(NonlinearSolver):
         if len(system._subsystems_allprocs) != len(system._subsystems_myproc):
             raise RuntimeError('{}: Nonlinear Gauss-Seidel cannot be used on a '
                                'parallel group.'.format(self.msginfo))
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        self.options.declare('use_aitken', types=bool, default=False,
-                             desc='set to True to use Aitken relaxation')
-        self.options.declare('aitken_min_factor', default=0.1,
-                             desc='lower limit for Aitken relaxation factor')
-        self.options.declare('aitken_max_factor', default=1.5,
-                             desc='upper limit for Aitken relaxation factor')
-        self.options.declare('aitken_initial_factor', default=1.0,
-                             desc='initial value for Aitken relaxation factor')
-        self.options.declare('cs_reconverge', types=bool, default=True,
-                             desc='When True, when this driver solves under a complex step, nudge '
-                             'the Solution vector by a small amount so that it reconverges.')
-        self.options.declare('use_apply_nonlinear', types=bool, default=False,
-                             desc="Set to True to always call apply_nonlinear on the solver's "
-                             "system after solve_nonlinear has been called.")
-        self.options.declare('reraise_child_analysiserror', types=bool, default=False,
-                             desc='When the option is true, a solver will reraise any '
-                             'AnalysisError that arises during subsolve; when false, it will '
-                             'continue solving.')
 
     def _iter_initialize(self):
         """

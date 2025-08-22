@@ -289,9 +289,10 @@ class TestPETScDirectSolver(LinearSolverTests.LinearSolverTestCase):
 
     def test_err_on_singular_option(self):
         # Test that "err_on_singular" option will raise an error if not True
-        msg = ('The PETScDirectSolver must always have its "err_on_singular" '
-               'option set to True. This option is only maintained for '
-               'compatibility with parent solver methods.')
+        msg = '\n'.join(["PETScDirectSolver: 1 validation error for _PETScDirectSolverOptions", 
+                        "err_on_singular", 
+                        "  Value error, The PETScDirectSolver must always have its 'err_on_singular' option set to True. This option is only maintained for compatibility with parent solver methods. [type=value_error, input_value=False, input_type=bool]", 
+                        "    For further information visit https://errors.pydantic.dev/2.11/v/value_error"])
         with self.assertRaises(ValueError) as context:
             om.PETScDirectSolver(err_on_singular=False)
         self.assertEqual(str(context.exception), msg)
@@ -436,10 +437,11 @@ class TestPETScDirectSolver(LinearSolverTests.LinearSolverTestCase):
         prob = om.Problem()
         model = prob.model
 
+        class _TestSolverOptions(om.PETScDirectSolver.options):
+            sparse_solver_name: str
+            
         class TestSolver(om.PETScDirectSolver):
-            def _declare_options(self):
-                super()._declare_options()
-                self.options.declare('sparse_solver_name')
+            options = _TestSolverOptions
 
         model.add_subsystem('comp', om.ExecComp('y = x * 2.'))
         model.linear_solver = TestSolver(sparse_solver_name='hello')

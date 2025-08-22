@@ -54,7 +54,7 @@ class InterpAlgorithm(object):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
         self.options.update(kwargs)
 
@@ -303,7 +303,7 @@ class InterpAlgorithmFixed(object):
         """
         Initialize interp algorithm.
         """
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
         self.options.update(kwargs)
 
@@ -622,7 +622,7 @@ class InterpAlgorithmSemi(object):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
         self.options.update(kwargs)
 

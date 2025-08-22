@@ -1,7 +1,12 @@
 """Define the NonlinearBlockJac class."""
 from openmdao.recorders.recording_iteration_stack import Recording
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions, \
+    _IterNonlinearSolverOptions
 from openmdao.utils.mpi import multi_proc_fail_check
+
+
+class _NonlinearBlockJacOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    pass
 
 
 class NonlinearBlockJac(NonlinearSolver):
@@ -15,6 +20,8 @@ class NonlinearBlockJac(NonlinearSolver):
     """
 
     SOLVER = 'NL: NLBJ'
+
+    options = _NonlinearBlockJacOptions
 
     def _single_iteration(self):
         """

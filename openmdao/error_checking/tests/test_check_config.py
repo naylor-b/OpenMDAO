@@ -1,7 +1,9 @@
 import unittest
 from tempfile import TemporaryFile
+import io
 
 import numpy as np
+from pydantic import Field, validator, ConfigDict
 
 import openmdao.api as om
 from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2, SellarDerivativesGrouped
@@ -9,6 +11,10 @@ from openmdao.error_checking.check_config import get_sccs_topo, _all_non_redunda
 from openmdao.utils.assert_utils import assert_warning, assert_no_warning
 from openmdao.utils.logger_utils import TestLogger
 from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.utils.options_dictionary import PydanticOptions
+from openmdao.solvers.nonlinear.newton import _NewtonSolverOptions
+from openmdao.solvers.linesearch.backtracking import _LinesearchSolverOptions
+from openmdao.solvers.linear.scipy_iter_solver import _ScipyKrylovOptions
 
 
 class MyComp(om.ExecComp):
@@ -494,20 +500,53 @@ class TestCheckConfig(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['y'] = inputs['x']
 
+        class TestNewtonOptions(_NewtonSolverOptions):
+            file3: io.BufferedIOBase = Field(default=None)
+
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+
+            @validator('file3', pre=True)
+            def validate_file(cls, v):
+                if not hasattr(v, 'read') or not hasattr(v, 'seek'):
+                    raise ValueError('Attribute must be a file-like object')
+                return v
+
         class TestNewton(om.NewtonSolver):
             def _declare_options(self):
                 super()._declare_options()
-                self.options.declare('file3')
+                self.options = PydanticOptions(TestNewtonOptions, msginfo=self.msginfo)
+
+        class TestLinesearchOptions(_LinesearchSolverOptions):
+            file4: io.BufferedIOBase = Field(default=None, exclude=True)
+
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+
+            @validator('file4', pre=True)
+            def validate_file(cls, v):
+                if not hasattr(v, 'read') or not hasattr(v, 'seek'):
+                    raise ValueError('Attribute must be a file-like object')
+                return v
 
         class TestLinesearch(om.BoundsEnforceLS):
             def _declare_options(self):
                 super()._declare_options()
-                self.options.declare('file4', recordable=False)
+                self.options = PydanticOptions(TestLinesearchOptions, msginfo=self.msginfo)
+
+        class TestKrylovOptions(_ScipyKrylovOptions):
+            file5: io.BufferedIOBase = Field(default=None)
+
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+
+            @validator('file5', pre=True)
+            def validate_file(cls, v):
+                if not hasattr(v, 'read') or not hasattr(v, 'seek'):
+                    raise ValueError('Attribute must be a file-like object')
+                return v
 
         class TestKrylov(om.ScipyKrylov):
             def _declare_options(self):
                 super()._declare_options()
-                self.options.declare('file5')
+                self.options = PydanticOptions(TestKrylovOptions, msginfo=self.msginfo)
 
         prob = om.Problem()
         prob.model.add_subsystem('comp', TestComp())

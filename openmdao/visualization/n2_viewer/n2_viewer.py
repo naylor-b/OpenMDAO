@@ -213,14 +213,14 @@ def _get_tree_dict(system, values=True, is_parallel=False):
             tree_dict['linear_solver'] = system.linear_solver.SOLVER
             tree_dict['linear_solver_options'] = {
                 k: _serialize_single_option(opt)
-                for k, opt in system.linear_solver.options._dict.items()
+                for k, opt in system.linear_solver.options.raw_items()
             }
 
         if system.nonlinear_solver:
             tree_dict['nonlinear_solver'] = system.nonlinear_solver.SOLVER
             tree_dict['nonlinear_solver_options'] = {
                 k: _serialize_single_option(opt)
-                for k, opt in system.nonlinear_solver.options._dict.items()
+                for k, opt in system.nonlinear_solver.options.raw_items()
             }
 
             if system.nonlinear_solver.SOLVER == NewtonSolver.SOLVER:
@@ -237,7 +237,7 @@ def _get_tree_dict(system, values=True, is_parallel=False):
                 tree_dict['linear_solver'] = system.linear_solver.SOLVER
                 tree_dict['linear_solver_options'] = {
                     k: _serialize_single_option(opt)
-                    for k, opt in system.linear_solver.options._dict.items()
+                    for k, opt in system.linear_solver.options.raw_items()
                 }
 
             if overrides_method('solve_nonlinear', system, ImplicitComponent):
@@ -246,7 +246,7 @@ def _get_tree_dict(system, values=True, is_parallel=False):
                 tree_dict['nonlinear_solver'] = system.nonlinear_solver.SOLVER
                 tree_dict['nonlinear_solver_options'] = {
                     k: _serialize_single_option(opt)
-                    for k, opt in system.nonlinear_solver.options._dict.items()
+                    for k, opt in system.nonlinear_solver.options.raw_items()
                 }
         elif isinstance(system, ExecComp):
             tree_dict['component_type'] = 'exec'

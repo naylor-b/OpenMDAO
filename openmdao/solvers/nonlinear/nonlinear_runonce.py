@@ -3,9 +3,14 @@ Define the NonlinearRunOnce class.
 
 This is a simple nonlinear solver that just runs the system once.
 """
+
 from openmdao.recorders.recording_iteration_stack import Recording
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import Solver, NonlinearSolver
 from openmdao.utils.mpi import multi_proc_fail_check
+
+
+class _NonlinearRunOnceOptions(Solver.options):
+    pass
 
 
 class NonlinearRunOnce(NonlinearSolver):
@@ -21,6 +26,8 @@ class NonlinearRunOnce(NonlinearSolver):
     """
 
     SOLVER = 'NL: RUNONCE'
+
+    options = _NonlinearRunOnceOptions
 
     def _solve_with_cache_check(self):
         self.solve()  # don't use caching
@@ -46,17 +53,3 @@ class NonlinearRunOnce(NonlinearSolver):
 
             rec.abs = 0.0
             rec.rel = 0.0
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        # Remove unused options from base options here, so that users
-        #  attempting to set them will get KeyErrors.
-        self.options.undeclare("atol")
-        self.options.undeclare("rtol")
-
-        # this solver does not iterate
-        self.options.undeclare("maxiter")
-        self.options.undeclare("err_on_non_converge")
-        self.options.undeclare("restart_from_successful")

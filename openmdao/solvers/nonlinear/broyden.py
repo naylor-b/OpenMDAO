@@ -4,10 +4,12 @@ Define the BroydenSolver class.
 Based on implementation in Scipy via OpenMDAO 0.8x with improvements based on NPSS solver.
 """
 import numpy as np
+from pydantic import Field
 
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions, \
+    _IterNonlinearSolverOptions
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.om_warnings import issue_warning, SetupWarning
 
@@ -22,6 +24,42 @@ CITATION = """@ARTICLE{
               PAGES = "577--593",
               REFERRED = "[Coleman1996SaE]."
               }"""
+
+
+class _BroydenSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    alpha: float = Field(0.4,
+                         description="Value to scale the starting Jacobian, which is "
+                         "Identity. This option does nothing if you compute the "
+                         "initial Jacobian instead.")
+    compute_jacobian: bool = Field(True, description="When True, compute an initial Jacobian, "
+                                   "otherwise start with Identity scaled by alpha. Further "
+                                   "Jacobians may also be computed depending on the other "
+                                   "options.")
+    converge_limit: float = Field(1.0, description="Ratio of current residual to previous residual "
+                                  "above which the convergence is considered a failure. The "
+                                  "Jacobian will be regenerated once this condition has been "
+                                  "reached a number of consecutive times as specified in "
+                                  "max_converge_failures.")
+    cs_reconverge: bool = Field(True, description="When True, when this driver solves under a "
+                                "complex step, nudge the Solution vector by a small amount so "
+                                "that it reconverges.")
+    diverge_limit: float = Field(2.0, description="Ratio of current residual to previous residual "
+                                 "above which the Jacobian will be immediately regenerated.")
+    max_converge_failures: int = Field(3,
+                                       description="The number of convergence failures before "
+                                       "regenerating the Jacobian.")
+    max_jacobians: int = Field(10, description="Maximum number of jacobians to compute.")
+    state_vars: list = Field([],
+                             description="List of the state-variable/residuals that "
+                             "are to be solved here.")
+    update_broyden: bool = Field(True,
+                                 description="Flag controls whether to perform Broyden update to "
+                                 "the Jacobian. There are some applications where it may be useful "
+                                 "to turn this off.")
+    reraise_child_analysiserror: bool = Field(False,
+                                              description="When the option is true, a solver will "
+                                              "reraise any AnalysisError that arises during "
+                                              "subsolve; when false, it will continue solving.")
 
 
 class BroydenSolver(NonlinearSolver):
@@ -65,6 +103,8 @@ class BroydenSolver(NonlinearSolver):
 
     SOLVER = 'NL: BROYDEN'
 
+    options = _BroydenSolverOptions
+
     def __init__(self, **kwargs):
         """
         Initialize all attributes.
@@ -99,41 +139,6 @@ class BroydenSolver(NonlinearSolver):
         Declare options before kwargs are processed in the init method.
         """
         super()._declare_options()
-
-        self.options.declare('alpha', default=0.4,
-                             desc="Value to scale the starting Jacobian, which is Identity. This "
-                                  "option does nothing if you compute the initial Jacobian "
-                                  "instead.")
-        self.options.declare('compute_jacobian', types=bool, default=True,
-                             desc="When True, compute an initial Jacobian, otherwise start "
-                                  "with Identity scaled by alpha. Further Jacobians may also be "
-                                  "computed depending on the other options.")
-        self.options.declare('converge_limit', default=1.0,
-                             desc="Ratio of current residual to previous residual above which the "
-                                  "convergence is considered a failure. The Jacobian will be "
-                                  "regenerated once this condition has been reached a number of "
-                                  "consecutive times as specified in max_converge_failures.")
-        self.options.declare('cs_reconverge', types=bool, default=True,
-                             desc='When True, when this driver solves under a complex step, nudge '
-                             'the Solution vector by a small amount so that it reconverges.')
-        self.options.declare('diverge_limit', default=2.0,
-                             desc="Ratio of current residual to previous residual above which the "
-                                  "Jacobian will be immediately regenerated.")
-        self.options.declare('max_converge_failures', default=3,
-                             desc="The number of convergence failures before regenerating the "
-                                  "Jacobian.")
-        self.options.declare('max_jacobians', default=10,
-                             desc="Maximum number of jacobians to compute.")
-        self.options.declare('state_vars', [], desc="List of the state-variable/residuals that "
-                                                    "are to be solved here.")
-        self.options.declare('update_broyden', default=True,
-                             desc="Flag controls whether to perform Broyden update to the "
-                                  "Jacobian. There are some applications where it may be useful "
-                                  "to turn this off.")
-        self.options.declare('reraise_child_analysiserror', types=bool, default=False,
-                             desc='When the option is true, a solver will reraise any '
-                             'AnalysisError that arises during subsolve; when false, it will '
-                             'continue solving.')
 
         self.supports['gradients'] = True
         self.supports['implicit_components'] = True

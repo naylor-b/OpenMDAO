@@ -1,7 +1,7 @@
 """Define the LinearRunOnce class."""
 
 from openmdao.core.constants import _UNDEFINED
-from openmdao.solvers.linear.linear_block_gs import LinearBlockGS
+from openmdao.solvers.linear.linear_block_gs import LinearBlockGS, _NonIterLinearBlockGSOptions
 
 
 class LinearRunOnce(LinearBlockGS):
@@ -17,6 +17,8 @@ class LinearRunOnce(LinearBlockGS):
     """
 
     SOLVER = 'LN: RUNONCE'
+
+    options = _NonIterLinearBlockGSOptions
 
     def solve(self, mode, rel_systems=None):
         """
@@ -38,18 +40,3 @@ class LinearRunOnce(LinearBlockGS):
 
         # reset after solve is done
         self._scope_in = self._scope_out = _UNDEFINED
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        # Remove unused options from base options here, so that users
-        # attempting to set them will get KeyErrors.
-        self.options.undeclare("atol")
-        self.options.undeclare("rtol")
-
-        # this solver does not iterate
-        self.options.undeclare("maxiter")
-        self.options.undeclare("err_on_non_converge")

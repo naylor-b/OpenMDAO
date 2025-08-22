@@ -1,8 +1,22 @@
 """Define the LinearBlockGS class."""
 
 import numpy as np
+from pydantic import Field
 
-from openmdao.solvers.solver import BlockLinearSolver
+from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptions, \
+    _IterSolverOptions
+
+
+class _NonIterLinearBlockGSOptions(_NonIterLinearSolverOptions):
+    use_aitken: bool = Field(False, description='whether to use Aitken relaxation')
+    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
+    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
+    aitken_initial_factor: float = Field(1.0,
+                                         description='initial value for Aitken relaxation factor')
+
+
+class _LinearBlockGSOptions(_IterSolverOptions, _NonIterLinearBlockGSOptions):
+    pass
 
 
 class LinearBlockGS(BlockLinearSolver):
@@ -26,6 +40,8 @@ class LinearBlockGS(BlockLinearSolver):
 
     SOLVER = 'LN: LNBGS'
 
+    options = _LinearBlockGSOptions
+
     def __init__(self, **kwargs):
         """
         Initialize all attributes.
@@ -34,21 +50,6 @@ class LinearBlockGS(BlockLinearSolver):
 
         self._theta_n_1 = None
         self._delta_d_n_1 = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        self.options.declare('use_aitken', types=bool, default=False,
-                             desc='set to True to use Aitken relaxation')
-        self.options.declare('aitken_min_factor', default=0.1,
-                             desc='lower limit for Aitken relaxation factor')
-        self.options.declare('aitken_max_factor', default=1.5,
-                             desc='upper limit for Aitken relaxation factor')
-        self.options.declare('aitken_initial_factor', default=1.0,
-                             desc='initial value for Aitken relaxation factor')
 
     def _iter_initialize(self):
         """

@@ -488,12 +488,12 @@ def _check_unserializable_options(problem, logger, check_recordable=True):
 
     def _check_opts(obj, name=None):
         if obj:
-            for key, val in obj.options.items():
+            for key, meta in obj.options.raw_items():
                 try:
-                    pickle.dumps(val, PICKLE_VER)
+                    pickle.dumps(meta['val'], PICKLE_VER)
                 except Exception:
                     name_str = name + " " if name else ""
-                    if obj.options._dict[key]['recordable']:
+                    if meta['recordable']:
                         msg = f"{obj.msginfo}: {name_str}option '{key}' is not serializable " \
                               "(cannot be pickled) but 'recordable=False' has not been set. " \
                               f"No options will be recorded for this {obj.__class__.__name__} " \

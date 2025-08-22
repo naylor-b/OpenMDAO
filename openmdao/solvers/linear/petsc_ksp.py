@@ -1,8 +1,10 @@
 """LinearSolver that uses PetSC KSP to solve for a system's derivatives."""
 
 import numpy as np
+from pydantic import Field
 
-from openmdao.solvers.solver import LinearSolver
+from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
+    _IterSolverOptions
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.utils.mpi import check_mpi_env
 
@@ -163,6 +165,19 @@ class Monitor(object):
         self._solver._iter_count += 1
 
 
+class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+    ksp_type: str = Field(default='fgmres', values=KSP_TYPES,
+                          description='KSP algorithm to use. Default is \'fgmres\'.')
+    restart: int = Field(default=1000, types=int,
+                         desc='Number of iterations between restarts. Larger values increase '
+                         'iteration cost, but may be necessary for convergence')
+    precon_side: str = Field(default='right', values=['left', 'right'],
+                             desc='Preconditioner side, default is right.')
+    rhs_checking: bool = Field(default=False,
+                               desc="If True, check RHS vs. cache and/or zero to avoid some "
+                               "solves.")
+
+
 class PETScKrylov(LinearSolver):
     """
     LinearSolver that uses PetSC KSP to solve for a system's derivatives.
@@ -184,6 +199,8 @@ class PETScKrylov(LinearSolver):
 
     SOLVER = 'LN: PETScKrylov'
 
+    options = _PETScKrylovOptions
+
     def __init__(self, **kwargs):
         """
         Declare the solver options.
@@ -204,26 +221,7 @@ class PETScKrylov(LinearSolver):
         """
         super()._declare_options()
 
-        self.options.declare('ksp_type', default='fgmres', values=KSP_TYPES,
-                             desc="KSP algorithm to use. Default is 'fgmres'.")
-
-        self.options.declare('restart', default=1000, types=int,
-                             desc='Number of iterations between restarts. Larger values increase '
-                             'iteration cost, but may be necessary for convergence')
-
-        self.options.declare('precon_side', default='right', values=['left', 'right'],
-                             desc='Preconditioner side, default is right.')
-
-        self.options.declare('rhs_checking', types=(bool, dict),
-                             default=False,
-                             desc="If True, check RHS vs. cache and/or zero to avoid some solves."
-                             "Can also be set to a dict of options for the LinearRHSChecker to "
-                             "allow finer control over it. Allowed options are: "
-                             f"{LinearRHSChecker.options}")
-
-        # changing the default maxiter from the base class
         self.options['maxiter'] = 100
-
         self.supports['implicit_components'] = True
 
     def _assembled_jac_solver_iter(self):

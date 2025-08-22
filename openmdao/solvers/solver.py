@@ -6,6 +6,7 @@ import sys
 import weakref
 
 import numpy as np
+from pydantic import Field
 
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.core.constants import _UNDEFINED
@@ -13,10 +14,11 @@ from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.utils.file_utils import _get_outputs_dir
 from openmdao.utils.mpi import MPI
-from openmdao.utils.options_dictionary import OptionsDictionary
+from openmdao.utils.options_dictionary import PydanticOptions
 from openmdao.utils.record_util import create_local_meta, check_path
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 from openmdao.utils.general_utils import SolverMetaclass, is_undefined
+from openmdao.utils.options_dictionary import ValidateOnAssignModel
 
 
 class SolverInfo(object):
@@ -100,6 +102,45 @@ class SolverInfo(object):
         self.prefix, self.stack = cache
 
 
+class _NonIterSolverOptions(ValidateOnAssignModel):
+    iprint: int = Field(1, description='whether to print output')
+
+
+class _IterSolverOptions(ValidateOnAssignModel):
+    maxiter: int = Field(10, description='maximum number of iterations')
+    atol: float = Field(1e-10, description='absolute error tolerance')
+    rtol: float = Field(1e-10, description='relative error tolerance')
+    err_on_non_converge: bool = Field(False,
+                                      description="When True, AnalysisError will be raised if we "
+                                      "don't converge.")
+
+
+class _SolverRecordingOptions(ValidateOnAssignModel):
+    record_abs_error: bool = Field(True,
+                                   desc='Set to True to record absolute error at the solver level')
+    record_rel_error: bool = Field(True,
+                                   desc='Set to True to record relative error at the solver level')
+    record_inputs: bool = Field(True,
+                                desc='Set to True to record inputs at the solver level')
+    record_outputs: bool = Field(True,
+                                 desc='Set to True to record outputs at the solver level')
+    record_solver_residuals: bool = Field(False,
+                                          desc='Set to True to record residuals at the solver '
+                                          'level')
+    includes: list = Field(['*'],
+                           desc="Patterns for variables to include in recording. Paths are relative"
+                           " to solver's Group. Uses fnmatch wildcards")
+    excludes: list = Field([],
+                           desc="Patterns for vars to exclude in recording. "
+                                "Paths are relative to solver's Group. Uses fnmatch wildcards")
+
+
+class _SolverSupports(ValidateOnAssignModel):
+    gradients: bool = Field(False, desc='Whether the solver supports gradients')
+    implicit_components: bool = Field(False, desc='Whether the solver supports implicit components')
+    linesearch: bool = Field(False, desc='Whether the solver supports linesearch')
+
+
 class Solver(object, metaclass=SolverMetaclass):
     """
     Base solver class.
@@ -145,6 +186,12 @@ class Solver(object, metaclass=SolverMetaclass):
     # Object to store some formatting for iprint that is shared across all solvers.
     SOLVER = 'base_solver'
 
+    # this make it more convenient when creating options models for subclasses, so for example
+    # they don't have to include both Solver and _NonIterSolverOptions in this case.
+    options = _NonIterSolverOptions
+    recording_options = _SolverRecordingOptions
+    supports = _SolverSupports
+
     def __init__(self, **kwargs):
         """
         Initialize all attributes.
@@ -155,52 +202,9 @@ class Solver(object, metaclass=SolverMetaclass):
         self._iter_count = 0
         self._problem_meta = None
 
-        # Solver options
-        self.options = OptionsDictionary(parent_name=self.msginfo)
-        self.options.declare('maxiter', types=int, default=10,
-                             desc='maximum number of iterations')
-        self.options.declare('atol', default=1e-10,
-                             desc='absolute error tolerance')
-        self.options.declare('rtol', default=1e-10,
-                             desc='relative error tolerance')
-        self.options.declare('iprint', types=int, default=1,
-                             desc='whether to print output')
-        self.options.declare('err_on_non_converge', types=bool, default=False,
-                             desc="When True, AnalysisError will be raised if we don't converge.")
-
-        # Case recording options
-        self.recording_options = OptionsDictionary(parent_name=self.msginfo)
-        self.recording_options.declare('record_abs_error', types=bool, default=True,
-                                       desc='Set to True to record absolute error at the \
-                                       solver level')
-        self.recording_options.declare('record_rel_error', types=bool, default=True,
-                                       desc='Set to True to record relative error at the \
-                                       solver level')
-        self.recording_options.declare('record_inputs', types=bool, default=True,
-                                       desc='Set to True to record inputs at the solver level')
-        self.recording_options.declare('record_outputs', types=bool, default=True,
-                                       desc='Set to True to record outputs at the solver level')
-        self.recording_options.declare('record_solver_residuals', types=bool, default=False,
-                                       desc='Set to True to record residuals at the solver level')
-        self.recording_options.declare('includes', types=list, default=['*'],
-                                       desc="Patterns for variables to include in recording. \
-                                       Paths are relative to solver's Group. \
-                                       Uses fnmatch wildcards")
-        self.recording_options.declare('excludes', types=list, default=[],
-                                       desc="Patterns for vars to exclude in recording. \
-                                       (processed post-includes) \
-                                       Paths are relative to solver's Group. \
-                                       Uses fnmatch wildcards"
-                                       )
         # Case recording related
         self._filtered_vars_to_record = {}
         self._norm0 = 0.0
-
-        # What the solver supports.
-        self.supports = OptionsDictionary(parent_name=self.msginfo)
-        self.supports.declare('gradients', types=bool, default=False)
-        self.supports.declare('implicit_components', types=bool, default=False)
-        self.supports.declare('linesearch', types=bool, default=False)
 
         self._declare_options()
         self.options.update(kwargs)
@@ -308,10 +312,10 @@ class Solver(object, metaclass=SolverMetaclass):
     def _declare_options(self):
         """
         Declare options before kwargs are processed in the init method.
-
-        This is optionally implemented by subclasses of Solver.
         """
-        pass
+        self.options = PydanticOptions(self.options, msginfo=self.msginfo)
+        self.recording_options = PydanticOptions(self.recording_options, msginfo=self.msginfo)
+        self.supports = PydanticOptions(self.supports, msginfo=self.msginfo)
 
     def _setup_solvers(self, system, depth):
         """
@@ -339,11 +343,9 @@ class Solver(object, metaclass=SolverMetaclass):
         self._depth = depth
         self._problem_meta = system._problem_meta
 
-        if system.pathname:
-            parent_name = self.msginfo
-            self.options._parent_name = parent_name
-            self.recording_options._parent_name = parent_name
-            self.supports._parent_name = parent_name
+        self.options.msginfo = self.msginfo
+        self.recording_options.msginfo = self.msginfo
+        self.supports.msginfo = self.msginfo
 
         if isinstance(self, LinearSolver) and not system._use_derivatives:
             return
@@ -595,6 +597,18 @@ class Solver(object, metaclass=SolverMetaclass):
         return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
 
 
+class _NonIterNonlinearSolverOptions(_NonIterSolverOptions):
+    debug_print: bool = Field(False, description='whether to print debug output')
+
+
+class _IterNonlinearSolverOptions(_IterSolverOptions):
+    stall_limit: float = Field(0., description='stall limit')
+    stall_tol: float = Field(1e-12, description='stall tolerance')
+    stall_tol_type: str = Field('rel', description='type of stall tolerance')
+    restart_from_successful: bool = Field(False,
+                                          description='whether to restart from a successful run')
+
+
 class NonlinearSolver(Solver):
     """
     Base class for nonlinear solvers.
@@ -616,6 +630,8 @@ class NonlinearSolver(Solver):
         If True, solve was restarted from a sucessful point.
     """
 
+    options = _NonIterNonlinearSolverOptions
+
     def __init__(self, **kwargs):
         """
         Initialize all attributes.
@@ -625,29 +641,6 @@ class NonlinearSolver(Solver):
         self._output_cache = None
         self._prev_fail = False
         self._restarted = False
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('debug_print', types=bool, default=False,
-                             desc='If true, the values of input and output variables at '
-                                  'the start of iteration are printed and written to a file '
-                                  'after a failure to converge.')
-        self.options.declare('stall_limit', default=0,
-                             desc='Number of iterations after which, if the residual norms are '
-                                  'identical within the stall_tol, then terminate as if max '
-                                  'iterations were reached. Default is 0, which disables this '
-                                  'feature.')
-        self.options.declare('stall_tol', default=1e-12,
-                             desc='When stall checking is enabled, the threshold below which the '
-                                  'residual norm is considered unchanged.')
-        self.options.declare('stall_tol_type', default='rel', values=('abs', 'rel'),
-                             desc='Specifies whether the absolute or relative norm of the '
-                                  'residual is used for stall detection.')
-        self.options.declare('restart_from_successful', types=bool, default=False,
-                             desc='If True, the states are cached after a successful solve and '
-                                  'used to restart the solver in the case of a failed solve.')
 
     @property
     def linesearch(self):
@@ -942,6 +935,14 @@ class NonlinearSolver(Solver):
             self.solve()
 
 
+class _NonIterLinearSolverOptions(_NonIterSolverOptions):
+    assemble_jac: bool = Field(False, description='whether to assemble the jacobian')
+
+
+class _LinearSolverSupports(_SolverSupports):
+    assembled_jac: bool = Field(True, description='whether the solver supports assembled jacobian')
+
+
 class LinearSolver(Solver):
     """
     Base class for linear solvers.
@@ -960,6 +961,9 @@ class LinearSolver(Solver):
     _scope_out : set or None or _UNDEFINED
         Relevant output variables for the current matrix vector product.
     """
+
+    supports = _LinearSolverSupports
+    options = _NonIterLinearSolverOptions
 
     def __init__(self, **kwargs):
         """
@@ -1004,15 +1008,6 @@ class LinearSolver(Solver):
            A recorder instance to be added to RecManager.
         """
         raise RuntimeError('Recording is not supported on Linear Solvers.')
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('assemble_jac', default=False, types=bool,
-                             desc='Activates use of assembled jacobian by this solver.')
-
-        self.supports.declare('assembled_jac', types=bool, default=True)
 
     def _setup_solvers(self, system, depth):
         """

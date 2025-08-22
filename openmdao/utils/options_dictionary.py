@@ -1,11 +1,24 @@
 """Define the OptionsDictionary class."""
 import contextlib
+from pydantic import BaseModel, ConfigDict
 
 from openmdao.utils.om_warnings import warn_deprecation
 from openmdao.utils.notebook_utils import notebook
 from openmdao.visualization.tables.table_builder import generate_table
 
 from openmdao.core.constants import _UNDEFINED
+
+
+# by default, pydantic only validates fields on initialization, not on assignment, so we
+# override the default model config to validate on assignment.
+class ValidateOnAssignModel(BaseModel):
+    """
+    BaseModel that validates on assignment.
+
+    This is used to ensure that options are validated on assignment, not just on initialization.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 #
@@ -30,19 +43,340 @@ def check_valid(name, value):
     raise ValueError(f"Option '{name}' with value {value} is not valid.")
 
 
-class OptionsDictionary(object):
+class OptionsBase(object):
     """
-    Dictionary with pre-declaration of keys for value-checking and default values.
-
-    This class is instantiated for:
-        1. the options attribute in solvers, drivers, and processor allocators
-        2. the supports attribute in drivers
-        3. the options attribute in systems
+    Base class for options.
 
     Parameters
     ----------
-    parent_name : str
-        Name or class name of System that owns this OptionsDictionary.
+    msginfo : str, optional
+        String to prepend to error messages.
+
+    Attributes
+    ----------
+    msginfo : str
+        String to prepend to error messages.
+    """
+
+    def __init__(self, msginfo=None):
+        """
+        Initialize all attributes.
+        """
+        self.msginfo = msginfo
+
+    def _update_msg(self, msg):
+        """
+        Add path info to the message.
+
+        Parameters
+        ----------
+        msg : str
+            The error message.
+        """
+        if self.msginfo is None:
+            return msg
+        else:
+            return '{}: {}'.format(self.msginfo, msg)
+
+    def update(self, in_dict):
+        """
+        Update the internal dictionary with the given one.
+
+        Parameters
+        ----------
+        in_dict : dict
+            The incoming dictionary to add to the internal one.
+        """
+        for name, val in in_dict.items():
+            self[name] = val
+
+    def set(self, **kwargs):
+        """
+        Set one or more options in the options dictionary simultaneously.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments where the option names in the OptionsDictionary are the keywords
+            and the associated values are the values for those options.
+        """
+        for option, val in kwargs.items():
+            self[option] = val
+
+    @contextlib.contextmanager
+    def temporary(self, **kwargs):
+        """
+        Provide a context manager for temporary option values within the context.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments where the option names in the OptionsDictionary are the keywords
+            and the associated values are the temporary values for those options.
+
+        Yields
+        ------
+        None
+        """
+        context_cache = {}
+        for option, val in kwargs.items():
+            if option not in context_cache:
+                context_cache[option] = []
+            context_cache[option].append(self[option])
+            self[option] = val
+        yield
+        for option in kwargs:
+            self[option] = context_cache[option].pop()
+            if len(context_cache[option]) == 0:
+                context_cache.pop(option)
+
+
+def get_required_fields(model_class: type[BaseModel]) -> set[str]:
+    """
+    Get the required fields for a Pydantic model.
+
+    Parameters
+    ----------
+    model_class : type[BaseModel]
+        The Pydantic model class to get the required fields for.
+
+    Returns
+    -------
+    set[str]
+        The required fields for the Pydantic model.
+    """
+    return {name for name, info in model_class.model_fields.items() if info.is_required()}
+
+
+class PydanticOptions(OptionsBase):
+    """
+    Options dictionary that uses Pydantic for validation.
+
+    Note that the given base model class must inherit from ValidateOnAssignModel if you want
+    validation to be performed on assignment.
+
+    Parameters
+    ----------
+    base_model_class : type[ValidateOnAssignModel]
+        The Pydantic model class to use for validation.
+    msginfo : str, optional
+        String to prepend to error messages.
+
+    Attributes
+    ----------
+    _base_model_class : type[ValidateOnAssignModel]
+        The Pydantic model class to use for validation.
+    _base_model : ValidateOnAssignModel
+        The Pydantic model instance to use for validation.
+    _temp : dict
+        A temporary dictionary to store the values of the options that are not required.
+    """
+
+    def __init__(self, base_model_class, msginfo=None):
+        """
+        Initialize all attributes.
+        """
+        super().__init__(msginfo)
+        self._base_model_class = base_model_class
+        if get_required_fields(base_model_class):
+            self._base_model = None
+            self._temp = {}
+        else:
+            self._base_model = base_model_class()
+
+    def _late_model_init(self):
+        """
+        Initialize the base model after all required options have hopefully been set.
+        """
+        if self._base_model is None:
+            missing = get_required_fields(self._base_model_class) - set(self._temp)
+            if missing:
+                missing = sorted(missing)
+                raise ValueError(f"{self.msginfo}: Options {missing} are required but have "
+                                 "not been set.")
+            self._base_model = self._base_model_class(**self._temp)
+            self._temp = None
+
+    def __getitem__(self, name):
+        """
+        Get an option from the dict or declared default.
+
+        Parameters
+        ----------
+        name : str
+            name of the option.
+
+        Returns
+        -------
+        value : -
+            value of the option.
+        """
+        if self._base_model is None:
+            self._late_model_init()
+
+        try:
+            return getattr(self._base_model, name)
+        except (ValueError, AttributeError):
+            raise KeyError(f"{self.msginfo}: Option '{name}' has not been declared.")
+
+    def __setitem__(self, key, value):
+        """
+        Set an atrribute using dictionary syntax.
+
+        Parameters
+        ----------
+        key : str
+            The name of the option to set.
+        value : any
+            The value to set for the option.
+        """
+        if self._base_model is None:
+            if key not in self._base_model_class.model_fields:
+                raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
+                               "not been declared.")
+            self._temp[key] = value  # save for _late_model_init
+            return
+
+        try:
+            setattr(self._base_model, key, value)
+        except (ValueError, AttributeError) as err:
+            if key in self._base_model_class.model_fields:
+                raise ValueError(f"{self.msginfo}: {str(err)}")
+            else:
+                raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
+                               "not been declared.")
+
+    def get_meta(self, key):
+        """
+        Get the metadata for an option.
+
+        Parameters
+        ----------
+        key : str
+            The name of the option.
+
+        Returns
+        -------
+        dict
+            A dictionary of the option's value and recordability.
+        """
+        if self._base_model is None:
+            self._late_model_init()
+
+        pydantic_meta = self._base_model_class.model_fields[key]
+        meta = {
+            'val': getattr(self._base_model, key),
+            'recordable': not pydantic_meta.exclude,
+        }
+        return meta
+
+    def __iter__(self):
+        """
+        Provide an iterator.
+
+        Returns
+        -------
+        iterable
+            iterator over the keys in the dictionary.
+        """
+        yield from self._base_model_class.model_fields
+
+    def __contains__(self, key):
+        """
+        Check if the key is in the local dictionary.
+
+        Parameters
+        ----------
+        key : str
+            name of the option.
+
+        Returns
+        -------
+        bool
+            whether key is in the local dict.
+        """
+        return key in self._base_model_class.model_fields
+
+    def __repr__(self):
+        """
+        Return a dictionary representation of the options.
+
+        Returns
+        -------
+        dict
+            The options dictionary.
+        """
+        if self._base_model is None:
+            self._late_model_init()
+        return self._base_model.__repr__()
+
+    def is_serializable(self, key):
+        """
+        Check if the option is serializable.
+
+        Parameters
+        ----------
+        key : str
+            The name of the option.
+
+        Returns
+        -------
+        bool
+            Whether the option is serializable.
+        """
+        return not self._base_model_class.model_fields[key].exclude
+
+    def items(self, recordable_only=False):
+        """
+        Yield name and value of options.
+
+        Parameters
+        ----------
+        recordable_only : bool
+            If True, return only recordable options.
+
+        Yields
+        ------
+        key : str
+            Name of option.
+        value : int or bool or float or string
+            Value of the option.
+        """
+        if self._base_model is None:
+            self._late_model_init()
+
+        for key, info in self._base_model_class.model_fields.items():
+            if not recordable_only or not info.exclude:
+                yield key, getattr(self._base_model, key)
+
+    def raw_items(self):
+        """
+        Yield a dict wrapped around a value for compatibility with the old OptionsDictionary.
+
+        Yields
+        ------
+        key : str
+            The name of the option.
+        wrapper : dict
+            A dictionary of the option's value and recordability.
+        """
+        if self._base_model is None:
+            self._late_model_init()
+        for key, info in self._base_model_class.model_fields.items():
+            wrapper = {}
+            wrapper['val'] = getattr(self._base_model, key)
+            wrapper['recordable'] = not info.exclude
+            yield key, wrapper
+
+
+class OptionsDictionary(OptionsBase):
+    """
+    Dictionary with pre-declaration of keys for value-checking and default values.
+
+    Parameters
+    ----------
+    msginfo : str
+        String to prepend to error messages.
     read_only : bool
         If True, setting (via __setitem__ or update) is not permitted.
 
@@ -51,26 +385,20 @@ class OptionsDictionary(object):
     _dict : dict of dict
         Dictionary of entries. Each entry is a dictionary consisting of value, values,
         types, desc, lower, and upper.
-    _parent_name : str or None
-        If defined, prepend this name to beginning of all exceptions.
     _read_only : bool
         If True, no options can be set after declaration.
     _all_recordable : bool
         Flag to determine if all options in UserOptions are recordable.
-    _context_cache : dict
-        A dictionary to store cached option/value pairs when using the
-        OptionsDictionary as a context manager.
     """
 
-    def __init__(self, parent_name=None, read_only=False):
+    def __init__(self, msginfo=None, read_only=False):
         """
         Initialize all attributes.
         """
+        super().__init__(msginfo)
         self._dict = {}
-        self._parent_name = parent_name
         self._read_only = read_only
         self._all_recordable = True
-        self._context_cache = {}
 
     def __getstate__(self):
         """
@@ -98,6 +426,22 @@ class OptionsDictionary(object):
             The options dictionary.
         """
         return self._dict.__repr__()
+
+    def get_meta(self, key):
+        """
+        Get the metadata for an option.
+
+        Parameters
+        ----------
+        key : str
+            The name of the option.
+
+        Returns
+        -------
+        dict
+            A dictionary of the option's value and recordability.
+        """
+        return self._dict[key]
 
     def _repr_pretty_(self, p, cycle):
         if not cycle and notebook:
@@ -233,10 +577,10 @@ class OptionsDictionary(object):
         exc_type : class
             The type of the exception to be raised.
         """
-        if self._parent_name is None:
+        if self.msginfo is None:
             full_msg = msg
         else:
-            full_msg = '{}: {}'.format(self._parent_name, msg)
+            full_msg = '{}: {}'.format(self.msginfo, msg)
         raise exc_type(full_msg)
 
     def _assert_valid(self, name, value):
@@ -304,41 +648,6 @@ class OptionsDictionary(object):
         # General function test
         if meta['check_valid'] is not None:
             meta['check_valid'](name, value)
-
-    def set(self, **kwargs):
-        """
-        Set one or more options in the options dictionary simultaneously.
-
-        Parameters
-        ----------
-        **kwargs
-            Keyword arguments where the option names in the OptionsDictionary are the keywords
-            and the associated values are the values for those options.
-        """
-        for option, val in kwargs.items():
-            self[option] = val
-
-    @contextlib.contextmanager
-    def temporary(self, **kwargs):
-        """
-        Provide a context manager for temporary option values within the context.
-
-        Parameters
-        ----------
-        **kwargs
-            Keyword arguments where the option names in the OptionsDictionary are the keywords
-            and the associated values are the temporary values for those options.
-        """
-        for option, val in kwargs.items():
-            if option not in self._context_cache:
-                self._context_cache[option] = []
-            self._context_cache[option].append(self[option])
-            self[option] = val
-        yield
-        for option in kwargs:
-            self[option] = self._context_cache[option].pop()
-            if len(self._context_cache[option]) == 0:
-                self._context_cache.pop(option)
 
     def declare(self, name, default=_UNDEFINED, values=None, types=None, desc='',
                 upper=None, lower=None, check_valid=None, allow_none=False, recordable=True,
@@ -448,18 +757,6 @@ class OptionsDictionary(object):
         if name in self._dict:
             del self._dict[name]
 
-    def update(self, in_dict):
-        """
-        Update the internal dictionary with the given one.
-
-        Parameters
-        ----------
-        in_dict : dict
-            The incoming dictionary to add to the internal one.
-        """
-        for name in in_dict:
-            self[name] = in_dict[name]
-
     def __iter__(self):
         """
         Provide an iterator.
@@ -548,6 +845,22 @@ class OptionsDictionary(object):
         else:
             self._raise(f"Option '{name}' is required but has not been set.")
 
+    def is_serializable(self, key):
+        """
+        Check if the option is serializable.
+
+        Parameters
+        ----------
+        key : str
+            The name of the option.
+
+        Returns
+        -------
+        bool
+            Whether the option is serializable.
+        """
+        return self._all_recordable or self._dict[key]['recordable']
+
     def items(self, recordable_only=False):
         """
         Yield name and value of options.
@@ -570,6 +883,19 @@ class OptionsDictionary(object):
                     yield key, val['val']
                 except KeyError:
                     yield key, val['value']
+
+    def raw_items(self):
+        """
+        Yield name and metadata of options.
+
+        Yields
+        ------
+        key : str
+            Name of option.
+        value : dict
+            Metadata of the option.
+        """
+        yield from self._dict.items()
 
     def _handle_deprecation(self, name, meta):
         """
