@@ -874,6 +874,8 @@ class SolverDiscreteTestCase(unittest.TestCase):
 
     def test_discrete_err_newton(self):
         prob = self._setup_model(om.NewtonSolver)
+        # this is caught earlier than the discrete error, so set it here to prevent 'unset' error
+        prob.model.nonlinear_solver.options['solve_subsystems'] = True
 
         with self.assertRaises(Exception) as ctx:
             prob.run_model()

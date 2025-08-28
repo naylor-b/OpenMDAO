@@ -265,7 +265,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         self._rec_mgr = RecordingManager()
 
         # General options
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
         default_workdir = options['work_dir'] if 'work_dir' in options else _get_work_dir()
         self.options.declare('work_dir', default=default_workdir,
                              desc='Working directory for the problem.')
@@ -294,7 +294,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         self.model_options = {}
 
         # Case recording options
-        self.recording_options = OptionsDictionary(parent_name=type(self).__name__)
+        self.recording_options = OptionsDictionary(msginfo=type(self).__name__)
 
         self.recording_options.declare('record_desvars', types=bool, default=True,
                                        desc='Set to True to record design variables at the '

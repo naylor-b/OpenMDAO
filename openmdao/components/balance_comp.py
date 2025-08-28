@@ -64,16 +64,6 @@ class BalanceComp(ImplicitComponent):
         so everything can be saved until setup is called.
     """
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('guess_func', types=FunctionType, allow_none=True, default=None,
-                             recordable=False, desc='A callable function in the form '
-                             'f(inputs, outputs, residuals) that can provide an initial "guess" '
-                             'value of the state variable(s) based on the inputs, outputs and '
-                             'residuals.')
-
     def __init__(self, name=None, eq_units=None, lhs_name=None, rhs_name=None, rhs_val=0.0,
                  use_mult=False, mult_name=None, mult_val=1.0, normalize=True, val=None,
                  lhs_kwargs=None, rhs_kwargs=None, mult_kwargs=None, **kwargs):
@@ -146,13 +136,12 @@ class BalanceComp(ImplicitComponent):
         # Pre-declare options so we can separate component kwargs from output kwargs.
         self.options = OptionsDictionary()
         self._declare_options()
-        comp_kwargs = set(self.options._dict.keys())
-        super().__init__(**{k: v for k, v in kwargs.items() if k in comp_kwargs})
+        super().__init__(**{k: v for k, v in kwargs.items() if k in self.options})
 
         self._state_vars = {}
 
         if name is not None:
-            _kwargs = {k: v for k, v in kwargs.items() if k not in comp_kwargs}
+            _kwargs = {k: v for k, v in kwargs.items() if k not in self.options}
             self.add_balance(name, eq_units=eq_units, lhs_name=lhs_name,
                              rhs_name=rhs_name, rhs_val=rhs_val, use_mult=use_mult,
                              mult_name=mult_name, mult_val=mult_val, normalize=normalize,

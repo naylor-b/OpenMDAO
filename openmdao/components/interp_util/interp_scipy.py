@@ -55,7 +55,7 @@ class InterpScipy(InterpAlgorithm):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
         self.options.update(kwargs)
 

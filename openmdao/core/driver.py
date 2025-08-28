@@ -285,7 +285,7 @@ class Driver(object, metaclass=DriverMetaclass):
         self._in_find_feasible = False
 
         # Driver options
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
 
         self.options.declare('debug_print', types=list,
                              values=['desvars', 'nl_cons', 'ln_cons', 'objs', 'totals'],
@@ -303,7 +303,7 @@ class Driver(object, metaclass=DriverMetaclass):
                              default=default_desvar_behavior)
 
         # Case recording options
-        self.recording_options = OptionsDictionary(parent_name=type(self).__name__)
+        self.recording_options = OptionsDictionary(msginfo=type(self).__name__)
 
         self.recording_options.declare('record_desvars', types=bool, default=True,
                                        desc='Set to True to record design variables at the '
@@ -335,7 +335,7 @@ class Driver(object, metaclass=DriverMetaclass):
                                             'driver level.')
 
         # What the driver supports.
-        self.supports = OptionsDictionary(parent_name=type(self).__name__)
+        self.supports = OptionsDictionary(msginfo=type(self).__name__)
         self.supports.declare('optimization', types=bool, default=False)
         self.supports.declare('inequality_constraints', types=bool, default=False)
         self.supports.declare('equality_constraints', types=bool, default=False)

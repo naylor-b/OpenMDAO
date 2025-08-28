@@ -412,7 +412,7 @@ class System(object, metaclass=SystemMetaclass):
         self._is_local = False
 
         # System options
-        self.options = OptionsDictionary(parent_name=type(self).__name__)
+        self.options = OptionsDictionary(msginfo=type(self).__name__)
 
         self.options.declare('assembled_jac_type', values=['csc', 'csr', 'dense', None],
                              default=None,
@@ -422,7 +422,7 @@ class System(object, metaclass=SystemMetaclass):
                              desc='The method to use for computing derivatives')
 
         # Case recording options
-        self.recording_options = OptionsDictionary(parent_name=type(self).__name__)
+        self.recording_options = OptionsDictionary(msginfo=type(self).__name__)
         self.recording_options.declare('record_inputs', types=bool, default=True,
                                        desc='Set to True to record inputs at the system level')
         self.recording_options.declare('record_outputs', types=bool, default=True,
@@ -2307,8 +2307,8 @@ class System(object, metaclass=SystemMetaclass):
         self._full_comm = None
         self._approx_subjac_keys = None
 
-        self.options._parent_name = self.msginfo
-        self.recording_options._parent_name = self.msginfo
+        self.options.msginfo = self.msginfo
+        self.recording_options.msginfo = self.msginfo
         self._design_vars = {}
         self._responses = {}
         self._design_vars.update(self._static_design_vars)
@@ -5074,7 +5074,7 @@ class System(object, metaclass=SystemMetaclass):
             if not include_default and opt_name in default_options:
                 continue
 
-            opt_meta = self.options._dict[opt_name]
+            opt_meta = self.options.get_meta(opt_name)
 
             if opt_meta['recordable']:
                 opts[opt_name] = opt_value
@@ -5085,7 +5085,7 @@ class System(object, metaclass=SystemMetaclass):
                 nl_opts = {}
                 for opt_name, opt_value in nl.options.items():
 
-                    opt_meta = nl.options._dict[opt_name]
+                    opt_meta = nl.options.get_meta(opt_name)
 
                     if opt_meta['recordable']:
                         nl_opts[opt_name] = opt_value
@@ -5095,7 +5095,7 @@ class System(object, metaclass=SystemMetaclass):
                 ln_opts = {}
                 for opt_name, opt_value in ln.options.items():
 
-                    opt_meta = ln.options._dict[opt_name]
+                    opt_meta = ln.options.get_meta(opt_name)
 
                     if opt_meta['recordable']:
                         ln_opts[opt_name] = opt_value

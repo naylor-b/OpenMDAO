@@ -156,7 +156,7 @@ class Solver(object, metaclass=SolverMetaclass):
         self._problem_meta = None
 
         # Solver options
-        self.options = OptionsDictionary(parent_name=self.msginfo)
+        self.options = OptionsDictionary(msginfo=self.msginfo)
         self.options.declare('maxiter', types=int, default=10,
                              desc='maximum number of iterations')
         self.options.declare('atol', default=1e-10,
@@ -169,7 +169,7 @@ class Solver(object, metaclass=SolverMetaclass):
                              desc="When True, AnalysisError will be raised if we don't converge.")
 
         # Case recording options
-        self.recording_options = OptionsDictionary(parent_name=self.msginfo)
+        self.recording_options = OptionsDictionary(msginfo=self.msginfo)
         self.recording_options.declare('record_abs_error', types=bool, default=True,
                                        desc='Set to True to record absolute error at the \
                                        solver level')
@@ -197,7 +197,7 @@ class Solver(object, metaclass=SolverMetaclass):
         self._norm0 = 0.0
 
         # What the solver supports.
-        self.supports = OptionsDictionary(parent_name=self.msginfo)
+        self.supports = OptionsDictionary(msginfo=self.msginfo)
         self.supports.declare('gradients', types=bool, default=False)
         self.supports.declare('implicit_components', types=bool, default=False)
         self.supports.declare('linesearch', types=bool, default=False)
@@ -339,11 +339,9 @@ class Solver(object, metaclass=SolverMetaclass):
         self._depth = depth
         self._problem_meta = system._problem_meta
 
-        if system.pathname:
-            parent_name = self.msginfo
-            self.options._parent_name = parent_name
-            self.recording_options._parent_name = parent_name
-            self.supports._parent_name = parent_name
+        self.options.msginfo = self.msginfo
+        self.recording_options.msginfo = self.msginfo
+        self.supports.msginfo = self.msginfo
 
         if isinstance(self, LinearSolver) and not system._use_derivatives:
             return
