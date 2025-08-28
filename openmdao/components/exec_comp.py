@@ -1163,7 +1163,7 @@ class _ViewDict(object):
 
 class _IODict(object):
     """
-    A dict wrapper that contains 2 different dicts.
+    A dict wrapper that contains 3 different dicts.
 
     Items are first looked for in the outputs
     and then the inputs.
