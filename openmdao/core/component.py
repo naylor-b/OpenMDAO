@@ -147,32 +147,6 @@ class Component(System):
         """
         return aux_data['_self_']
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        self.options.declare('distributed', types=bool, default=False,
-                             desc='If True, set all variables in this component as distributed '
-                                  'across multiple processes')
-        self.options.declare('run_root_only', types=bool, default=False,
-                             desc='If True, call compute, compute_partials, linearize, '
-                                  'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
-                                  'and compute_jacvec_product only on rank 0 and broadcast the '
-                                  'results to the other ranks.')
-        self.options.declare('always_opt', types=bool, default=False,
-                             desc='If True, force nonlinear operations on this component to be '
-                                  'included in the optimization loop even if this component is not '
-                                  'relevant to the design variables and responses.')
-        self.options.declare('use_jit', types=bool, default=True,
-                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
-                             'some other AD package capable of jitting is active.')
-        self.options.declare('default_shape', types=tuple, default=(1,),
-                             desc='Default shape for variables that do not set val to a non-scalar '
-                             'value or set shape, shape_by_conn, copy_shape, or compute_shape.'
-                             ' Default is (1,).')
-
     def setup(self):
         """
         Declare inputs and outputs.
@@ -647,8 +621,7 @@ class Component(System):
             if distributed is None:
                 distributed = False
             # using ._dict below to avoid tons of deprecation warnings
-            distributed = distributed or ('distributed' in self.options and
-                                          self.options._dict['distributed']['val'])
+            distributed = distributed or self.options.distributed
 
         if compute_shape is not None and is_lambda(compute_shape):
             compute_shape = LambdaPickleWrapper(compute_shape)
@@ -924,8 +897,7 @@ class Component(System):
             if distributed is None:
                 distributed = False
             # using ._dict below to avoid tons of deprecation warnings
-            distributed = distributed or ('distributed' in self.options and
-                                          self.options._dict['distributed']['val'])
+            distributed = distributed or self.options.distributed
 
         if copy_shape and compute_shape:
             raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "

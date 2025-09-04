@@ -1,6 +1,6 @@
 """Define the OptionsDictionary class."""
 import contextlib
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from openmdao.utils.om_warnings import warn_deprecation
 from openmdao.utils.notebook_utils import notebook
@@ -9,21 +9,6 @@ from openmdao.visualization.tables.table_builder import generate_table
 from openmdao.core.constants import _UNDEFINED
 
 
-# by default, pydantic only validates fields on initialization, not on assignment, so we
-# override the default model config to validate on assignment.
-class ValidateOnAssignModel(BaseModel):
-    """
-    BaseModel that validates on assignment.
-
-    This is used to ensure that options are validated on assignment, not just on initialization.
-    """
-
-    model_config = ConfigDict(validate_assignment=True)
-
-
-#
-# Template for `check_valid` function
-#
 def check_valid(name, value):
     """
     Check the validity of value for the option with name.
@@ -100,8 +85,7 @@ class OptionsBase(object):
             Keyword arguments where the option names in the OptionsDictionary are the keywords
             and the associated values are the values for those options.
         """
-        for option, val in kwargs.items():
-            self[option] = val
+        self.update(kwargs)
 
     @contextlib.contextmanager
     def temporary(self, **kwargs):
@@ -148,225 +132,225 @@ def get_required_fields(model_class: type[BaseModel]) -> set[str]:
     return {name for name, info in model_class.model_fields.items() if info.is_required()}
 
 
-class PydanticOptions(OptionsBase):
-    """
-    Options dictionary that uses Pydantic for validation.
+# class PydanticOptions(OptionsBase):
+#     """
+#     Options dictionary that uses Pydantic for validation.
 
-    Note that the given base model class must inherit from ValidateOnAssignModel if you want
-    validation to be performed on assignment.
+#     Note that the given base model class must inherit from ValidateOnAssignModel if you want
+#     validation to be performed on assignment.
 
-    Parameters
-    ----------
-    base_model_class : type[ValidateOnAssignModel]
-        The Pydantic model class to use for validation.
-    msginfo : str, optional
-        String to prepend to error messages.
+#     Parameters
+#     ----------
+#     base_model_class : type[ValidateOnAssignModel]
+#         The Pydantic model class to use for validation.
+#     msginfo : str, optional
+#         String to prepend to error messages.
 
-    Attributes
-    ----------
-    _base_model_class : type[ValidateOnAssignModel]
-        The Pydantic model class to use for validation.
-    _base_model : ValidateOnAssignModel
-        The Pydantic model instance to use for validation.
-    _temp : dict
-        A temporary dictionary to store the values of the options that are not required.
-    """
+#     Attributes
+#     ----------
+#     _base_model_class : type[ValidateOnAssignModel]
+#         The Pydantic model class to use for validation.
+#     _base_model : ValidateOnAssignModel
+#         The Pydantic model instance to use for validation.
+#     _temp : dict
+#         A temporary dictionary to store the values of the options that are not required.
+#     """
 
-    def __init__(self, base_model_class, msginfo=None):
-        """
-        Initialize all attributes.
-        """
-        super().__init__(msginfo)
-        self._base_model_class = base_model_class
-        if get_required_fields(base_model_class):
-            self._base_model = None
-            self._temp = {}
-        else:
-            self._base_model = base_model_class()
+#     def __init__(self, base_model_class, msginfo=None):
+#         """
+#         Initialize all attributes.
+#         """
+#         super().__init__(msginfo)
+#         self._base_model_class = base_model_class
+#         if get_required_fields(base_model_class):
+#             self._base_model = None
+#             self._temp = {}
+#         else:
+#             self._base_model = base_model_class()
 
-    def _late_model_init(self):
-        """
-        Initialize the base model after all required options have hopefully been set.
-        """
-        if self._base_model is None:
-            missing = get_required_fields(self._base_model_class) - set(self._temp)
-            if missing:
-                missing = sorted(missing)
-                raise ValueError(f"{self.msginfo}: Options {missing} are required but have "
-                                 "not been set.")
-            self._base_model = self._base_model_class(**self._temp)
-            self._temp = None
+#     def _late_model_init(self):
+#         """
+#         Initialize the base model after all required options have hopefully been set.
+#         """
+#         if self._base_model is None:
+#             missing = get_required_fields(self._base_model_class) - set(self._temp)
+#             if missing:
+#                 missing = sorted(missing)
+#                 raise ValueError(f"{self.msginfo}: Options {missing} are required but have "
+#                                  "not been set.")
+#             self._base_model = self._base_model_class(**self._temp)
+#             self._temp = None
 
-    def __getitem__(self, name):
-        """
-        Get an option from the dict or declared default.
+#     def __getitem__(self, name):
+#         """
+#         Get an option from the dict or declared default.
 
-        Parameters
-        ----------
-        name : str
-            name of the option.
+#         Parameters
+#         ----------
+#         name : str
+#             name of the option.
 
-        Returns
-        -------
-        value : -
-            value of the option.
-        """
-        if self._base_model is None:
-            self._late_model_init()
+#         Returns
+#         -------
+#         value : -
+#             value of the option.
+#         """
+#         if self._base_model is None:
+#             self._late_model_init()
 
-        try:
-            return getattr(self._base_model, name)
-        except (ValueError, AttributeError):
-            raise KeyError(f"{self.msginfo}: Option '{name}' has not been declared.")
+#         try:
+#             return getattr(self._base_model, name)
+#         except (ValueError, AttributeError):
+#             raise KeyError(f"{self.msginfo}: Option '{name}' has not been declared.")
 
-    def __setitem__(self, key, value):
-        """
-        Set an atrribute using dictionary syntax.
+#     def __setitem__(self, key, value):
+#         """
+#         Set an atrribute using dictionary syntax.
 
-        Parameters
-        ----------
-        key : str
-            The name of the option to set.
-        value : any
-            The value to set for the option.
-        """
-        if self._base_model is None:
-            if key not in self._base_model_class.model_fields:
-                raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
-                               "not been declared.")
-            self._temp[key] = value  # save for _late_model_init
-            return
+#         Parameters
+#         ----------
+#         key : str
+#             The name of the option to set.
+#         value : any
+#             The value to set for the option.
+#         """
+#         if self._base_model is None:
+#             if key not in self._base_model_class.model_fields:
+#                 raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
+#                                "not been declared.")
+#             self._temp[key] = value  # save for _late_model_init
+#             return
 
-        try:
-            setattr(self._base_model, key, value)
-        except (ValueError, AttributeError) as err:
-            if key in self._base_model_class.model_fields:
-                raise ValueError(f"{self.msginfo}: {str(err)}")
-            else:
-                raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
-                               "not been declared.")
+#         try:
+#             setattr(self._base_model, key, value)
+#         except (ValueError, AttributeError) as err:
+#             if key in self._base_model_class.model_fields:
+#                 raise ValueError(f"{self.msginfo}: {str(err)}")
+#             else:
+#                 raise KeyError(f"{self.msginfo}: Option '{key}' cannot be set because it has "
+#                                "not been declared.")
 
-    def get_meta(self, key):
-        """
-        Get the metadata for an option.
+#     def get_meta(self, key):
+#         """
+#         Get the metadata for an option.
 
-        Parameters
-        ----------
-        key : str
-            The name of the option.
+#         Parameters
+#         ----------
+#         key : str
+#             The name of the option.
 
-        Returns
-        -------
-        dict
-            A dictionary of the option's value and recordability.
-        """
-        if self._base_model is None:
-            self._late_model_init()
+#         Returns
+#         -------
+#         dict
+#             A dictionary of the option's value and recordability.
+#         """
+#         if self._base_model is None:
+#             self._late_model_init()
 
-        pydantic_meta = self._base_model_class.model_fields[key]
-        meta = {
-            'val': getattr(self._base_model, key),
-            'recordable': not pydantic_meta.exclude,
-        }
-        return meta
+#         pydantic_meta = self._base_model_class.model_fields[key]
+#         meta = {
+#             'val': getattr(self._base_model, key),
+#             'recordable': not pydantic_meta.exclude,
+#         }
+#         return meta
 
-    def __iter__(self):
-        """
-        Provide an iterator.
+#     def __iter__(self):
+#         """
+#         Provide an iterator.
 
-        Returns
-        -------
-        iterable
-            iterator over the keys in the dictionary.
-        """
-        yield from self._base_model_class.model_fields
+#         Returns
+#         -------
+#         iterable
+#             iterator over the keys in the dictionary.
+#         """
+#         yield from self._base_model_class.model_fields
 
-    def __contains__(self, key):
-        """
-        Check if the key is in the local dictionary.
+#     def __contains__(self, key):
+#         """
+#         Check if the key is in the local dictionary.
 
-        Parameters
-        ----------
-        key : str
-            name of the option.
+#         Parameters
+#         ----------
+#         key : str
+#             name of the option.
 
-        Returns
-        -------
-        bool
-            whether key is in the local dict.
-        """
-        return key in self._base_model_class.model_fields
+#         Returns
+#         -------
+#         bool
+#             whether key is in the local dict.
+#         """
+#         return key in self._base_model_class.model_fields
 
-    def __repr__(self):
-        """
-        Return a dictionary representation of the options.
+#     def __repr__(self):
+#         """
+#         Return a dictionary representation of the options.
 
-        Returns
-        -------
-        dict
-            The options dictionary.
-        """
-        if self._base_model is None:
-            self._late_model_init()
-        return self._base_model.__repr__()
+#         Returns
+#         -------
+#         dict
+#             The options dictionary.
+#         """
+#         if self._base_model is None:
+#             self._late_model_init()
+#         return self._base_model.__repr__()
 
-    def is_serializable(self, key):
-        """
-        Check if the option is serializable.
+#     def is_serializable(self, key):
+#         """
+#         Check if the option is serializable.
 
-        Parameters
-        ----------
-        key : str
-            The name of the option.
+#         Parameters
+#         ----------
+#         key : str
+#             The name of the option.
 
-        Returns
-        -------
-        bool
-            Whether the option is serializable.
-        """
-        return not self._base_model_class.model_fields[key].exclude
+#         Returns
+#         -------
+#         bool
+#             Whether the option is serializable.
+#         """
+#         return not self._base_model_class.model_fields[key].exclude
 
-    def items(self, recordable_only=False):
-        """
-        Yield name and value of options.
+#     def items(self, recordable_only=False):
+#         """
+#         Yield name and value of options.
 
-        Parameters
-        ----------
-        recordable_only : bool
-            If True, return only recordable options.
+#         Parameters
+#         ----------
+#         recordable_only : bool
+#             If True, return only recordable options.
 
-        Yields
-        ------
-        key : str
-            Name of option.
-        value : int or bool or float or string
-            Value of the option.
-        """
-        if self._base_model is None:
-            self._late_model_init()
+#         Yields
+#         ------
+#         key : str
+#             Name of option.
+#         value : int or bool or float or string
+#             Value of the option.
+#         """
+#         if self._base_model is None:
+#             self._late_model_init()
 
-        for key, info in self._base_model_class.model_fields.items():
-            if not recordable_only or not info.exclude:
-                yield key, getattr(self._base_model, key)
+#         for key, info in self._base_model_class.model_fields.items():
+#             if not recordable_only or not info.exclude:
+#                 yield key, getattr(self._base_model, key)
 
-    def raw_items(self):
-        """
-        Yield a dict wrapped around a value for compatibility with the old OptionsDictionary.
+#     def raw_items(self):
+#         """
+#         Yield a dict wrapped around a value for compatibility with the old OptionsDictionary.
 
-        Yields
-        ------
-        key : str
-            The name of the option.
-        wrapper : dict
-            A dictionary of the option's value and recordability.
-        """
-        if self._base_model is None:
-            self._late_model_init()
-        for key, info in self._base_model_class.model_fields.items():
-            wrapper = {}
-            wrapper['val'] = getattr(self._base_model, key)
-            wrapper['recordable'] = not info.exclude
-            yield key, wrapper
+#         Yields
+#         ------
+#         key : str
+#             The name of the option.
+#         wrapper : dict
+#             A dictionary of the option's value and recordability.
+#         """
+#         if self._base_model is None:
+#             self._late_model_init()
+#         for key, info in self._base_model_class.model_fields.items():
+#             wrapper = {}
+#             wrapper['val'] = getattr(self._base_model, key)
+#             wrapper['recordable'] = not info.exclude
+#             yield key, wrapper
 
 
 class OptionsDictionary(OptionsBase):
@@ -930,3 +914,6 @@ class OptionsDictionary(OptionsBase):
             name = alias
 
         return name, meta
+
+    def model_dump(self):
+        return self._dict

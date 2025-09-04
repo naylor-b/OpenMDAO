@@ -1,7 +1,20 @@
 """Define the LinearBlockJac class."""
-from openmdao.solvers.solver import BlockLinearSolver
+from pydantic import Field
+
+from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptions, \
+    _IterSolverOptions
+from openmdao.solvers.solver import LinearSolverModel
+from openmdao.utils.validation import DataModelManager as dmm
+
+class _LinearBlockJacOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+    pass
 
 
+class LinearBlockJacModel(LinearSolverModel):
+    options: _LinearBlockJacOptions = Field(default_factory=_LinearBlockJacOptions)
+
+
+@dmm.register(LinearBlockJacModel)
 class LinearBlockJac(BlockLinearSolver):
     """
     Linear block Jacobi solver.

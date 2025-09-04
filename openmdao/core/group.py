@@ -10,9 +10,11 @@ from difflib import get_close_matches
 
 import numpy as np
 import networkx as nx
+from pydantic import BaseModel, Field, field_validator, ConfigDict
+from typing import List, Any
 
 from openmdao.core.configinfo import _ConfigInfo
-from openmdao.core.system import System, collect_errors
+from openmdao.core.system import System, collect_errors, SystemModel, ImplicitSystemOptions
 from openmdao.core.component import Component, _DictValues
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.core.constants import _UNDEFINED, INT_DTYPE, _SetupStatus
@@ -42,6 +44,7 @@ from openmdao.utils.class_util import overrides_method
 from openmdao.utils.jax_utils import jax
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.name_maps import LOCAL, CONTINUOUS, DISTRIBUTED
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.jacobians.subjac import Subjac
 from openmdao.jacobians.jacobian import GroupJacobianUpdateContext
@@ -150,6 +153,49 @@ def _chk_scale_factor(factor):
     return factor
 
 
+class GroupOptions(ImplicitSystemOptions):
+    auto_order: bool = Field(default=None,
+                             desc='If True the order of subsystems is determined automatically '
+                             'based on the dependency graph.  It will not break or reorder '
+                             'cycles.')
+
+
+class ConnectionData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    src: str = Field(desc="Source variable name")
+    tgt: str = Field(desc="Target variable name")
+    src_indices: Any = Field(default=None, desc="Indices of the source variable that will be "
+                             "connected to the target variable")
+    flat_src_indices: bool = Field(default=None, desc="If True, src is treated as a flat array.")
+
+
+class GroupModel(SystemModel):
+    options: GroupOptions = Field(default_factory=GroupOptions)
+    connections: List[ConnectionData] = Field(default_factory=list)
+    subsystems: List[SystemModel] = Field(default_factory=list)
+
+    @field_validator("subsystems", mode="before")
+    def validate_subsystem(cls, values):
+        subs = []
+        for sub in values:
+            if isinstance(sub, dict):
+                try:
+                    typ = sub['type']
+                except KeyError:
+                    raise ValueError("Subsystem model has not 'type' field.")
+                submodel = dmm.type_to_data_model(typ).model_validate(sub)
+            else:
+                submodel = sub
+
+            if not isinstance(submodel, SystemModel):
+                raise ValueError(f"Subsystem model '{typ}' is not a SystemModel.")
+
+            subs.append(submodel)
+        return subs
+
+
+@dmm.register(GroupModel)
 class Group(System):
     """
     Class used to group systems together; instantiate or inherit.
@@ -272,11 +318,6 @@ class Group(System):
             self._nonlinear_solver = NonlinearRunOnce()
         if not self._linear_solver:
             self._linear_solver = LinearRunOnce()
-
-        self.options.declare('auto_order', types=bool, default=False,
-                             desc='If True the order of subsystems is determined automatically '
-                             'based on the dependency graph.  It will not break or reorder '
-                             'cycles.')
 
     def setup(self):
         """
@@ -5619,6 +5660,30 @@ class Group(System):
 
         return self._key_owner
 
+    def update_from_data_model(self, data_model: GroupModel):
+        """Populate instance data using the data model."""
+        super().update_from_data_model(data_model)
+
+        for sub_model in data_model.subsystems:
+            # Create the subsystem instance using its own from_data_model method
+            sub_instance = dmm.from_data_model(sub_model)
+            self.add_subsystem(sub_model.name, sub_instance, promotes=sub_model.promotes,
+                               promotes_inputs=sub_model.promotes_inputs,
+                               promotes_outputs=sub_model.promotes_outputs)
+
+        for conn_model in data_model.connections:
+            self.connect(conn_model.src, conn_model.tgt,
+                         conn_model.src_indices, conn_model.flat_src_indices)
+
+    def get_updated_data_model(self):
+        """Update the data model with current instance attributes."""
+        data_model =super().get_updated_data_model()
+        data_model.subsystems = [subsys.get_updated_data_model() for subsys in self.subsystems]
+        data_model.connections = [ConnectionData(src=conn.src, tgt=conn.tgt,
+                                                 src_indices=conn.src_indices,
+                                                 flat_src_indices=conn.flat_src_indices)
+                                  for conn in self.connections]
+        return data_model
 
 def iter_solver_info(system):
     """

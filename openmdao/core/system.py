@@ -9,11 +9,13 @@ from copy import deepcopy
 from contextlib import contextmanager
 from collections import defaultdict
 from itertools import chain
-from enum import IntEnum
+from enum import IntEnum, Enum
 import warnings
 
 from fnmatch import fnmatchcase
 from numbers import Integral
+from pydantic import Field
+from typing import List, Union, Tuple
 
 import numpy as np
 
@@ -23,7 +25,6 @@ from openmdao.jacobians.dictionary_jacobian import Jacobian
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
-from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
 from openmdao.utils.units import is_compatible, unit_conversion, simplify_unit
 from openmdao.utils.variable_table import write_var_table, write_options_table, NA
@@ -41,6 +42,7 @@ from openmdao.utils.general_utils import determine_adder_scaler, is_undefined, \
     ensure_compatible, env_truthy, make_traceback, _is_slicer_op, _wrap_comm, _unwrap_comm, \
     _om_dump, SystemMetaclass
 from openmdao.utils.file_utils import _get_outputs_dir
+from openmdao.utils.validation import TypeBaseModel, DataModelManager as dmm, OptionsBaseModel
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 from openmdao.jacobians.jacobian import DenseJacobian, CSCJacobian, CSRJacobian
@@ -178,6 +180,64 @@ class ValidationError(ValueError):
         super().__init__(message)
 
 
+class _AsmJacType(Enum):
+    csc = "csc"
+    csr = "csr"
+    dense = "dense"
+    none = None
+
+
+class _DerivsType(Enum):
+    jax = "jax"
+    cs = "cs"
+    fd = "fd"
+    none = None
+
+
+class SystemOptions(OptionsBaseModel):
+    derivs_method: _DerivsType = Field(default=None,
+                                       desc='The method to use for computing derivatives.')
+
+
+class ImplicitSystemOptions(SystemOptions):
+    assembled_jac_type: _AsmJacType = Field(default=None,
+                                            desc='Linear solver(s) in this group or implicit '
+                                            'component, if using an assembled jacobian, will use    '
+                                            'this type.')
+
+
+
+class SystemRecordingOptions(OptionsBaseModel):
+    record_inputs: bool = Field(default=True,
+                               desc='Set to True to record inputs at the system level')
+    record_outputs: bool = Field(default=True,
+                                 desc='Set to True to record outputs at the system level')
+    record_residuals: bool = Field(default=True,
+                                   desc='Set to True to record residuals at the system level')
+    includes: list[str] = Field(default=None,
+                                desc='Patterns for variables to include in recording. '
+                                     'Uses fnmatch wildcards')
+    excludes: list[str] = Field(default=None,
+                                desc='Patterns for vars to exclude in recording '
+                                     '(processed post-includes). Uses fnmatch wildcards')
+    options_excludes: list[str] = Field(default=None,
+                                        desc='User-defined metadata to exclude in recording')
+
+
+
+class SystemModel(TypeBaseModel):
+    name: str = Field(default='', desc='The name of the system.')
+    options: SystemOptions = Field(default_factory=SystemOptions)
+    recording_options: SystemRecordingOptions = Field(default_factory=SystemRecordingOptions)
+    promotes: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted variables.')
+    promotes_inputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted input variables.')
+    promotes_outputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted output variables.')
+
+
+@dmm.register(SystemModel)
 class System(object, metaclass=SystemMetaclass):
     """
     Base class for all systems in OpenMDAO.
@@ -410,33 +470,7 @@ class System(object, metaclass=SystemMetaclass):
         self.pathname = None
         self._comm = None
         self._is_local = False
-
-        # System options
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
-
-        self.options.declare('assembled_jac_type', values=['csc', 'csr', 'dense', None],
-                             default=None,
-                             desc='Linear solver(s) in this group or implicit component, '
-                                  'if using an assembled jacobian, will use this type.')
-        self.options.declare('derivs_method', default=None, values=['jax', 'cs', 'fd', None],
-                             desc='The method to use for computing derivatives')
-
-        # Case recording options
-        self.recording_options = OptionsDictionary(msginfo=type(self).__name__)
-        self.recording_options.declare('record_inputs', types=bool, default=True,
-                                       desc='Set to True to record inputs at the system level')
-        self.recording_options.declare('record_outputs', types=bool, default=True,
-                                       desc='Set to True to record outputs at the system level')
-        self.recording_options.declare('record_residuals', types=bool, default=True,
-                                       desc='Set to True to record residuals at the system level')
-        self.recording_options.declare('includes', types=list, default=['*'],
-                                       desc='Patterns for variables to include in recording. \
-                                       Uses fnmatch wildcards')
-        self.recording_options.declare('excludes', types=list, default=[],
-                                       desc='Patterns for vars to exclude in recording '
-                                            '(processed post-includes). Uses fnmatch wildcards')
-        self.recording_options.declare('options_excludes', types=list, default=[],
-                                       desc='User-defined metadata to exclude in recording')
+        self._data_model = None
 
         self._problem_meta = None
 
@@ -514,9 +548,11 @@ class System(object, metaclass=SystemMetaclass):
 
         self._num_par_fd = num_par_fd
 
-        self._declare_options()
+        self.get_data_model()
+
         self.initialize()
 
+        self._declare_options()
         self.options.update(kwargs)
 
         self._has_guess = False
@@ -802,6 +838,9 @@ class System(object, metaclass=SystemMetaclass):
         `initialize` method available for user-defined options.
         """
         pass
+        # model = self.get_data_model()
+        # self.options = model.options
+        # self.recording_options = model.recording_options
 
     def _have_output_solver_options_been_applied(self):
         """
@@ -2240,6 +2279,11 @@ class System(object, metaclass=SystemMetaclass):
             options = self.recording_options
             incl = options['includes']
             excl = options['excludes']
+            if incl is None:
+                incl = ['*']
+            if excl is None:
+                excl = []
+            record_all = incl == ['*']
 
             # includes and excludes for outputs are specified using promoted names
             # includes and excludes for inputs are specified using _absolute_ names
@@ -2254,14 +2298,14 @@ class System(object, metaclass=SystemMetaclass):
             if options['record_inputs']:
                 match_names.update(resolver.abs_iter('input'))
                 myinputs = sorted([n for n in resolver.abs_iter('input')
-                                   if check_path(n, incl, excl)])
+                                   if check_path(n, incl, excl, record_all)])
 
             # includes and excludes for outputs are specified using _promoted_ names
             # vectors are keyed on absolute name, discretes on relative/promoted name
             if options['record_outputs']:
                 match_names.update(resolver.prom_iter('output'))
                 myoutputs = sorted([n for n, prom in resolver.abs2prom_iter('output')
-                                    if check_path(prom, incl, excl)])
+                                    if check_path(prom, incl, excl, record_all)])
 
                 if self._var_discrete['output']:
                     # if we have discrete outputs then residual name set doesn't match output one
@@ -2274,17 +2318,19 @@ class System(object, metaclass=SystemMetaclass):
             elif options['record_residuals']:
                 match_names.update(self._residuals)
                 myresiduals = [n for n in self._residuals._abs_iter()
-                               if check_path(resolver.abs2prom(n, 'output'), incl, excl)]
+                               if check_path(resolver.abs2prom(n, 'output'), incl, excl,
+                                             record_all)]
 
-            # check that all exclude/include globs have at least one matching output or input name
+            # check that all exclude/include globs have at least one matching output or input
             for pattern in excl:
                 if not has_match(pattern, match_names):
                     issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
-                                  "recording_options['excludes'].")
-            for pattern in incl:
-                if not has_match(pattern, match_names):
-                    issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
-                                  "recording_options['includes'].")
+                                "recording_options['excludes'].")
+            if not record_all:
+                for pattern in incl:
+                    if not has_match(pattern, match_names):
+                        issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
+                                    "recording_options['includes'].")
 
             self._filtered_vars_to_record = {
                 'input': myinputs,
@@ -2307,8 +2353,8 @@ class System(object, metaclass=SystemMetaclass):
         self._full_comm = None
         self._approx_subjac_keys = None
 
-        self.options.msginfo = self.msginfo
-        self.recording_options.msginfo = self.msginfo
+        #self.options.msginfo = self.msginfo
+        #self.recording_options.msginfo = self.msginfo
         self._design_vars = {}
         self._responses = {}
         self._design_vars.update(self._static_design_vars)
@@ -7181,6 +7227,35 @@ class System(object, metaclass=SystemMetaclass):
         """
         pass
 
+    def get_data_model(self):
+        if self._data_model is None:
+            self._data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
+            self.options = self._data_model.options
+            self.recording_options = self._data_model.recording_options
+        return self._data_model
+
+    @classmethod
+    def from_data_model(cls, data_model: SystemModel):
+        """Create an instance from a data model."""
+        instance = dmm.inst_from_type_model(cls, data_model)
+        instance.update_from_data_model(data_model)
+        return instance
+
+    def update_from_data_model(self, data_model: SystemModel):
+        """
+        Populate instance data using the data model.
+        """
+        self.name = data_model.name
+        self.options = data_model.options
+        self.recording_options = data_model.recording_options
+
+    def get_updated_data_model(self):
+        """
+        Get the data model updated with current instance attributes.
+        """
+        data_model = self.get_data_model()
+        data_model.name = self.name
+        return data_model
 
 class _ErrorData(object):
     __slots__ = ['forward', 'reverse', 'fwd_rev']

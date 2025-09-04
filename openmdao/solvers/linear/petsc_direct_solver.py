@@ -1,15 +1,18 @@
 """LinearSolver that uses PETSc for LU factor/solve."""
 
+import enum
 import numpy as np
 import scipy.linalg
 import scipy.sparse.linalg
 import scipy.sparse
+from pydantic import Field, field_validator
 
-from openmdao.solvers.linear.direct import DirectSolver
+from openmdao.solvers.linear.direct import DirectSolver, DirectSolverModel, _DirectSolverOptions
 from openmdao.solvers.linear.direct import format_singular_error
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
+from openmdao.utils.validation import DataModelManager as dmm
 
 try:
     from petsc4py import PETSc
@@ -20,6 +23,16 @@ try:
     DEFAULT_COMM = MPI.COMM_WORLD
 except ImportError:
     DEFAULT_COMM = None
+
+
+class _SolverType(str, enum.Enum):
+    superlu = "superlu"
+    klu = "klu"
+    umfpack = "umfpack"
+    petsc = "petsc"
+    mumps = "mumps"
+    superlu_dist = "superlu_dist"
+
 
 PC_SERIAL_TYPES = [
     "superlu",
@@ -234,6 +247,39 @@ class PETScLU:
             return self._x.getArray().copy()
 
 
+class _PETScDirectSolverOptions(_DirectSolverOptions):
+    sparse_solver_name: _SolverType = Field(default=_SolverType.superlu,
+                                            description="Direct solver algorithm from PETSc that "
+                                            "will be used for the LU factorization and solve if "
+                                            "the matrix is sparse. For a dense matrix, this "
+                                            "option will be ignored and LAPACK will be "
+                                            "automatically used.")
+    err_on_singular: bool = Field(default=True,
+                                  description="Raise an error if LU decomposition is "
+                                  "singular. Must always be 'True' for the "
+                                  "PETScDirectSolver. This option is only maintained "
+                                  "for compatibility with parent solver methods.")
+
+    @field_validator('err_on_singular')
+    @classmethod
+    def check_err_on_singular(cls, v: bool):
+        """
+        Check the value of the "err_on_singular" option.
+        """
+        if not v:
+            raise ValueError(
+                "The PETScDirectSolver must always have its 'err_on_singular' option set to "
+                "True. This option is only maintained for compatibility with parent "
+                "solver methods."
+            )
+        return v
+
+
+class PETScDirectSolverModel(DirectSolverModel):
+    options: _PETScDirectSolverOptions = Field(default_factory=_PETScDirectSolverOptions)
+
+
+@dmm.register(PETScDirectSolverModel)
 class PETScDirectSolver(DirectSolver):
     """
     LinearSolver that uses PETSc for LU factor/solve.
@@ -254,36 +300,6 @@ class PETScDirectSolver(DirectSolver):
 
         if PETSc is None:
             raise RuntimeError(f"{self.msginfo}: PETSc is not available. ")
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        self.options.declare(
-            'sparse_solver_name',
-            values=PC_SERIAL_TYPES + PC_DISTRIBUTED_TYPES,
-            default='superlu',
-            desc="Direct solver algorithm from PETSc that will be used for the "
-                 "LU factorization and solve if the matrix is sparse. For a "
-                 "dense matrix, this option will be ignored and LAPACK will "
-                 "be automatically used."
-        )
-
-        # Undeclare and redeclare the "err_on_singular" option so that it's
-        # still compatible with shared parent methods. Must always be True
-        # because during factorization solvers will always error with a singular.
-        self.options.undeclare("err_on_singular")
-        self.options.declare(
-            'err_on_singular',
-            default=True,
-            types=bool,
-            check_valid=check_err_on_singular,
-            desc="Raise an error if LU decomposition is singular. Must always "
-                 "be 'True' for the PETScDirectSolver. This option is only "
-                 "maintained for compatibility with parent solver methods."
-        )
 
     def _setup_solvers(self, system, depth):
         """

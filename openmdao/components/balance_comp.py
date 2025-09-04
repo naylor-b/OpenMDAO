@@ -1,15 +1,31 @@
 """Define the BalanceComp class."""
 
-from types import FunctionType
+from typing import Callable
 
 import numpy as np
+from pydantic import Field
 
-from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.core.implicitcomponent import ImplicitComponent, _ImplicitComponentOptions, \
+    ImplicitComponentModel
 from openmdao.utils import cs_safe
-from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.general_utils import ensure_compatible
 
+from openmdao.utils.validation import DataModelManager as dmm
 
+
+class BalanceCompOptions(_ImplicitComponentOptions):
+    guess_func: Callable = Field(default=None,
+                                 desc='A callable function in the form '
+                                 'f(inputs, outputs, residuals) that can provide an initial "guess" '
+                                 'value of the state variable(s) based on the inputs, outputs and '
+                                 'residuals.')
+
+
+class BalanceComponentModel(ImplicitComponentModel):
+    options: BalanceCompOptions = Field(default_factory=BalanceCompOptions)
+
+
+@dmm.register(BalanceComponentModel)
 class BalanceComp(ImplicitComponent):
     """
     A simple equation balance for solving implicit equations.
@@ -133,9 +149,12 @@ class BalanceComp(ImplicitComponent):
             prob.set_val('exec.x', 2)
             prob.run_model()
         """
+        # need this so we can get data_model before super().__init__
+        self._data_model = None
+        self.name = ''
         # Pre-declare options so we can separate component kwargs from output kwargs.
-        self.options = OptionsDictionary()
-        self._declare_options()
+        data_model = self.get_data_model()
+        self.options = data_model.options
         super().__init__(**{k: v for k, v in kwargs.items() if k in self.options})
 
         self._state_vars = {}
@@ -149,14 +168,6 @@ class BalanceComp(ImplicitComponent):
                              mult_kwargs=mult_kwargs, **_kwargs)
 
         self._no_check_partials = True
-
-    def _declare_options(self):
-        super()._declare_options()
-        self.options.declare('guess_func', types=FunctionType, allow_none=True, default=None,
-                             recordable=False, desc='A callable function in the form '
-                             'f(inputs, outputs, residuals) that can provide an initial "guess" '
-                             'value of the state variable(s) based on the inputs, outputs and '
-                             'residuals.')
 
     def apply_nonlinear(self, inputs, outputs, residuals):
         """

@@ -13,19 +13,22 @@ import textwrap
 import traceback
 import time
 import atexit
+from typing import Dict, Any, Union
 
 from itertools import chain
 
 from io import TextIOBase, StringIO
 
+from pydantic import BaseModel, Field
+
 import numpy as np
 
 from openmdao.core.constants import _SetupStatus
 from openmdao.core.component import Component
-from openmdao.core.driver import Driver, record_iteration
+from openmdao.core.driver import Driver, record_iteration, DriverModel
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.system import System, _iter_derivs
-from openmdao.core.group import Group
+from openmdao.core.group import Group, GroupModel
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import _DEFAULT_COLORING_DIR, _DEFAULT_OUT_STREAM, \
     _UNDEFINED
@@ -40,7 +43,6 @@ from openmdao.recorders.recording_manager import RecordingManager, record_viewer
     record_model_options
 from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, _deriv_display_compact
 from openmdao.utils.mpi import MPI, FakeComm, multi_proc_exception_check, check_mpi_env
-from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.units import simplify_unit
 from openmdao.utils.logger_utils import get_logger, TestLogger
 from openmdao.utils.hooks import _setup_hooks, _reset_all_hooks
@@ -57,6 +59,7 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.file_utils import _get_outputs_dir, text2html, _get_work_dir
 from openmdao.utils.testing_utils import _fix_comp_check_data
 from openmdao.utils.name_maps import DISTRIBUTED
+from openmdao.utils.validation import DataModelManager as dmm, TypeBaseModel, OptionsBaseModel
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
@@ -129,6 +132,35 @@ def _default_prob_name():
     return name.stem
 
 
+class ProblemOptions(OptionsBaseModel):
+    work_dir: str = Field(default=_get_work_dir(), desc="Working directory for the problem.")
+    coloring_dir: str = Field(default=None,
+                              desc="Directory containing coloring files (if any) for this Problem.")
+    group_by_pre_opt_post: bool = \
+        Field(default=False,
+              desc="If True, group subsystems of the top level model into pre-optimization, "
+                    "optimization, and post-optimization, and only iterate over the optimization "
+                    "subsystems during optimization.  This applies only when the top level "
+                    "nonlinear solver is of type NonlinearRunOnce.")
+    allow_post_setup_reorder: bool = \
+        Field(default=True,
+              desc="If True, the execution order of direct subsystems of any group that sets its "
+                    "'auto_order' option to True will be automatically ordered according to data "
+                    "dependencies. If this option is False, the 'auto_order' option will be "
+                    "ignored and a warning will be issued for each group that has set it to True. "
+                    "Note that subsystems of a Group that form a cycle will never be reordered, "
+                    "regardless of the value of the 'auto_order' option.")
+
+
+class ProblemModel(TypeBaseModel):
+    name: str = Field(default=None, desc='The name of the problem.')
+    model: GroupModel = Field(default=None)
+    driver: DriverModel = Field(default=None)
+    reports: Union[str, bool, list[str], None] = Field(default=None)
+    options: ProblemOptions = Field(default_factory=ProblemOptions)
+
+
+@dmm.register(ProblemModel)
 class Problem(object, metaclass=ProblemMetaclass):
     """
     Top-level container for the systems and drivers.
@@ -182,8 +214,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         pattern is a dictionary of {option_name: option_val}. Those subsystems within the
         hierarchy which match the path pattern and that have an option of the given name, will
         have the value of that option overridden by value given in the dictionary.
-    recording_options : <OptionsDictionary>
-        Dictionary with problem recording options.
     _rec_mgr : <RecordingManager>
         Object that manages all recorders added to this problem.
     _reports : list of str
@@ -216,6 +246,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         # this function doesn't do anything after the first call
         _load_report_plugins()
 
+        self._data_model = None
         self._driver = None
         self._reports = get_reports_to_activate(reports)
 
@@ -264,73 +295,11 @@ class Problem(object, metaclass=ProblemMetaclass):
         self._run_counter = -1
         self._rec_mgr = RecordingManager()
 
-        # General options
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
-        default_workdir = options['work_dir'] if 'work_dir' in options else _get_work_dir()
-        self.options.declare('work_dir', default=default_workdir,
-                             desc='Working directory for the problem.')
-        self.options.declare('coloring_dir', types=str,
-                             default=os.path.join(default_workdir, 'coloring_files'),
-                             desc='Directory containing coloring files (if any) for this Problem.')
-        self.options.declare('group_by_pre_opt_post', types=bool,
-                             default=False,
-                             desc="If True, group subsystems of the top level model into "
-                             "pre-optimization, optimization, and post-optimization, and only "
-                             "iterate over the optimization subsystems during optimization.  This "
-                             "applies only when the top level nonlinear solver is of type"
-                             "NonlinearRunOnce.")
-        self.options.declare('allow_post_setup_reorder', types=bool,
-                             default=True,
-                             desc="If True, the execution order of direct subsystems of any group "
-                             "that sets its 'auto_order' option to True will be automatically "
-                             "ordered according to data dependencies. If this option is False, the "
-                             "'auto_order' option will be ignored and a warning will be issued for "
-                             "each group that has set it to True. Note that subsystems of a Group "
-                             "that form a cycle will never be reordered, regardless of the value of"
-                             " the 'auto_order' option.")
-        self.options.update(options)
+        self._declare_options(options)
 
         # Options passed to models
         self.model_options = {}
 
-        # Case recording options
-        self.recording_options = OptionsDictionary(msginfo=type(self).__name__)
-
-        self.recording_options.declare('record_desvars', types=bool, default=True,
-                                       desc='Set to True to record design variables at the '
-                                            'problem level')
-        self.recording_options.declare('record_objectives', types=bool, default=True,
-                                       desc='Set to True to record objectives at the problem level')
-        self.recording_options.declare('record_constraints', types=bool, default=True,
-                                       desc='Set to True to record constraints at the '
-                                            'problem level')
-        self.recording_options.declare('record_responses', types=bool, default=False,
-                                       desc='Set True to record constraints and objectives at the '
-                                            'problem level.')
-        self.recording_options.declare('record_inputs', types=bool, default=False,
-                                       desc='Set True to record inputs at the '
-                                            'problem level.')
-        self.recording_options.declare('record_outputs', types=bool, default=True,
-                                       desc='Set True to record outputs at the '
-                                            'problem level.')
-        self.recording_options.declare('record_residuals', types=bool, default=False,
-                                       desc='Set True to record residuals at the '
-                                            'problem level.')
-        self.recording_options.declare('record_derivatives', types=bool, default=False,
-                                       desc='Set to True to record derivatives for the problem '
-                                            'level')
-        self.recording_options.declare('record_abs_error', types=bool, default=True,
-                                       desc='Set to True to record absolute error of '
-                                            'model nonlinear solver')
-        self.recording_options.declare('record_rel_error', types=bool, default=True,
-                                       desc='Set to True to record relative error of model \
-                                       nonlinear solver')
-        self.recording_options.declare('includes', types=list, default=['*'],
-                                       desc='Patterns for variables to include in recording. \
-                                       Uses fnmatch wildcards')
-        self.recording_options.declare('excludes', types=list, default=[],
-                                       desc='Patterns for vars to exclude in recording '
-                                            '(processed post-includes). Uses fnmatch wildcards')
 
         # register hooks for any reports
         activate_reports(self._reports, self)
@@ -341,6 +310,41 @@ class Problem(object, metaclass=ProblemMetaclass):
         # call cleanup at system exit, if requested
         if 'cleanup' in os.environ.get('OPENMDAO_ATEXIT', '').split(','):
             atexit.register(self.cleanup)
+
+    def _declare_options(self, options):
+        """
+        Declare options before kwargs are processed in the init method.
+        """
+        model = self.get_data_model()
+        self.options = model.options
+        self.options.update(options)
+
+        # # General options
+        # self.options = OptionsDictionary(msginfo=type(self).__name__)
+        # default_workdir = options['work_dir'] if 'work_dir' in options else _get_work_dir()
+        # self.options.declare('work_dir', default=default_workdir,
+        #                      desc='Working directory for the problem.')
+        # self.options.declare('coloring_dir', types=str,
+        #                      default=os.path.join(default_workdir, 'coloring_files'),
+        #                      desc='Directory containing coloring files (if any) for this Problem.')
+        # self.options.declare('group_by_pre_opt_post', types=bool,
+        #                      default=False,
+        #                      desc="If True, group subsystems of the top level model into "
+        #                      "pre-optimization, optimization, and post-optimization, and only "
+        #                      "iterate over the optimization subsystems during optimization.  This "
+        #                      "applies only when the top level nonlinear solver is of type"
+        #                      "NonlinearRunOnce.")
+        # self.options.declare('allow_post_setup_reorder', types=bool,
+        #                      default=True,
+        #                      desc="If True, the execution order of direct subsystems of any group "
+        #                      "that sets its 'auto_order' option to True will be automatically "
+        #                      "ordered according to data dependencies. If this option is False, the "
+        #                      "'auto_order' option will be ignored and a warning will be issued for "
+        #                      "each group that has set it to True. Note that subsystems of a Group "
+        #                      "that form a cycle will never be reordered, regardless of the value of"
+        #                      " the 'auto_order' option.")
+        # self.options.update(options)
+
 
     def _set_name(self, name):
         if not MPI or self.comm.rank == 0:
@@ -2652,6 +2656,27 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             return coloring
 
+    @classmethod
+    def from_data_model(cls, data_model: BaseModel) -> 'Problem':
+        """Create an instance from a dictionary."""
+        instance = dmm.inst_from_type_model(cls, data_model)
+        instance._data_model = data_model.copy()
+        instance.update_from_data_model(instance._data_model)
+        return instance
+        
+    def update_from_data_model(self, data_model):
+        self.model = dmm.from_data_model(data_model.model)
+
+    def get_data_model(self):
+        if self._data_model is None:
+            self._data_model = dmm.class_to_data_model_instance(self.__class__)
+            self.options = self._data_model.options
+            self.reports = self._data_model.reports
+        return self._data_model
+
+    def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
+        """Convert this instance to a dictionary."""
+        return self._data_model.model_dump(exclude_none=exclude_none)
 
 def _fix_check_data(data):
     """

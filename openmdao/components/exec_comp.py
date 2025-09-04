@@ -3,17 +3,21 @@ import re
 import time
 from itertools import product
 from contextlib import contextmanager
+from pydantic import Field, field_validator
+from typing import List, Union
 
 import numpy as np
 from numpy import ndarray, imag
 
 from openmdao.core.system import _DEFAULT_COLORING_META
 from openmdao.utils.coloring import _ColSparsityJac, _compute_coloring
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.units import valid_units
 from openmdao.utils import cs_safe
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, SetupWarning
 from openmdao.utils.array_utils import get_random_arr
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 # regex to check for variable names.
@@ -68,6 +72,39 @@ def array_idx_iter(shape):
         yield p
 
 
+class ExecCompOptions(ExplicitComponentOptions):
+    has_diag_partials: bool = Field(default=False,
+                                    desc="If True, treat all array/array partials as diagonal if "
+                                    "both arrays have size > 1. All arrays with size > 1 must have "
+                                    "the same flattened size or an exception will be raised.")
+    units: str = Field(default=None,
+                       desc="Units to be assigned to all variables in this component. "
+                       "Default is None, which means units may be provided for variables "
+                       "individually.")
+    shape: tuple = Field(default=None,
+                         desc="Shape to be assigned to all variables in this component. "
+                         "Default is None, which means shape may be provided for variables "
+                         "individually.")
+    shape_by_conn: bool = Field(default=False,
+                                desc="If True, shape all inputs and outputs based on their "
+                                "connection. Default is False.")
+    do_coloring: bool = Field(default=True,
+                              desc="If True (the default), compute the partial jacobian "
+                              "coloring for this component.")
+
+
+class ExecComponentModel(ExplicitComponentModel):
+    options: ExecCompOptions = Field(default_factory=ExecCompOptions)
+    exprs: Union[str, List[str]] = Field(default_factory=list, desc='List of expressions.')
+
+    @field_validator("exprs", mode="before")
+    def validate_exprs(cls, values):
+        if isinstance(values, str):
+            return [values]
+        return values
+
+
+@dmm.register(ExecComponentModel)
 class ExecComp(ExplicitComponent):
     """
     A component defined by an expression string.
@@ -243,36 +280,6 @@ class ExecComp(ExplicitComponent):
         self._outarray = None
         self._indict = None
         self._viewdict = None
-
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('has_diag_partials', types=bool, default=False,
-                             desc='If True, treat all array/array partials as diagonal if both '
-                                  'arrays have size > 1. All arrays with size > 1 must have the '
-                                  'same flattened size or an exception will be raised.')
-
-        self.options.declare('units', types=str, allow_none=True, default=None,
-                             desc='Units to be assigned to all variables in this component. '
-                                  'Default is None, which means units may be provided for variables'
-                                  ' individually.',
-                             check_valid=check_option)
-
-        self.options.declare('shape', types=(int, tuple, list), allow_none=True, default=None,
-                             desc='Shape to be assigned to all variables in this component. '
-                                  'Default is None, which means shape may be provided for variables'
-                                  ' individually.')
-
-        self.options.declare('shape_by_conn', types=bool, default=False,
-                             desc='If True, shape all inputs and outputs based on their '
-                                  'connection. Default is False.')
-
-        self.options.declare('do_coloring', types=bool, default=True,
-                             desc='If True (the default), compute the partial jacobian '
-                             'coloring for this component.')
-
-        self.options.undeclare("distributed")
 
     @classmethod
     def register(cls, name, callable_obj, complex_safe):
@@ -1132,6 +1139,10 @@ class ExecComp(ExplicitComponent):
                     # restore old input value
                     ival[idx] -= step
 
+    def update_from_data_model(self, data_model: ExecComponentModel):
+        """Update the instance from the data model."""
+        super().update_from_data_model(data_model)
+        self._exprs = data_model.exprs
 
 class _ViewDict(object):
     def __init__(self, dct):

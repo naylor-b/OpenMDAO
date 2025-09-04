@@ -1,9 +1,23 @@
 """Define the NonlinearBlockJac class."""
+from pydantic import Field
+
 from openmdao.recorders.recording_iteration_stack import Recording
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions, \
+    _IterNonlinearSolverOptions
+from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.mpi import multi_proc_fail_check
 
 
+class _NonlinearBlockJacOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    pass
+
+
+class NonlinearBlockJacModel(NonlinearSolverModel):
+    options: _NonlinearBlockJacOptions = Field(default_factory=_NonlinearBlockJacOptions)
+
+
+@dmm.register(NonlinearBlockJacModel)
 class NonlinearBlockJac(NonlinearSolver):
     """
     Nonlinear block Jacobi solver.

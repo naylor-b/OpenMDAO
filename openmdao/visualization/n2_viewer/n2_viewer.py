@@ -274,7 +274,7 @@ def _get_tree_dict(system, values=True, is_parallel=False):
 
     options = {}
     slv = {'linear_solver', 'nonlinear_solver'}
-    for k, opt in system.options._dict.items():
+    for k, opt in system.options.raw_items():
         if k in slv:
             # need to handle solver option separately because it can be a class, instance or None
             try:
@@ -349,7 +349,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         else:
             driver_type = 'optimization'
 
-        driver_options = {key: _serialize_single_option(driver.options._dict[key])
+        driver_options = {key: _serialize_single_option(driver.options.get_meta(key))
                           for key in driver.options}
 
         if driver_type == 'optimization' and hasattr(driver, 'opt_settings'):
@@ -357,7 +357,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         else:
             driver_opt_settings = None
 
-        driver_supports = driver.supports._dict
+        driver_supports = driver.supports
 
         # set default behavior for values flag
         if is_undefined(values):
@@ -544,7 +544,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         'type': driver_type,
         'options': driver_options,
         'opt_settings': driver_opt_settings,
-        'supports': driver_supports,
+        'supports': driver_supports.model_dump(),
     }
     data_dict['design_vars'] = root_group.get_design_vars(use_prom_ivc=False)
     data_dict['responses'] = root_group.get_responses(use_prom_ivc=False)

@@ -1,10 +1,36 @@
 """Define the NewtonSolver class."""
 
+from pydantic import Field
+
+
 from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
 from openmdao.solvers.solver import NonlinearSolver
 from openmdao.recorders.recording_iteration_stack import Recording
+from openmdao.solvers.solver import _NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions
+from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
+class _NewtonSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    solve_subsystems: bool = Field(default=None,
+                                   desc='Set to True to turn on sub-solvers '
+                                   '(Hybrid Newton).')
+    max_sub_solves: int = Field(10, desc='Maximum number of subsystem solves.')
+    cs_reconverge: bool = Field(True,
+                                desc='When True, when this driver solves under a complex '
+                                'step, nudge the Solution vector by a small amount so that it '
+                                'reconverges.')
+    reraise_child_analysiserror: bool = Field(False,
+                                              desc='When the option is true, a solver will '
+                                              'reraise any AnalysisError that arises during '
+                                              'subsolve; when false, it will continue solving.')
+
+
+class NewtonSolverModel(NonlinearSolverModel):
+    options: _NewtonSolverOptions = Field(default_factory=_NewtonSolverOptions)
+
+
+@dmm.register(NewtonSolverModel)
 class NewtonSolver(NonlinearSolver):
     """
     Newton solver.
@@ -42,18 +68,6 @@ class NewtonSolver(NonlinearSolver):
         """
         super()._declare_options()
 
-        self.options.declare('solve_subsystems', types=bool,
-                             desc='Set to True to turn on sub-solvers (Hybrid Newton).')
-        self.options.declare('max_sub_solves', types=int, default=10,
-                             desc='Maximum number of subsystem solves.')
-        self.options.declare('cs_reconverge', types=bool, default=True,
-                             desc='When True, when this driver solves under a complex step, nudge '
-                             'the Solution vector by a small amount so that it reconverges.')
-        self.options.declare('reraise_child_analysiserror', types=bool, default=False,
-                             desc='When the option is true, a solver will reraise any '
-                             'AnalysisError that arises during subsolve; when false, it will '
-                             'continue solving.')
-
         self.supports['linesearch'] = True
         self.supports['gradients'] = True
         self.supports['implicit_components'] = True
@@ -73,9 +87,11 @@ class NewtonSolver(NonlinearSolver):
 
         self._disallow_discrete_outputs()
 
-        if not isinstance(self.options._dict['solve_subsystems']['val'], bool):
-            msg = '{}: solve_subsystems must be set by the user.'
-            raise ValueError(msg.format(self.msginfo))
+        # try to get 'solve_subsystems' to make sure it's been set
+        ss = self.options['solve_subsystems']
+        if ss is None:
+            raise RuntimeError(f"{self.msginfo}: Option 'solve_subsystems' is required but has "
+                               "not been set.")
 
         if self.linear_solver is not None:
             self.linear_solver._setup_solvers(system, self._depth + 1)

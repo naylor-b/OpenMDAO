@@ -4,16 +4,19 @@ OpenMDAO Wrapper for the scipy.optimize.minimize family of local optimizers.
 
 import sys
 from packaging.version import Version
+from pydantic import Field
+
 
 import numpy as np
 from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import Driver, RecordingDebugging, DriverModel, DriverOptions
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 # Optimizers in scipy.minimize
@@ -85,7 +88,32 @@ CITATIONS = """
  publisher = {ACM},
 """
 
+class ScipyOptimizeDriverOptions(DriverOptions):
+    optimizer: str = Field(default="SLSQP",
+                           values=_all_optimizers,
+                           desc="Name of optimizer to use")
+    tol: float = \
+        Field(default=1.0e-6, lower=0.0,
+              desc="Tolerance for termination. For detailed control, use solver-specific options.")
+    maxiter: int = Field(default=200, lower=0,
+                         desc="Maximum number of iterations.")
+    disp: bool = Field(default=True, types=(int, bool),
+                       desc='Value of "disp" argument provided to scipy.optimize.minimize '
+                       'which controls the verbosity of the optimization.')
+    singular_jac_behavior: str = \
+        Field(default='warn',
+              desc="Defines behavior of a zero row/col check after first call to compute_totals:\n"
+              "   error - raise an error.\n"
+              "   warn - raise a warning.\n"
+              "   ignore - don't perform check.")
+    singular_jac_tol: float = Field(default=1e-16,
+                                    desc='Tolerance for zero row/column check.')
 
+class ScipyOptimizeDriverModel(DriverModel):
+    options: ScipyOptimizeDriverOptions = Field(default_factory=ScipyOptimizeDriverOptions)
+
+
+@dmm.register(ScipyOptimizeDriverModel)
 class ScipyOptimizeDriver(Driver):
     """
     Driver wrapper for the scipy.optimize.minimize family of local optimizers.

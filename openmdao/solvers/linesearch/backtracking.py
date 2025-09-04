@@ -7,9 +7,13 @@ ArmijoGoldsteinLS -- Like above, but terminates with the ArmijoGoldsteinLS condi
 """
 
 import numpy as np
+from pydantic import Field
+
 
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions
+from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 
@@ -41,6 +45,26 @@ def _print_violations(outputs, lower, upper):
         start = end
 
 
+class _LinesearchSolverOptions(_NonIterNonlinearSolverOptions):
+    bound_enforcement: str = Field('scalar',
+                                   description="If this is set to 'vector', the entire vector is "
+                                   "backtracked together when a bound is violated. If this is "
+                                   "set to 'scalar', only the violating entries are set to the "
+                                   "bound and then the backtracking occurs on the vector as a "
+                                   "whole. If this is set to 'wall', only the violating entries "
+                                   "are set to the bound, and then the backtracking follows the "
+                                   "wall - i.e., the violating entries do not change during the "
+                                   "line search.")
+    print_bound_enforce: bool = Field(False,
+                                      description="Set to True to print out names and values of "
+                                      "variables that are pulled back to their bounds.")
+
+
+class LinesearchSolverModel(NonlinearSolverModel):
+    options: _LinesearchSolverOptions = Field(default_factory=_LinesearchSolverOptions)
+
+
+@dmm.register(LinesearchSolverModel)
 class LinesearchSolver(NonlinearSolver):
     """
     Base class for line search solvers.
@@ -75,24 +99,6 @@ class LinesearchSolver(NonlinearSolver):
         self._do_subsolve = False
         self._lower_bounds = None
         self._upper_bounds = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-        opt = self.options
-        opt.declare(
-            'bound_enforcement', default='scalar', values=['vector', 'scalar', 'wall'],
-            desc="If this is set to 'vector', the entire vector is backtracked together " +
-                 "when a bound is violated. If this is set to 'scalar', only the violating " +
-                 "entries are set to the bound and then the backtracking occurs on the vector " +
-                 "as a whole. If this is set to 'wall', only the violating entries are set " +
-                 "to the bound, and then the backtracking follows the wall - i.e., the " +
-                 "violating entries do not change during the line search.")
-        opt.declare('print_bound_enforce', default=False,
-                    desc="Set to True to print out names and values of variables that are pulled "
-                    "back to their bounds.")
 
     def _setup_solvers(self, system, depth):
         """
@@ -193,20 +199,6 @@ class BoundsEnforceLS(LinesearchSolver):
 
     SOLVER = 'LS: BCHK'
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-        opt = self.options
-
-        # Remove unused options from base options here, so that users
-        # attempting to set them will get KeyErrors.
-        unused_options = ("atol", "rtol", "maxiter", "err_on_non_converge",
-                          "restart_from_successful")
-        for unused_option in unused_options:
-            opt.undeclare(unused_option)
-
     def _solve(self):
         """
         Run the iterative solver.
@@ -242,6 +234,24 @@ class BoundsEnforceLS(LinesearchSolver):
         self._mpi_print(self._iter_count, norm, norm / norm0)
 
 
+class _ArmijoGoldsteinLSOptions(_LinesearchSolverOptions):
+    c: float = Field(0.1,
+                     description="Slope parameter for line of sufficient decrease. The larger the "
+                     "step, the more decrease is required to terminate the line search.")
+    rho: float = Field(0.5, description="Contraction factor.")
+    alpha: float = Field(1.0, description="Initial line search step.")
+    retry_on_analysis_error: bool = Field(True,
+                                          description="Backtrack and retry if an AnalysisError "
+                                          "is raised.")
+    method: str = Field('Armijo', values=['Armijo', 'Goldstein'],
+                        description="Method to calculate stopping condition.")
+    maxiter: int = Field(5, description="Maximum number of iterations.")
+
+
+class ArmijoGoldsteinLSModel(LinesearchSolverModel):
+    options: _ArmijoGoldsteinLSOptions = Field(default_factory=_ArmijoGoldsteinLSOptions)
+
+@dmm.register(ArmijoGoldsteinLSModel)
 class ArmijoGoldsteinLS(LinesearchSolver):
     """
     Backtracking line search that terminates using the Armijo-Goldstein condition.
@@ -326,23 +336,6 @@ class ArmijoGoldsteinLS(LinesearchSolver):
             phi = np.nan
 
         return phi
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-        opt = self.options
-        opt['maxiter'] = 5
-        opt.declare('c', default=0.1, lower=0.0, upper=1.0, desc="Slope parameter for line of "
-                    "sufficient decrease. The larger the step, the more decrease is required to "
-                    "terminate the line search.")
-        opt.declare('rho', default=0.5, lower=0.0, upper=1.0, desc="Contraction factor.")
-        opt.declare('alpha', default=1.0, lower=0.0, desc="Initial line search step.")
-        opt.declare('retry_on_analysis_error', default=True,
-                    desc="Backtrack and retry if an AnalysisError is raised.")
-        opt.declare('method', default='Armijo', values=['Armijo', 'Goldstein'],
-                    desc="Method to calculate stopping condition.")
 
     def _single_iteration(self):
         """

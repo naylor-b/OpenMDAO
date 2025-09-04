@@ -161,7 +161,7 @@ def check_path(path, includes, excludes, include_all_path=False):
 
     if not include_all_path:
         for pattern in includes:
-            if fnmatchcase(path, pattern):
+            if pattern == '*' or fnmatchcase(path, pattern):
                 return True
 
     return include_all_path
@@ -183,6 +183,9 @@ def has_match(pattern, names):
     bool
         True if there is a match.
     """
+    if pattern == '*' and names:
+        return True
+
     for name in names:
         if fnmatchcase(name, pattern):
             return True
