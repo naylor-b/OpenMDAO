@@ -140,13 +140,6 @@ class _SolverSupports(OptionsBaseModel):
     linesearch: bool = Field(False, desc='Whether the solver supports linesearch')
 
 
-class SolverModel(TypeBaseModel):
-    options: _NonIterSolverOptions = Field(default_factory=_NonIterSolverOptions)
-    recording_options: _SolverRecordingOptions = Field(default_factory=_SolverRecordingOptions)
-    supports: _SolverSupports = Field(default_factory=_SolverSupports)
-
-
-@dmm.register(SolverModel)
 class Solver(object, metaclass=SolverMetaclass):
     """
     Base solver class.
@@ -201,11 +194,17 @@ class Solver(object, metaclass=SolverMetaclass):
         self._mode = 'fwd'
         self._iter_count = 0
         self._problem_meta = None
-        self._data_model = None
 
         # Case recording related
         self._filtered_vars_to_record = {}
         self._norm0 = 0.0
+
+        data_model = kwargs.pop('data_model', None)
+        if data_model is None:
+            self.init_data_model()
+        else:
+            self.data_model = data_model
+            self.update_from_data_model(data_model)
 
         self._declare_options()
         self.options.update(kwargs)
@@ -314,10 +313,11 @@ class Solver(object, metaclass=SolverMetaclass):
         """
         Declare options before kwargs are processed in the init method.
         """
-        model = self.get_data_model()
-        self.options = model.options
-        self.recording_options = model.recording_options
-        self.supports = model.supports
+        pass
+        # model = self.get_data_model()
+        # self.options = model.options
+        # self.recording_options = model.recording_options
+        # self.supports = model.supports
 
     def _setup_solvers(self, system, depth):
         """
@@ -598,10 +598,25 @@ class Solver(object, metaclass=SolverMetaclass):
         """
         return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
 
-    def get_data_model(self):
-        if self._data_model is None:
-            self._data_model = dmm.class_to_data_model_instance(self.__class__)
-        return self._data_model
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+    def update_from_data_model(self, data_model: TypeBaseModel):
+        self.options = data_model.options
+        self.recording_options = data_model.recording_options
+        self.supports = data_model.supports
+        return self
+
+
+
+@dmm.register(Solver)
+class SolverModel(TypeBaseModel):
+    options: _NonIterSolverOptions = Field(default_factory=_NonIterSolverOptions)
+    recording_options: _SolverRecordingOptions = Field(default_factory=_SolverRecordingOptions)
+    supports: _SolverSupports = Field(default_factory=_SolverSupports)
+
 
 
 class _NonIterNonlinearSolverOptions(_NonIterSolverOptions):
@@ -616,11 +631,6 @@ class _IterNonlinearSolverOptions(_IterSolverOptions):
                                           description='whether to restart from a successful run')
 
 
-class NonlinearSolverModel(SolverModel):
-    options: _NonIterNonlinearSolverOptions = Field(default_factory=_NonIterNonlinearSolverOptions)
-
-
-@dmm.register(NonlinearSolverModel)
 class NonlinearSolver(Solver):
     """
     Base class for nonlinear solvers.
@@ -945,6 +955,10 @@ class NonlinearSolver(Solver):
             self.solve()
 
 
+@dmm.register(NonlinearSolver)
+class NonlinearSolverModel(SolverModel):
+    options: _NonIterNonlinearSolverOptions = Field(default_factory=_NonIterNonlinearSolverOptions)
+
 
 class _NonIterLinearSolverOptions(_NonIterSolverOptions):
     assemble_jac: bool = Field(False, description='whether to assemble the jacobian')
@@ -953,12 +967,6 @@ class _NonIterLinearSolverOptions(_NonIterSolverOptions):
 class _LinearSolverSupports(_SolverSupports):
     assembled_jac: bool = Field(True, description='whether the solver supports assembled jacobian')
 
-class LinearSolverModel(SolverModel):
-    options: _NonIterLinearSolverOptions = Field(default_factory=_NonIterLinearSolverOptions)
-    supports: _LinearSolverSupports = Field(default_factory=_LinearSolverSupports)
-
-
-@dmm.register(LinearSolverModel)
 class LinearSolver(Solver):
     """
     Base class for linear solvers.
@@ -1133,6 +1141,12 @@ class LinearSolver(Solver):
             The preferred sparse format for the dr/do matrix of a split jacobian.
         """
         return None
+
+
+@dmm.register(LinearSolver)
+class LinearSolverModel(SolverModel):
+    options: _NonIterLinearSolverOptions = Field(default_factory=_NonIterLinearSolverOptions)
+    supports: _LinearSolverSupports = Field(default_factory=_LinearSolverSupports)
 
 
 class BlockLinearSolver(LinearSolver):

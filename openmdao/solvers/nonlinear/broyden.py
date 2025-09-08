@@ -28,47 +28,6 @@ CITATION = """@ARTICLE{
               }"""
 
 
-class _BroydenSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
-    alpha: float = Field(0.4,
-                         description="Value to scale the starting Jacobian, which is "
-                         "Identity. This option does nothing if you compute the "
-                         "initial Jacobian instead.")
-    compute_jacobian: bool = Field(True, description="When True, compute an initial Jacobian, "
-                                   "otherwise start with Identity scaled by alpha. Further "
-                                   "Jacobians may also be computed depending on the other "
-                                   "options.")
-    converge_limit: float = Field(1.0, description="Ratio of current residual to previous residual "
-                                  "above which the convergence is considered a failure. The "
-                                  "Jacobian will be regenerated once this condition has been "
-                                  "reached a number of consecutive times as specified in "
-                                  "max_converge_failures.")
-    cs_reconverge: bool = Field(True, description="When True, when this driver solves under a "
-                                "complex step, nudge the Solution vector by a small amount so "
-                                "that it reconverges.")
-    diverge_limit: float = Field(2.0, description="Ratio of current residual to previous residual "
-                                 "above which the Jacobian will be immediately regenerated.")
-    max_converge_failures: int = Field(3,
-                                       description="The number of convergence failures before "
-                                       "regenerating the Jacobian.")
-    max_jacobians: int = Field(10, description="Maximum number of jacobians to compute.")
-    state_vars: list = Field([],
-                             description="List of the state-variable/residuals that "
-                             "are to be solved here.")
-    update_broyden: bool = Field(True,
-                                 description="Flag controls whether to perform Broyden update to "
-                                 "the Jacobian. There are some applications where it may be useful "
-                                 "to turn this off.")
-    reraise_child_analysiserror: bool = Field(False,
-                                              description="When the option is true, a solver will "
-                                              "reraise any AnalysisError that arises during "
-                                              "subsolve; when false, it will continue solving.")
-
-
-class BroydenSolverModel(NonlinearSolverModel):
-    options: _BroydenSolverOptions = Field(default_factory=_BroydenSolverOptions)
-
-
-@dmm.register(BroydenSolverModel)
 class BroydenSolver(NonlinearSolver):
     """
     Broyden solver.
@@ -693,3 +652,44 @@ class BroydenSolver(NonlinearSolver):
             self.linear_solver.cleanup()
         if self.linesearch:
             self.linesearch.cleanup()
+
+
+class _BroydenSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    alpha: float = Field(0.4,
+                         description="Value to scale the starting Jacobian, which is "
+                         "Identity. This option does nothing if you compute the "
+                         "initial Jacobian instead.")
+    compute_jacobian: bool = Field(True, description="When True, compute an initial Jacobian, "
+                                   "otherwise start with Identity scaled by alpha. Further "
+                                   "Jacobians may also be computed depending on the other "
+                                   "options.")
+    converge_limit: float = Field(1.0, description="Ratio of current residual to previous residual "
+                                  "above which the convergence is considered a failure. The "
+                                  "Jacobian will be regenerated once this condition has been "
+                                  "reached a number of consecutive times as specified in "
+                                  "max_converge_failures.")
+    cs_reconverge: bool = Field(True, description="When True, when this driver solves under a "
+                                "complex step, nudge the Solution vector by a small amount so "
+                                "that it reconverges.")
+    diverge_limit: float = Field(2.0, description="Ratio of current residual to previous residual "
+                                 "above which the Jacobian will be immediately regenerated.")
+    max_converge_failures: int = Field(3,
+                                       description="The number of convergence failures before "
+                                       "regenerating the Jacobian.")
+    max_jacobians: int = Field(10, description="Maximum number of jacobians to compute.")
+    state_vars: list = Field([],
+                             description="List of the state-variable/residuals that "
+                             "are to be solved here.")
+    update_broyden: bool = Field(True,
+                                 description="Flag controls whether to perform Broyden update to "
+                                 "the Jacobian. There are some applications where it may be useful "
+                                 "to turn this off.")
+    reraise_child_analysiserror: bool = Field(False,
+                                              description="When the option is true, a solver will "
+                                              "reraise any AnalysisError that arises during "
+                                              "subsolve; when false, it will continue solving.")
+
+
+@dmm.register(BroydenSolver)
+class BroydenSolverModel(NonlinearSolverModel):
+    options: _BroydenSolverOptions = Field(default_factory=_BroydenSolverOptions)

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Dict, Optional, Type, Any, Iterator, Tuple
+from pydantic_core import core_schema
+from typing import List, Dict, Optional, Type, Any, Iterator, Tuple, Literal
 import importlib
 import enum
 
@@ -25,13 +26,42 @@ def _class_to_type(cls):
 class TypeBaseModel(BaseModel):
     # This will catch typos. Otherwise, by default extra fields are silently ignored.
     # This behavior can be overridden in subclasses.
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     type: str = Field(default=None, desc='The class path of the type to be instantiated.')
     args: Optional[List[Any]] = Field(default_factory=list,
                                       desc="Positional arguments to pass to __init__.")
     kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict,
                                              desc="Keyword arguments to pass to __init__.")
+
+
+# -------------------
+# Polymorphic dispatcher
+# -------------------
+def _poly_validate(value: Any) -> BaseModel:
+    if isinstance(value, dict) and "type" in value:
+        t = value["type"]
+        model_cls = DataModelManager.type_to_data_model(t)
+        if not model_cls:
+            raise ValueError(f"Unknown type: {t}")
+        return model_cls.model_validate(value)
+    if isinstance(value, BaseModel):
+        return value
+    raise TypeError(f"Cannot coerce {value!r} into a polymorphic model")
+
+
+# -------------------
+# Custom Pydantic type
+# -------------------
+class PolymorphicModel:
+    """A pydantic-compatible type that auto-dispatches to registered models."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> core_schema.CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            _poly_validate,
+            core_schema.any_schema(),
+        )
 
 
 class ValidateOnAssignModel(BaseModel):
@@ -41,6 +71,58 @@ class ValidateOnAssignModel(BaseModel):
     This is used to ensure that options are validated on assignment, not just on initialization.
     """
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
+
+
+class VOIModel(ValidateOnAssignModel):
+    """
+    BaseModel for Variables of Interest (Design Variables, Constraints, and Objectives).
+    """
+    name: str
+    lower: float = Field(default=None, desc="Lower bound.")
+    upper: float = Field(default=None, desc="Upper bound.")
+    ref: float = Field(default=None)
+    ref0: float = Field(default=None)
+    indices: List[int] = Field(default=None)
+    adder: float = Field(default=None)
+    scaler: float = Field(default=None)
+    units: str = Field(default=None)
+    parallel_deriv_color: str = Field(default=None,
+                                      desc="Parallel derivative color.")
+    cache_linear_solution: bool = Field(default=None,
+                                       desc="Cache linear solution.")
+    flat_indices: bool = Field(default=None, desc="Assume indices into a flat source array.")
+
+
+class DesignVariableModel(VOIModel):
+    """
+    BaseModel for design variables.
+    """
+    pass
+
+
+class ResponseModel(VOIModel):
+    """
+    BaseModel for responses.
+    """
+
+    equals: float = Field(default=None, desc="Equality constraint value for the response.")
+    index: int = Field(default=None, desc="Index for the response.")
+    linear: bool = Field(default=None, desc="Linear for the response.")
+    alias: str = Field(default=None, desc="Alias for the response.")
+
+
+class ConstraintModel(ResponseModel):
+    """
+    BaseModel for constraints.
+    """
+    pass
+
+
+class ObjectiveModel(ResponseModel):
+    """
+    BaseModel for objectives.
+    """
+    pass
 
 
 class OptionsBaseModel(ValidateOnAssignModel):
@@ -140,16 +222,17 @@ class DataModelManager:
     MODELS: Dict[str, Tuple[Type[Any], Type[BaseModel]]] = {}
 
     @classmethod
-    def register(cls, pydantic_model: Type[BaseModel]):
+    def register(cls, class_: Type[BaseModel]):
         """
         Class decorator to bind a Pydantic model to an OpenMDAO class.
 
         Both the class and the Pydantic model will then be retrievable using the type path.
         """
-        def decorator(class_: Type):
+        def decorator(pydantic_model: Type):
             type_path = _class_to_type(class_)
+            pydantic_model.type = type_path
             cls.MODELS[type_path] = (class_, pydantic_model)
-            return class_
+            return pydantic_model
         return decorator
 
     @classmethod
@@ -231,7 +314,9 @@ class DataModelManager:
         """
         type_path = _class_to_type(klass)
         dm = cls.class_to_data_model(klass)
-        return dm(type=type_path, **kwargs)
+        kwargs = kwargs.copy()
+        kwargs['type'] = type_path
+        return dm(**kwargs)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Any:
@@ -243,13 +328,16 @@ class DataModelManager:
 
         class_, data_model_class = cls.type_to_info(type_path)
         dm_instance = data_model_class.model_validate(data)
-        return class_.from_data_model(dm_instance)
+        return cls.from_data_model(dm_instance)
 
     @classmethod
-    def from_data_model(cls, data_model: TypeBaseModel) -> Any:
+    def from_data_model(cls, data_model: TypeBaseModel, orig: Any = None) -> Any:
         """Create an instance from a data model."""
         class_, _ = cls.type_to_info(data_model.type)
-        return class_.from_data_model(data_model)
+        if orig is not None and isinstance(orig, class_):
+            orig.update_from_data_model(data_model)
+            return orig
+        return cls.inst_from_type_model(class_, data_model)
 
     @staticmethod
     def inst_from_type_model(klass: Type[Any], data_model: TypeBaseModel):
@@ -269,5 +357,8 @@ class DataModelManager:
             An instance of the given class.
         """
         args = data_model.args
-        kwargs = data_model.kwargs
-        return klass(*args, **kwargs)
+        kwargs = data_model.kwargs.copy()
+        kwargs['data_model'] = data_model
+        inst = klass(*args, **kwargs)
+        #inst.update_from_data_model(data_model)
+        return inst

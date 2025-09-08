@@ -12,44 +12,6 @@ from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class IndepVarComponentOptions(ExplicitComponentOptions):
-    name: str = Field(default="Name of the variable in this component's namespace.")
-    val: Any = Field(default=1.0, esc="The initial value of the variable "
-                     "being added in user-defined units.")
-    shape: Tuple[int, ...] = Field(default=None,
-                                   desc="Shape of this variable, only required if val is not an "
-                                   "array.")
-    units: str = Field(default=None, desc="Units in which the output variables will be provided to "
-                       "the component during execution.")
-    res_units: str = Field(default=None, desc="Units in which the residuals of this output will be "
-                       "given to the user when requested.")
-    desc: str = Field(default=None, desc="Description of the variable")
-    lower: Any = \
-        Field(default=None, desc="Lower bound(s) in user-defined units. It can be (1) a float, (2) "
-              "an array_like consistent with the shape arg (if given), or (3) an array_like "
-              "matching the shape of val, if val is array_like. A value of None means this output "
-              "has no lower bound.")
-    upper: Any = \
-        Field(default=None, desc="Upper bound(s) in user-defined units. It can be (1) a float, (2) "
-                                "an array_like consistent with the shape arg (if given), or (3) "
-                                "an array_like matching the shape of val, if val is array_like. "
-                                "A value of None means this output has no upper bound.")
-    ref: float = Field(default=1.0, desc="Scaling parameter. The value in the user-defined units "
-                       "of this output variable when the scaled value is 1")
-    ref0: float = Field(default=0.0, desc="Scaling parameter. The value in the user-defined units "
-                        "of this output variable when the scaled value is 0.")
-    res_ref: float = Field(default=None, desc="Scaling parameter. The value in the user-defined "
-                           "res_units of this output's residual when the scaled value is 1. "
-                           "Default is None, which means residual scaling matches output scaling.")
-    tags: List[str] = Field(default_factory=list,
-                            desc="User defined tags that can be used to filter what gets "
-                            "listed when calling list_outputs.")
-
-
-class IndepVarComponentModel(ExplicitComponentModel):
-    options: IndepVarComponentOptions = Field(default_factory=IndepVarComponentOptions)
-
-@dmm.register(IndepVarComponentModel)
 class IndepVarComp(ExplicitComponent):
     """
     Class to use when all output variables are independent.
@@ -269,6 +231,46 @@ class IndepVarComp(ExplicitComponent):
         # define this for IndepVarComp to avoid overhead of ExplicitComponent._solve_nonlinear.
         with Recording(self.pathname + '._solve_nonlinear', self.iter_count, self):
             pass
+
+
+class IndepVarCompOptions(ExplicitComponentOptions):
+    name: str = Field(default="Name of the variable in this component's namespace.")
+    val: Any = Field(default=1.0, esc="The initial value of the variable "
+                     "being added in user-defined units.")
+    shape: Tuple[int, ...] = Field(default=None,
+                                   desc="Shape of this variable, only required if val is not an "
+                                   "array.")
+    units: str = Field(default=None, desc="Units in which the output variables will be provided to "
+                       "the component during execution.")
+    res_units: str = Field(default=None, desc="Units in which the residuals of this output will be "
+                       "given to the user when requested.")
+    desc: str = Field(default=None, desc="Description of the variable")
+    lower: Any = \
+        Field(default=None, desc="Lower bound(s) in user-defined units. It can be (1) a float, (2) "
+              "an array_like consistent with the shape arg (if given), or (3) an array_like "
+              "matching the shape of val, if val is array_like. A value of None means this output "
+              "has no lower bound.")
+    upper: Any = \
+        Field(default=None, desc="Upper bound(s) in user-defined units. It can be (1) a float, (2) "
+                                "an array_like consistent with the shape arg (if given), or (3) "
+                                "an array_like matching the shape of val, if val is array_like. "
+                                "A value of None means this output has no upper bound.")
+    ref: float = Field(default=1.0, desc="Scaling parameter. The value in the user-defined units "
+                       "of this output variable when the scaled value is 1")
+    ref0: float = Field(default=0.0, desc="Scaling parameter. The value in the user-defined units "
+                        "of this output variable when the scaled value is 0.")
+    res_ref: float = Field(default=None, desc="Scaling parameter. The value in the user-defined "
+                           "res_units of this output's residual when the scaled value is 1. "
+                           "Default is None, which means residual scaling matches output scaling.")
+    tags: List[str] = Field(default_factory=list,
+                            desc="User defined tags that can be used to filter what gets "
+                            "listed when calling list_outputs.")
+
+
+
+@dmm.register(IndepVarComp)
+class IndepVarCompModel(ExplicitComponentModel):
+    options: IndepVarCompOptions = Field(default_factory=IndepVarCompOptions)
 
 
 class _AutoIndepVarComp(IndepVarComp):

@@ -9,15 +9,6 @@ from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.mpi import multi_proc_fail_check
 
 
-class _NonlinearBlockJacOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
-    pass
-
-
-class NonlinearBlockJacModel(NonlinearSolverModel):
-    options: _NonlinearBlockJacOptions = Field(default_factory=_NonlinearBlockJacOptions)
-
-
-@dmm.register(NonlinearBlockJacModel)
 class NonlinearBlockJac(NonlinearSolver):
     """
     Nonlinear block Jacobi solver.
@@ -66,3 +57,12 @@ class NonlinearBlockJac(NonlinearSolver):
                 super()._run_apply()
         else:
             super()._run_apply()
+
+
+class _NonlinearBlockJacOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    pass
+
+
+@dmm.register(NonlinearBlockJac)
+class NonlinearBlockJacModel(NonlinearSolverModel):
+    options: _NonlinearBlockJacOptions = Field(default_factory=_NonlinearBlockJacOptions)

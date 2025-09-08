@@ -11,26 +11,6 @@ from openmdao.solvers.solver import NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class _NewtonSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
-    solve_subsystems: bool = Field(default=None,
-                                   desc='Set to True to turn on sub-solvers '
-                                   '(Hybrid Newton).')
-    max_sub_solves: int = Field(10, desc='Maximum number of subsystem solves.')
-    cs_reconverge: bool = Field(True,
-                                desc='When True, when this driver solves under a complex '
-                                'step, nudge the Solution vector by a small amount so that it '
-                                'reconverges.')
-    reraise_child_analysiserror: bool = Field(False,
-                                              desc='When the option is true, a solver will '
-                                              'reraise any AnalysisError that arises during '
-                                              'subsolve; when false, it will continue solving.')
-
-
-class NewtonSolverModel(NonlinearSolverModel):
-    options: _NewtonSolverOptions = Field(default_factory=_NewtonSolverOptions)
-
-
-@dmm.register(NewtonSolverModel)
 class NewtonSolver(NonlinearSolver):
     """
     Newton solver.
@@ -291,3 +271,23 @@ class NewtonSolver(NonlinearSolver):
             True if relevance should be active.
         """
         return False
+
+
+class _NewtonSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    solve_subsystems: bool = Field(default=None,
+                                   desc='Set to True to turn on sub-solvers '
+                                   '(Hybrid Newton).')
+    max_sub_solves: int = Field(10, desc='Maximum number of subsystem solves.')
+    cs_reconverge: bool = Field(True,
+                                desc='When True, when this driver solves under a complex '
+                                'step, nudge the Solution vector by a small amount so that it '
+                                'reconverges.')
+    reraise_child_analysiserror: bool = Field(False,
+                                              desc='When the option is true, a solver will '
+                                              'reraise any AnalysisError that arises during '
+                                              'subsolve; when false, it will continue solving.')
+
+
+@dmm.register(NewtonSolver)
+class NewtonSolverModel(NonlinearSolverModel):
+    options: _NewtonSolverOptions = Field(default_factory=_NewtonSolverOptions)

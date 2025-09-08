@@ -8,23 +8,6 @@ from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptio
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class _NonIterLinearBlockGSOptions(_NonIterLinearSolverOptions):
-    use_aitken: bool = Field(False, description='whether to use Aitken relaxation')
-    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
-    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
-    aitken_initial_factor: float = Field(1.0,
-                                         description='initial value for Aitken relaxation factor')
-
-
-class _LinearBlockGSOptions(_IterSolverOptions, _NonIterLinearBlockGSOptions):
-    pass
-
-
-class LinearBlockGSModel(LinearSolverModel):
-    options: _LinearBlockGSOptions = Field(default_factory=_LinearBlockGSOptions)
-
-
-@dmm.register(LinearBlockGSModel)
 class LinearBlockGS(BlockLinearSolver):
     """
     Linear block Gauss-Seidel solver.
@@ -224,3 +207,20 @@ class LinearBlockGS(BlockLinearSolver):
 
             # save update to use in next iteration
             delta_d_n_1[:] = delta_d_n
+
+
+class _NonIterLinearBlockGSOptions(_NonIterLinearSolverOptions):
+    use_aitken: bool = Field(False, description='whether to use Aitken relaxation')
+    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
+    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
+    aitken_initial_factor: float = Field(1.0,
+                                         description='initial value for Aitken relaxation factor')
+
+
+class _LinearBlockGSOptions(_IterSolverOptions, _NonIterLinearBlockGSOptions):
+    pass
+
+
+@dmm.register(LinearBlockGS)
+class LinearBlockGSModel(LinearSolverModel):
+    options: _LinearBlockGSOptions = Field(default_factory=_LinearBlockGSOptions)

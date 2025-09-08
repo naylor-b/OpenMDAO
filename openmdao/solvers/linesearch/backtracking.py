@@ -60,11 +60,6 @@ class _LinesearchSolverOptions(_NonIterNonlinearSolverOptions):
                                       "variables that are pulled back to their bounds.")
 
 
-class LinesearchSolverModel(NonlinearSolverModel):
-    options: _LinesearchSolverOptions = Field(default_factory=_LinesearchSolverOptions)
-
-
-@dmm.register(LinesearchSolverModel)
 class LinesearchSolver(NonlinearSolver):
     """
     Base class for line search solvers.
@@ -184,6 +179,11 @@ class LinesearchSolver(NonlinearSolver):
             _enforce_bounds_wall(system._outputs, step, alpha, lower, upper)
 
 
+@dmm.register(LinesearchSolver)
+class LinesearchSolverModel(NonlinearSolverModel):
+    options: _LinesearchSolverOptions = Field(default_factory=_LinesearchSolverOptions)
+
+
 class BoundsEnforceLS(LinesearchSolver):
     """
     Bounds enforcement only.
@@ -248,10 +248,6 @@ class _ArmijoGoldsteinLSOptions(_LinesearchSolverOptions):
     maxiter: int = Field(5, description="Maximum number of iterations.")
 
 
-class ArmijoGoldsteinLSModel(LinesearchSolverModel):
-    options: _ArmijoGoldsteinLSOptions = Field(default_factory=_ArmijoGoldsteinLSOptions)
-
-@dmm.register(ArmijoGoldsteinLSModel)
 class ArmijoGoldsteinLS(LinesearchSolver):
     """
     Backtracking line search that terminates using the Armijo-Goldstein condition.
@@ -461,6 +457,11 @@ class ArmijoGoldsteinLS(LinesearchSolver):
 
             # self._mpi_print(self._iter_count, norm, norm / norm0)
             self._mpi_print(self._iter_count, phi, self.alpha)
+
+
+@dmm.register(ArmijoGoldsteinLS)
+class ArmijoGoldsteinLSModel(LinesearchSolverModel):
+    options: _ArmijoGoldsteinLSOptions = Field(default_factory=_ArmijoGoldsteinLSOptions)
 
 
 def _enforce_bounds_vector(u, du, alpha, lower_bounds, upper_bounds):

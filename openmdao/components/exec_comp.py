@@ -33,7 +33,7 @@ _allowed_meta = {'value', 'val', 'shape', 'units', 'res_units', 'desc',
 # Names that are not allowed for input or output variables (keywords for options)
 _option_names = {'has_diag_partials', 'units', 'shape', 'default_shape', 'shape_by_conn',
                  'run_root_only', 'constant', 'do_coloring', 'assembled_jac_type', 'derivs_method',
-                 'distributed', 'always_opt', 'use_jit'}
+                 'distributed', 'always_opt', 'use_jit', 'data_model'}
 
 
 def check_option(option, value):
@@ -72,39 +72,6 @@ def array_idx_iter(shape):
         yield p
 
 
-class ExecCompOptions(ExplicitComponentOptions):
-    has_diag_partials: bool = Field(default=False,
-                                    desc="If True, treat all array/array partials as diagonal if "
-                                    "both arrays have size > 1. All arrays with size > 1 must have "
-                                    "the same flattened size or an exception will be raised.")
-    units: str = Field(default=None,
-                       desc="Units to be assigned to all variables in this component. "
-                       "Default is None, which means units may be provided for variables "
-                       "individually.")
-    shape: tuple = Field(default=None,
-                         desc="Shape to be assigned to all variables in this component. "
-                         "Default is None, which means shape may be provided for variables "
-                         "individually.")
-    shape_by_conn: bool = Field(default=False,
-                                desc="If True, shape all inputs and outputs based on their "
-                                "connection. Default is False.")
-    do_coloring: bool = Field(default=True,
-                              desc="If True (the default), compute the partial jacobian "
-                              "coloring for this component.")
-
-
-class ExecComponentModel(ExplicitComponentModel):
-    options: ExecCompOptions = Field(default_factory=ExecCompOptions)
-    exprs: Union[str, List[str]] = Field(default_factory=list, desc='List of expressions.')
-
-    @field_validator("exprs", mode="before")
-    def validate_exprs(cls, values):
-        if isinstance(values, str):
-            return [values]
-        return values
-
-
-@dmm.register(ExecComponentModel)
 class ExecComp(ExplicitComponent):
     """
     A component defined by an expression string.
@@ -254,12 +221,6 @@ class ExecComp(ExplicitComponent):
             if name in kwargs:
                 options[name] = kwargs.pop(name)
 
-        super().__init__(**options)
-
-        # change default coloring values
-        self._coloring_info.method = 'cs'
-        self._coloring_info.num_full_jacs = 2
-
         # if complex step is used for derivatives, this is the stepsize
         self.complex_stepsize = 1.e-40
 
@@ -280,6 +241,12 @@ class ExecComp(ExplicitComponent):
         self._outarray = None
         self._indict = None
         self._viewdict = None
+
+        super().__init__(**options)
+
+        # change default coloring values
+        self._coloring_info.method = 'cs'
+        self._coloring_info.num_full_jacs = 2
 
     @classmethod
     def register(cls, name, callable_obj, complex_safe):
@@ -1139,10 +1106,49 @@ class ExecComp(ExplicitComponent):
                     # restore old input value
                     ival[idx] -= step
 
-    def update_from_data_model(self, data_model: ExecComponentModel):
+    def update_from_data_model(self, data_model: ExplicitComponentModel):
         """Update the instance from the data model."""
         super().update_from_data_model(data_model)
+        exprs = self._exprs
         self._exprs = data_model.exprs
+        for e in exprs:
+            if e not in self._exprs:
+                self._exprs.append(e)
+        return self
+
+
+class ExecCompOptions(ExplicitComponentOptions):
+    has_diag_partials: bool = Field(default=False,
+                                    desc="If True, treat all array/array partials as diagonal if "
+                                    "both arrays have size > 1. All arrays with size > 1 must have "
+                                    "the same flattened size or an exception will be raised.")
+    units: str = Field(default=None,
+                       desc="Units to be assigned to all variables in this component. "
+                       "Default is None, which means units may be provided for variables "
+                       "individually.")
+    shape: tuple = Field(default=None,
+                         desc="Shape to be assigned to all variables in this component. "
+                         "Default is None, which means shape may be provided for variables "
+                         "individually.")
+    shape_by_conn: bool = Field(default=False,
+                                desc="If True, shape all inputs and outputs based on their "
+                                "connection. Default is False.")
+    do_coloring: bool = Field(default=True,
+                              desc="If True (the default), compute the partial jacobian "
+                              "coloring for this component.")
+
+
+@dmm.register(ExecComp)
+class ExecCompModel(ExplicitComponentModel):
+    options: ExecCompOptions = Field(default_factory=ExecCompOptions)
+    exprs: Union[str, List[str]] = Field(default_factory=list, desc='List of expressions.')
+
+    @field_validator("exprs", mode="before")
+    def validate_exprs(cls, values):
+        if isinstance(values, str):
+            return [values]
+        return values
+
 
 class _ViewDict(object):
     def __init__(self, dct):

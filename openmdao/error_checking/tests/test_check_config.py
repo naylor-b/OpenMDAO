@@ -500,6 +500,11 @@ class TestCheckConfig(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['y'] = inputs['x']
 
+        class TestNewton(om.NewtonSolver):
+            pass
+
+
+        @dmm.register(TestNewton)
         class TestNewtonOptions(_NewtonSolverOptions):
             file3: io.BufferedIOBase = Field(default=None)
 
@@ -511,10 +516,10 @@ class TestCheckConfig(unittest.TestCase):
                     raise ValueError('Attribute must be a file-like object')
                 return v
 
-        @dmm.register(TestNewtonOptions)
-        class TestNewton(om.NewtonSolver):
+        class TestLinesearch(om.BoundsEnforceLS):
             pass
 
+        @dmm.register(TestLinesearch)
         class TestLinesearchOptions(_LinesearchSolverOptions):
             file4: io.BufferedIOBase = Field(default=None, exclude=True)
 
@@ -526,10 +531,11 @@ class TestCheckConfig(unittest.TestCase):
                     raise ValueError('Attribute must be a file-like object')
                 return v
 
-        @dmm.register(TestLinesearchOptions)
-        class TestLinesearch(om.BoundsEnforceLS):
+        class TestKrylov(om.ScipyKrylov):
             pass
 
+
+        @dmm.register(TestKrylov)
         class TestKrylovOptions(_ScipyKrylovOptions):
             file5: io.BufferedIOBase = Field(default=None)
 
@@ -540,10 +546,6 @@ class TestCheckConfig(unittest.TestCase):
                 if not hasattr(v, 'read') or not hasattr(v, 'seek'):
                     raise ValueError('Attribute must be a file-like object')
                 return v
-
-        @dmm.register(TestKrylovOptions)
-        class TestKrylov(om.ScipyKrylov):
-            pass
 
         prob = om.Problem()
         prob.model.add_subsystem('comp', TestComp())

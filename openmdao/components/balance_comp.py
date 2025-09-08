@@ -13,19 +13,6 @@ from openmdao.utils.general_utils import ensure_compatible
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class BalanceCompOptions(_ImplicitComponentOptions):
-    guess_func: Callable = Field(default=None,
-                                 desc='A callable function in the form '
-                                 'f(inputs, outputs, residuals) that can provide an initial "guess" '
-                                 'value of the state variable(s) based on the inputs, outputs and '
-                                 'residuals.')
-
-
-class BalanceComponentModel(ImplicitComponentModel):
-    options: BalanceCompOptions = Field(default_factory=BalanceCompOptions)
-
-
-@dmm.register(BalanceComponentModel)
 class BalanceComp(ImplicitComponent):
     """
     A simple equation balance for solving implicit equations.
@@ -149,18 +136,14 @@ class BalanceComp(ImplicitComponent):
             prob.set_val('exec.x', 2)
             prob.run_model()
         """
-        # need this so we can get data_model before super().__init__
-        self._data_model = None
-        self.name = ''
-        # Pre-declare options so we can separate component kwargs from output kwargs.
-        data_model = self.get_data_model()
-        self.options = data_model.options
-        super().__init__(**{k: v for k, v in kwargs.items() if k in self.options})
+        # get data model class and remove its fields from kwargs
+        fields = dmm.class_to_data_model(self.__class__).model_fields.keys()
+        super().__init__(**{k: v for k, v in kwargs.items() if k in fields})
 
         self._state_vars = {}
 
         if name is not None:
-            _kwargs = {k: v for k, v in kwargs.items() if k not in self.options}
+            _kwargs = {k: v for k, v in kwargs.items() if k not in fields}
             self.add_balance(name, eq_units=eq_units, lhs_name=lhs_name,
                              rhs_name=rhs_name, rhs_val=rhs_val, use_mult=use_mult,
                              mult_name=mult_name, mult_val=mult_val, normalize=normalize,
@@ -419,3 +402,16 @@ class BalanceComp(ImplicitComponent):
 
             if options['use_mult']:
                 self.declare_partials(of=name, wrt=options['mult_name'], diagonal=True, val=1.0)
+
+
+class BalanceCompOptions(_ImplicitComponentOptions):
+    guess_func: Callable = Field(default=None,
+                                 desc='A callable function in the form '
+                                 'f(inputs, outputs, residuals) that can provide an initial "guess" '
+                                 'value of the state variable(s) based on the inputs, outputs and '
+                                 'residuals.')
+
+
+@dmm.register(BalanceComp)
+class BalanceCompModel(ImplicitComponentModel):
+    options: BalanceCompOptions = Field(default_factory=BalanceCompOptions)

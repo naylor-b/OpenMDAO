@@ -173,23 +173,6 @@ def format_nan_error(system, matrix):
     return msg.format(system.msginfo, ', '.join(varnames))
 
 
-class _DirectSolverOptions(_NonIterLinearSolverOptions):
-    err_on_singular: bool = Field(True,
-                                  description="Raise an error if LU decomposition is singular.")
-
-    rhs_checking: bool = Field(False,
-                               description="If True, check RHS vs. cache and/or zero to avoid "
-                               "some solves. Can also be set to a dict of options for the "
-                               "LinearRHSChecker to allow finer control over it. Allowed "
-                               "options are: "
-                               f"{LinearRHSChecker.options}")
-
-
-class DirectSolverModel(LinearSolverModel):
-    options: _DirectSolverOptions = Field(default_factory=_DirectSolverOptions)
-
-
-@dmm.register(DirectSolverModel)
 class DirectSolver(LinearSolver):
     """
     LinearSolver that uses linalg.solve or LU factor/solve.
@@ -521,3 +504,19 @@ class DirectSolver(LinearSolver):
             The preferred sparse format for the dr/do matrix of a split jacobian.
         """
         return 'csc'
+
+class _DirectSolverOptions(_NonIterLinearSolverOptions):
+    err_on_singular: bool = Field(True,
+                                  description="Raise an error if LU decomposition is singular.")
+
+    rhs_checking: bool = Field(False,
+                               description="If True, check RHS vs. cache and/or zero to avoid "
+                               "some solves. Can also be set to a dict of options for the "
+                               "LinearRHSChecker to allow finer control over it. Allowed "
+                               "options are: "
+                               f"{LinearRHSChecker.options}")
+
+
+@dmm.register(DirectSolver)
+class DirectSolverModel(LinearSolverModel):
+    options: _DirectSolverOptions = Field(default_factory=_DirectSolverOptions)

@@ -14,8 +14,8 @@ import warnings
 
 from fnmatch import fnmatchcase
 from numbers import Integral
-from pydantic import Field
-from typing import List, Union, Tuple
+from pydantic import Field, BaseModel, ConfigDict
+from typing import List, Union, Tuple, Any
 
 import numpy as np
 
@@ -42,7 +42,8 @@ from openmdao.utils.general_utils import determine_adder_scaler, is_undefined, \
     ensure_compatible, env_truthy, make_traceback, _is_slicer_op, _wrap_comm, _unwrap_comm, \
     _om_dump, SystemMetaclass
 from openmdao.utils.file_utils import _get_outputs_dir
-from openmdao.utils.validation import TypeBaseModel, DataModelManager as dmm, OptionsBaseModel
+from openmdao.utils.validation import TypeBaseModel, DataModelManager as dmm, OptionsBaseModel, \
+    DesignVariableModel, ResponseModel, ConstraintModel, ObjectiveModel
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 from openmdao.jacobians.jacobian import DenseJacobian, CSCJacobian, CSRJacobian
@@ -180,64 +181,6 @@ class ValidationError(ValueError):
         super().__init__(message)
 
 
-class _AsmJacType(Enum):
-    csc = "csc"
-    csr = "csr"
-    dense = "dense"
-    none = None
-
-
-class _DerivsType(Enum):
-    jax = "jax"
-    cs = "cs"
-    fd = "fd"
-    none = None
-
-
-class SystemOptions(OptionsBaseModel):
-    derivs_method: _DerivsType = Field(default=None,
-                                       desc='The method to use for computing derivatives.')
-
-
-class ImplicitSystemOptions(SystemOptions):
-    assembled_jac_type: _AsmJacType = Field(default=None,
-                                            desc='Linear solver(s) in this group or implicit '
-                                            'component, if using an assembled jacobian, will use    '
-                                            'this type.')
-
-
-
-class SystemRecordingOptions(OptionsBaseModel):
-    record_inputs: bool = Field(default=True,
-                               desc='Set to True to record inputs at the system level')
-    record_outputs: bool = Field(default=True,
-                                 desc='Set to True to record outputs at the system level')
-    record_residuals: bool = Field(default=True,
-                                   desc='Set to True to record residuals at the system level')
-    includes: list[str] = Field(default=None,
-                                desc='Patterns for variables to include in recording. '
-                                     'Uses fnmatch wildcards')
-    excludes: list[str] = Field(default=None,
-                                desc='Patterns for vars to exclude in recording '
-                                     '(processed post-includes). Uses fnmatch wildcards')
-    options_excludes: list[str] = Field(default=None,
-                                        desc='User-defined metadata to exclude in recording')
-
-
-
-class SystemModel(TypeBaseModel):
-    name: str = Field(default='', desc='The name of the system.')
-    options: SystemOptions = Field(default_factory=SystemOptions)
-    recording_options: SystemRecordingOptions = Field(default_factory=SystemRecordingOptions)
-    promotes: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted variables.')
-    promotes_inputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted input variables.')
-    promotes_outputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted output variables.')
-
-
-@dmm.register(SystemModel)
 class System(object, metaclass=SystemMetaclass):
     """
     Base class for all systems in OpenMDAO.
@@ -470,7 +413,6 @@ class System(object, metaclass=SystemMetaclass):
         self.pathname = None
         self._comm = None
         self._is_local = False
-        self._data_model = None
 
         self._problem_meta = None
 
@@ -548,13 +490,6 @@ class System(object, metaclass=SystemMetaclass):
 
         self._num_par_fd = num_par_fd
 
-        self.get_data_model()
-
-        self.initialize()
-
-        self._declare_options()
-        self.options.update(kwargs)
-
         self._has_guess = False
         self._has_output_scaling = False
         self._has_output_adder = False
@@ -587,6 +522,19 @@ class System(object, metaclass=SystemMetaclass):
             self.compute_primal = None
 
         self._jac_func_ = None  # for computing jacobian using AD (jax)
+
+        data_model = kwargs.pop('data_model', None)
+        if data_model is None:
+            self.init_data_model()
+        else:
+            self.data_model = data_model
+            self.update_from_data_model(data_model)
+
+        # TODO: these seem to be used for the same purpose, so why do we have both?
+        self.initialize()
+        self._declare_options()
+
+        self.options.update(kwargs)
 
     if _om_dump:
         @property
@@ -7227,21 +7175,15 @@ class System(object, metaclass=SystemMetaclass):
         """
         pass
 
-    def get_data_model(self):
-        if self._data_model is None:
-            self._data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
-            self.options = self._data_model.options
-            self.recording_options = self._data_model.recording_options
-        return self._data_model
+    def init_data_model(self):
+        """
+        Create a new data model for this instance.
+        """
+        self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
 
-    @classmethod
-    def from_data_model(cls, data_model: SystemModel):
-        """Create an instance from a data model."""
-        instance = dmm.inst_from_type_model(cls, data_model)
-        instance.update_from_data_model(data_model)
-        return instance
-
-    def update_from_data_model(self, data_model: SystemModel):
+    def update_from_data_model(self, data_model: TypeBaseModel):
         """
         Populate instance data using the data model.
         """
@@ -7249,13 +7191,167 @@ class System(object, metaclass=SystemMetaclass):
         self.options = data_model.options
         self.recording_options = data_model.recording_options
 
-    def get_updated_data_model(self):
+        for dv_model in data_model.design_variables:
+            self.add_design_var(dv_model.name, lower=dv_model.lower, upper=dv_model.upper,
+                                ref=dv_model.ref, ref0=dv_model.ref0, indices=dv_model.indices,
+                                adder=dv_model.adder, scaler=dv_model.scaler,
+                                units=dv_model.units,
+                                parallel_deriv_color=dv_model.parallel_deriv_color,
+                                cache_linear_solution=dv_model.cache_linear_solution,
+                                flat_indices=dv_model.flat_indices)
+
+        for constraint_model in data_model.constraints:
+            self.add_constraint(constraint_model.name,
+                                lower=constraint_model.lower, upper=constraint_model.upper,
+                                equals=constraint_model.equals,
+                                ref=constraint_model.ref, ref0=constraint_model.ref0,
+                                adder=constraint_model.adder, scaler=constraint_model.scaler,
+                                units=constraint_model.units,
+                                indices=constraint_model.indices, linear=constraint_model.linear,
+                                parallel_deriv_color=constraint_model.parallel_deriv_color,
+                                cache_linear_solution=constraint_model.cache_linear_solution,
+                                flat_indices=constraint_model.flat_indices,
+                                alias=constraint_model.alias)
+
+        for objective_model in data_model.objectives:
+            self.add_objective(objective_model.name,
+                               ref=objective_model.ref, ref0=objective_model.ref0,
+                               index=objective_model.index, units=objective_model.units,
+                               adder=objective_model.adder, scaler=objective_model.scaler,
+                               parallel_deriv_color=objective_model.parallel_deriv_color,
+                               cache_linear_solution=objective_model.cache_linear_solution,
+                               flat_indices=objective_model.flat_indices,
+                               alias=objective_model.alias)
+
+        return self
+
+    def update_data_model(self):
         """
         Get the data model updated with current instance attributes.
         """
-        data_model = self.get_data_model()
-        data_model.name = self.name
-        return data_model
+        self.data_model.name = self.name
+        return self.data_model
+
+
+class _AsmJacType(Enum):
+    csc = "csc"
+    csr = "csr"
+    dense = "dense"
+    none = None
+
+
+class _DerivsType(Enum):
+    jax = "jax"
+    cs = "cs"
+    fd = "fd"
+    none = None
+
+
+class SystemOptions(OptionsBaseModel):
+    derivs_method: _DerivsType = Field(default=None,
+                                       desc='The method to use for computing derivatives.')
+
+
+class ImplicitSystemOptions(SystemOptions):
+    assembled_jac_type: _AsmJacType = Field(default=None,
+                                            desc='Linear solver(s) in this group or implicit '
+                                            'component, if using an assembled jacobian, will use    '
+                                            'this type.')
+
+
+
+class SystemRecordingOptions(OptionsBaseModel):
+    record_inputs: bool = Field(default=True,
+                               desc='Set to True to record inputs at the system level')
+    record_outputs: bool = Field(default=True,
+                                 desc='Set to True to record outputs at the system level')
+    record_residuals: bool = Field(default=True,
+                                   desc='Set to True to record residuals at the system level')
+    includes: list[str] = Field(default=None,
+                                desc='Patterns for variables to include in recording. '
+                                     'Uses fnmatch wildcards')
+    excludes: list[str] = Field(default=None,
+                                desc='Patterns for vars to exclude in recording '
+                                     '(processed post-includes). Uses fnmatch wildcards')
+    options_excludes: list[str] = Field(default=None,
+                                        desc='User-defined metadata to exclude in recording')
+
+class ObjectiveData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(desc="Name of the objective")
+    ref: float = Field(default=None)
+    ref0: float = Field(default=None)
+    index: int = Field(default=None, desc="Index for the objective")
+    units: str = Field(default=None, desc="Units for the objective")
+    adder: float = Field(default=None, desc="Adder for the objective")
+    scaler: float = Field(default=None, desc="Scaler for the objective")
+    parallel_deriv_color: str = Field(default=None,
+                                      desc="Parallel derivative color for the objective")
+    cache_linear_solution: bool = Field(default=False,
+                                        desc="Cache linear solution for the objective")
+    flat_indices: bool = Field(default=False, desc="Flat indices for the objective")
+    alias: str = Field(default=None, desc="Alias for the objective")
+
+
+class ConstraintData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(desc="Name of the constraint")
+    lower: float = Field(default=None, desc="Lower bound for the constraint")
+    upper: float = Field(default=None, desc="Upper bound for the constraint")
+    equals: float = Field(default=None, desc="Equality value for the constraint")
+    ref: float = Field(default=None)
+    ref0: float = Field(default=None)
+    adder: float = Field(default=None, desc="Adder for the constraint")
+    scaler: float = Field(default=None, desc="Scaler for the constraint")
+    units: str = Field(default=None, desc="Units for the constraint")
+    indices: List[int] = Field(default=None, desc="Indices for the constraint")
+    linear: bool = Field(default=False, desc="Linear for the constraint")
+    parallel_deriv_color: str = Field(default=None,
+                                      desc="Parallel derivative color for the constraint")
+    cache_linear_solution: bool = Field(default=False,
+                                        desc="Cache linear solution for the constraint")
+    flat_indices: bool = Field(default=False, desc="Flat indices for the constraint")
+    alias: str = Field(default=None, desc="Alias for the constraint")
+
+
+class DesignVariableData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(desc="Name of the design variable")
+    lower: float = Field(default=None, desc="Lower bound for the design variable")
+    upper: float = Field(default=None, desc="Upper bound for the design variable")
+    ref: float = Field(default=None)
+    ref0: float = Field(default=None)
+    indices: List[int] = Field(default=None, desc="Indices for the design variable")
+    adder: float = Field(default=None, desc="Adder for the design variable")
+    scaler: float = Field(default=None, desc="Scaler for the design variable")
+    units: str = Field(default=None, desc="Units for the design variable")
+    parallel_deriv_color: str = Field(default=None,
+                                      desc="Parallel derivative color for the design variable")
+    cache_linear_solution: bool = Field(default=False,
+                                        desc="Cache linear solution for the design variable")
+    flat_indices: bool = Field(default=False, desc="Flat indices for the design variable")
+
+
+@dmm.register(System)
+class SystemModel(TypeBaseModel):
+    name: str = Field(default='', desc='The name of the system.')
+    options: SystemOptions = Field(default_factory=SystemOptions)
+    recording_options: SystemRecordingOptions = Field(default_factory=SystemRecordingOptions)
+    promotes: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted variables.')
+    promotes_inputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted input variables.')
+    promotes_outputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
+                                                        desc='List of promoted output variables.')
+    design_variables: List[DesignVariableModel] = Field(default_factory=list,
+                                                        desc='List of design variables.')
+    responses: List[ResponseModel] = Field(default_factory=list, desc='List of responses.')
+    constraints: List[ConstraintModel] = Field(default_factory=list, desc='List of constraints.')
+    objectives: List[ObjectiveModel] = Field(default_factory=list, desc='List of objectives.')
+
 
 class _ErrorData(object):
     __slots__ = ['forward', 'reverse', 'fwd_rev']

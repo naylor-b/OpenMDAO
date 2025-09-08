@@ -275,11 +275,6 @@ class _PETScDirectSolverOptions(_DirectSolverOptions):
         return v
 
 
-class PETScDirectSolverModel(DirectSolverModel):
-    options: _PETScDirectSolverOptions = Field(default_factory=_PETScDirectSolverOptions)
-
-
-@dmm.register(PETScDirectSolverModel)
 class PETScDirectSolver(DirectSolver):
     """
     LinearSolver that uses PETSc for LU factor/solve.
@@ -468,3 +463,8 @@ class PETScDirectSolver(DirectSolver):
             The preferred sparse format for the dr/do matrix of a split jacobian.
         """
         return 'csr'
+
+
+@dmm.register(PETScDirectSolver)
+class PETScDirectSolverModel(DirectSolverModel):
+    options: _PETScDirectSolverOptions = Field(default_factory=_PETScDirectSolverOptions)

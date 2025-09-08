@@ -9,30 +9,6 @@ from openmdao.solvers.solver import NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class _NonlinearBlockGSOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
-    use_aitken: bool = Field(False, description='set to True to use Aitken relaxation')
-    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
-    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
-    aitken_initial_factor: float = Field(1.0, description='initial value for Aitken relaxation '
-                                         'factor')
-    cs_reconverge: bool = Field(True, description='When True, when this driver solves under a '
-                                'complex step, nudge the Solution vector by a small amount so that '
-                                'it reconverges.')
-    use_apply_nonlinear: bool = Field(False, description="Set to True to always call "
-                                      "apply_nonlinear on the solver's system after "
-                                      "solve_nonlinear has been called.")
-    reraise_child_analysiserror: bool = Field(False,
-                                              description='When the option is true, a solver '
-                                              'will reraise any AnalysisError that arises '
-                                              'during subsolve; when false, it will '
-                                              'continue solving.')
-
-
-class NonlinearBlockGSModel(NonlinearSolverModel):
-    options: _NonlinearBlockGSOptions = Field(default_factory=_NonlinearBlockGSOptions)
-
-
-@dmm.register(NonlinearBlockGSModel)
 class NonlinearBlockGS(NonlinearSolver):
     """
     Nonlinear block Gauss-Seidel solver.
@@ -285,3 +261,27 @@ class NonlinearBlockGS(NonlinearSolver):
 
         # save update to use in next iteration
         delta_outputs_n_1[:] = delta_outputs_n
+
+
+class _NonlinearBlockGSOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions):
+    use_aitken: bool = Field(False, description='set to True to use Aitken relaxation')
+    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
+    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
+    aitken_initial_factor: float = Field(1.0, description='initial value for Aitken relaxation '
+                                         'factor')
+    cs_reconverge: bool = Field(True, description='When True, when this driver solves under a '
+                                'complex step, nudge the Solution vector by a small amount so that '
+                                'it reconverges.')
+    use_apply_nonlinear: bool = Field(False, description="Set to True to always call "
+                                      "apply_nonlinear on the solver's system after "
+                                      "solve_nonlinear has been called.")
+    reraise_child_analysiserror: bool = Field(False,
+                                              description='When the option is true, a solver '
+                                              'will reraise any AnalysisError that arises '
+                                              'during subsolve; when false, it will '
+                                              'continue solving.')
+
+
+@dmm.register(NonlinearBlockGS)
+class NonlinearBlockGSModel(NonlinearSolverModel):
+    options: _NonlinearBlockGSOptions = Field(default_factory=_NonlinearBlockGSOptions)

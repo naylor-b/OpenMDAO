@@ -7,7 +7,8 @@ import sys
 import time
 import os
 import weakref
-from pydantic import Field
+from pydantic import Field, model_validator
+from typing import Dict, Any
 
 import numpy as np
 import scipy.sparse as sp
@@ -196,66 +197,6 @@ class DriverResult():
 default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
 
 
-class DriverOptions(OptionsBaseModel):
-    debug_print: list[str] = \
-        Field(default_factory=list,
-              desc="List of what type of Driver variables to print at each iteration.")
-    invalid_desvar_behavior: str = \
-        Field(default=default_desvar_behavior,
-              desc="Behavior of driver if initial value of a design variable exceeds its bounds.")
-
-
-class DriverRecordingOptions(OptionsBaseModel):
-    record_desvars: bool = Field(default=True,
-                                 desc="Set to True to record design variables at the driver level.")
-    record_responses: bool = Field(default=False,
-                                   desc="Set to True to record responses at the driver level.")
-    record_objectives: bool = \
-        Field(default=True,
-              desc="Set to True to record objectives at the driver level.")
-    record_constraints: bool = \
-        Field(default=True,
-              desc="Set to True to record constraints at the driver level.")
-    includes: list[str] = \
-        Field(default=list,
-              desc="Patterns for variables to include in recording. Uses fnmatch wildcards.")
-    excludes: list[str] = \
-        Field(default=list,
-              desc="Patterns for vars to exclude in recording (processed post-includes). Uses "
-              "fnmatch wildcards.")
-    record_derivatives: bool = Field(default=False,
-                                     desc="Set to True to record derivatives at the driver level.")
-    record_inputs: bool = Field(default=True,
-                                desc="Set to True to record inputs at the driver level.")
-    record_outputs: bool = Field(default=True,
-                                  desc="Set True to record outputs at the driver level.")
-    record_residuals: bool = Field(default=False,
-                                   desc="Set True to record residuals at the driver level.")
-
-
-class DriverSupports(OptionsBaseModel):
-    optimization: bool = False
-    inequality_constraints: bool = False
-    equality_constraints: bool = False
-    linear_constraints: bool = False
-    linear_only_designvars: bool = False
-    two_sided_constraints: bool = False
-    multiple_objectives: bool = False
-    integer_design_vars: bool = False
-    gradients: bool = False
-    active_set: bool = False
-    simultaneous_derivatives: bool = False
-    total_jac_sparsity: bool = False
-    distributed_design_vars: bool = False
-
-
-class DriverModel(TypeBaseModel):
-    options: DriverOptions = Field(default_factory=DriverOptions)
-    recording_options: DriverRecordingOptions = Field(default_factory=DriverRecordingOptions)
-    supports: DriverSupports = Field(default_factory=DriverSupports)
-
-
-@dmm.register(DriverModel)
 class Driver(object, metaclass=DriverMetaclass):
     """
     Top-level container for the systems and drivers.
@@ -348,7 +289,6 @@ class Driver(object, metaclass=DriverMetaclass):
         self._lin_dvs = None
         self._nl_dvs = None
         self._in_find_feasible = False
-        self._data_model = None
 
         self.iter_count = 0
         self.cite = ""
@@ -359,6 +299,13 @@ class Driver(object, metaclass=DriverMetaclass):
         self._con_subjacs = {}
         self._total_jac = None
         self._total_jac_linear = None
+
+        data_model = kwargs.pop('data_model', None)
+        if data_model is None:
+            self.init_data_model()
+        else:
+            self.data_model = data_model
+            self.update_from_data_model(data_model)
 
         self._declare_options()
         self.options.update(kwargs)
@@ -407,10 +354,11 @@ class Driver(object, metaclass=DriverMetaclass):
 
         This is optionally implemented by subclasses of Driver.
         """
-        model = self.get_data_model()
-        self.options = model.options
-        self.recording_options = model.recording_options
-        self.supports = model.supports
+        pass
+        # model = self.get_data_model()
+        # self.options = model.options
+        # self.recording_options = model.recording_options
+        # self.supports = model.supports
 
     def _setup_comm(self, comm):
         """
@@ -2447,10 +2395,82 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return not self.result.success
 
-    def get_data_model(self):
-        if self._data_model is None:
-            self._data_model = dmm.class_to_data_model_instance(self.__class__)
-        return self._data_model
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+    def update_from_data_model(self, data_model: TypeBaseModel):
+        """
+        Populate instance data using the data model.
+        """
+        self.options = data_model.options
+        self.recording_options = data_model.recording_options
+        self.supports = data_model.supports
+        return self
+
+
+class DriverOptions(OptionsBaseModel):
+    debug_print: list[str] = \
+        Field(default_factory=list,
+              desc="List of what type of Driver variables to print at each iteration.")
+    invalid_desvar_behavior: str = \
+        Field(default=default_desvar_behavior,
+              desc="Behavior of driver if initial value of a design variable exceeds its bounds.")
+
+
+class DriverRecordingOptions(OptionsBaseModel):
+    record_desvars: bool = Field(default=True,
+                                 desc="Set to True to record design variables at the driver level.")
+    record_responses: bool = Field(default=False,
+                                   desc="Set to True to record responses at the driver level.")
+    record_objectives: bool = \
+        Field(default=True,
+              desc="Set to True to record objectives at the driver level.")
+    record_constraints: bool = \
+        Field(default=True,
+              desc="Set to True to record constraints at the driver level.")
+    includes: list[str] = \
+        Field(default=list,
+              desc="Patterns for variables to include in recording. Uses fnmatch wildcards.")
+    excludes: list[str] = \
+        Field(default=list,
+              desc="Patterns for vars to exclude in recording (processed post-includes). Uses "
+              "fnmatch wildcards.")
+    record_derivatives: bool = Field(default=False,
+                                     desc="Set to True to record derivatives at the driver level.")
+    record_inputs: bool = Field(default=True,
+                                desc="Set to True to record inputs at the driver level.")
+    record_outputs: bool = Field(default=True,
+                                  desc="Set True to record outputs at the driver level.")
+    record_residuals: bool = Field(default=False,
+                                   desc="Set True to record residuals at the driver level.")
+
+
+class DriverSupports(OptionsBaseModel):
+    optimization: bool = False
+    inequality_constraints: bool = False
+    equality_constraints: bool = False
+    linear_constraints: bool = False
+    linear_only_designvars: bool = False
+    two_sided_constraints: bool = False
+    multiple_objectives: bool = False
+    integer_design_vars: bool = False
+    gradients: bool = False
+    active_set: bool = False
+    simultaneous_derivatives: bool = False
+    total_jac_sparsity: bool = False
+    distributed_design_vars: bool = False
+
+
+@dmm.register(Driver)
+class DriverModel(TypeBaseModel):
+    type: str = Field(default='openmdao.core.driver.Driver',
+                      desc='The class path of the type to be instantiated.')
+    options: DriverOptions = Field(default_factory=DriverOptions)
+    recording_options: DriverRecordingOptions = Field(default_factory=DriverRecordingOptions)
+    supports: DriverSupports = Field(default_factory=DriverSupports)
+
 
 class SaveOptResult(object):
     """

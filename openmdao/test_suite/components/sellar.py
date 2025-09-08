@@ -19,8 +19,8 @@ class SellarDis1(om.ExplicitComponent):
     Component containing Discipline 1 -- no derivatives version.
     """
 
-    def __init__(self, units=None, scaling=None):
-        super().__init__()
+    def __init__(self, units=None, scaling=None, **kwargs):
+        super().__init__(**kwargs)
         self.execution_count = 0
         self._units = units
         self._do_scaling = scaling
@@ -102,8 +102,8 @@ class SellarDis2(om.ExplicitComponent):
     Component containing Discipline 2 -- no derivatives version.
     """
 
-    def __init__(self, units=None, scaling=None):
-        super().__init__()
+    def __init__(self, units=None, scaling=None, **kwargs):
+        super().__init__(**kwargs)
         self.execution_count = 0
         self._units = units
         self._do_scaling = scaling

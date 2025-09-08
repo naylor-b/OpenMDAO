@@ -7,12 +7,12 @@ import numpy as np
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.validation import DataModelManager as dmm
-
+from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2
 
 testdir = os.path.dirname(os.path.abspath(__file__))
 
 
-class TestConfiguration(unittest.TestCase):
+class TestValidation(unittest.TestCase):
     def test_typestr_to_class(self):
         from openmdao.solvers.solver import Solver
         self.assertEqual(dmm.type_to_class('openmdao.solvers.solver.Solver'), Solver)
@@ -132,70 +132,171 @@ class TestConfiguration(unittest.TestCase):
         assert_near_equal(prob.get_val('C1.y'), prob2.get_val('C1.y'))
         assert_near_equal(prob.get_val('C2.y'), prob2.get_val('C2.y'))
 
-    # def test__sellar(self):
-    #     prob = process_config(os.path.join(testdir, 'simple_sellar_config.yml'))
+    def test_sellar(self):
+        cfg = {
+            'type': 'openmdao.core.problem.Problem',
+            'name': 'Sellar_MDA',
 
-    #     # Ask OpenMDAO to finite-difference across the model to compute the gradients for the optimizer
-    #     prob.model.approx_totals()
+            'driver': {
+                'type': 'openmdao.drivers.scipy_optimizer.ScipyOptimizeDriver',
+                'options': {
+                    'invalid_desvar_behavior': 'warn',
+                    'optimizer': 'SLSQP',
+                    'tol': 1.0e-8
+                }
+            },
+            'model': {
+                'type': 'openmdao.core.group.Group',
+                'subsystems': [
+                    {
+                        'type': 'openmdao.core.group.Group',
+                        'name': 'cycle',
+                        'subsystems': [
+                            {
+                                'type': 'openmdao.test_suite.components.sellar.SellarDis1',
+                                'name': 'd1',
+                                'promotes_inputs': ['x', 'z', 'y2'],
+                                'promotes_outputs': ['y1']
+                            },
+                            {
+                                'type': 'openmdao.test_suite.components.sellar.SellarDis2',
+                                'name': 'd2',
+                                'promotes_inputs': ['z', 'y1'],
+                                'promotes_outputs': ['y2']
+                            }
+                        ],
+                        'input_defaults': [
+                            {
+                                'name': 'z',
+                                'src_shape': (2,)
+                            }
+                        ],
+                        'nonlinear_solver': {
+                            'type': 'openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS'
+                        },
+                        'promotes_inputs': ['x', 'z']
+                    },
+                    {
+                        'type': 'openmdao.components.exec_comp.ExecComp',
+                        'name': 'obj_cmp',
+                        'exprs': 'obj = x**2 + z[1] + y1 + exp(-y2)',
+                        'kwargs': {
+                            'z': [0.0, 0.0],
+                            'x': 0.0
+                        },
+                        'promotes': ['x', 'z', 'y1', 'y2', 'obj']
+                    },
+                    {
+                        'type': 'openmdao.components.exec_comp.ExecComp',
+                        'name': 'con_cmp1',
+                        'exprs': 'con1 = 3.16 - y1',
+                        'promotes': ['con1', 'y1']
+                    },
+                    {
+                        'type': 'openmdao.components.exec_comp.ExecComp',
+                        'name': 'con_cmp2',
+                        'exprs': 'con2 = y2 - 24.0',
+                        'promotes': ['con2', 'y2']
+                    }
+                ],
+                # 'connections': [
+                #     {
+                #         'src': 'cycle.d1.y1',
+                #         'tgt': ['obj_cmp.y1', 'con_cmp1.y1']
+                #     },
+                #     {
+                #         'src': 'cycle.d2.y2',
+                #         'tgt': ['obj_cmp.y2', 'con_cmp2.y2']
+                #     }
+                # ],
+                'design_variables': [
+                    {
+                        'name': 'x',
+                        'lower': -1.0,
+                        'upper': 10.0
+                    },
+                    {
+                        'name': 'z',
+                        'lower': -1.0,
+                        'upper': 10.0
+                    }
+                ],
+                'objectives': [
+                    {
+                        'name': 'obj_cmp.obj',
+                    }
+                ],
+                'constraints': [
+                    {
+                        'name': 'con_cmp1.con1',
+                        'upper': 0.0
+                    },
+                    {
+                        'name': 'con_cmp2.con2',
+                        'upper': 0.0
+                    }
+                ],
+            },
+        }
 
-    #     prob.setup()
-    #     prob.set_solver_print(level=0)
+        prob = dmm.from_dict(cfg)
+        prob.model.approx_totals()
+        prob.setup()
+        prob.set_val('x', 2.0)
+        prob.set_val('z', [0.0, 0.0])
+        prob.set_solver_print(level=0)
+        prob.run_model()
 
-    #     prob.set_val('x', 2.0)
-    #     prob.set_val('z', [-1., -1.])
+        prob2 = om.Problem()
+        model = prob2.model
 
-    #     prob.run_model()
+        cycle = model.add_subsystem('cycle', om.Group(), promotes_inputs=['x', 'z'])
+        cycle.add_subsystem('d1', SellarDis1(), promotes_inputs=['x', 'z', 'y2'],
+                            promotes_outputs=['y1'])
+        cycle.add_subsystem('d2', SellarDis2(), promotes_inputs=['z', 'y1'],
+                            promotes_outputs=['y2'])
 
-    #     prob2 = om.Problem()
-    #     model = prob2.model
+        # cycle.set_input_defaults('x', 1.0)
+        cycle.set_input_defaults('z', src_shape=(2, ))
 
-    #     cycle = model.add_subsystem('cycle', om.Group(), promotes_inputs=['x', 'z'])
-    #     cycle.add_subsystem('d1', SellarDis1(), promotes_inputs=['x', 'z', 'y2'],
-    #                         promotes_outputs=['y1'])
-    #     cycle.add_subsystem('d2', SellarDis2(), promotes_inputs=['z', 'y1'],
-    #                         promotes_outputs=['y2'])
+        # Nonlinear Block Gauss Seidel is a gradient free solver
+        cycle.nonlinear_solver = om.NonlinearBlockGS()
 
-    #     # cycle.set_input_defaults('x', 1.0)
-    #     cycle.set_input_defaults('z', src_shape=(2, ))
+        model.add_subsystem('obj_cmp', om.ExecComp('obj = x**2 + z[1] + y1 + exp(-y2)',
+                                                  z=np.array([0.0, 0.0])),#, x=0.0),
+                           promotes=['x', 'z', 'y1', 'y2', 'obj'])
 
-    #     # Nonlinear Block Gauss Seidel is a gradient free solver
-    #     cycle.nonlinear_solver = om.NonlinearBlockGS()
+        model.add_subsystem('con_cmp1', om.ExecComp('con1 = 3.16 - y1'), promotes=['con1', 'y1'])
+        model.add_subsystem('con_cmp2', om.ExecComp('con2 = y2 - 24.0'), promotes=['con2', 'y2'])
 
-    #     model.add_subsystem('obj_cmp', om.ExecComp('obj = x**2 + z[1] + y1 + exp(-y2)',
-    #                                               z=np.array([0.0, 0.0]), x=0.0),
-    #                        promotes=['x', 'z', 'y1', 'y2', 'obj'])
+        model.add_design_var('x', lower=-1.0, upper=10.0)
+        model.add_design_var('z', lower=-1.0, upper=10.0)
+        model.add_objective('obj_cmp.obj')
+        model.add_constraint('con_cmp1.con1', upper=0.0)
+        model.add_constraint('con_cmp2.con2', upper=0.0)
 
-    #     model.add_subsystem('con_cmp1', om.ExecComp('con1 = 3.16 - y1'), promotes=['con1', 'y1'])
-    #     model.add_subsystem('con_cmp2', om.ExecComp('con2 = y2 - 24.0'), promotes=['con2', 'y2'])
+        prob2.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1.0e-8)
 
-    #     model.add_design_var('x', lower=-1.0, upper=10.0)
-    #     model.add_design_var('z', lower=-1.0, upper=10.0)
-    #     model.add_objective('obj_cmp.obj')
-    #     model.add_constraint('con_cmp1.con1', upper=0.0)
-    #     model.add_constraint('con_cmp2.con2', upper=0.0)
+        prob2.setup()
+        prob2.set_solver_print(level=0)
 
-    #     prob2.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1.0e-8)
+        prob2.set_val('x', 2.0)
+        prob2.set_val('z', [0.0, 0.0])
 
-    #     prob2.setup()
-    #     prob2.set_solver_print(level=0)
+        prob2.run_model()
 
-    #     prob2.set_val('x', 2.0)
-    #     prob2.set_val('z', [-1., -1.])
+        for name in ['x', 'z', 'y1', 'y2', 'obj', 'con1', 'con2']:
+            assert_near_equal(prob.get_val(name), prob2.get_val(name), 1e-5)
 
-    #     prob2.run_model()
+        prob.run_driver()
+        prob2.run_driver()
 
-    #     for name in ['x', 'z', 'y1', 'y2', 'obj', 'con1', 'con2']:
-    #         assert_near_equal(prob.get_val(name), prob2.get_val(name), 1e-5)
+        print('minimum found at')
+        assert_near_equal(prob.get_val('x'), prob2.get_val('x'), 1e-5)
+        assert_near_equal(prob.get_val('z'), prob2.get_val('z'), 1e-5)
 
-    #     prob.run_driver()
-    #     prob2.run_driver()
-
-    #     print('minimum found at')
-    #     assert_near_equal(prob.get_val('x'), prob2.get_val('x'), 1e-5)
-    #     assert_near_equal(prob.get_val('z'), prob2.get_val('z'), 1e-5)
-
-    #     print('minumum objective')
-    #     assert_near_equal(prob.get_val('obj'), prob2.get_val('obj'), 1e-5)
+        print('minumum objective')
+        assert_near_equal(prob.get_val('obj'), prob2.get_val('obj'), 1e-5)
 
 
 if __name__ == '__main__':

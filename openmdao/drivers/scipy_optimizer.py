@@ -5,6 +5,7 @@ OpenMDAO Wrapper for the scipy.optimize.minimize family of local optimizers.
 import sys
 from packaging.version import Version
 from pydantic import Field
+from typing import Union
 
 
 import numpy as np
@@ -88,32 +89,6 @@ CITATIONS = """
  publisher = {ACM},
 """
 
-class ScipyOptimizeDriverOptions(DriverOptions):
-    optimizer: str = Field(default="SLSQP",
-                           values=_all_optimizers,
-                           desc="Name of optimizer to use")
-    tol: float = \
-        Field(default=1.0e-6, lower=0.0,
-              desc="Tolerance for termination. For detailed control, use solver-specific options.")
-    maxiter: int = Field(default=200, lower=0,
-                         desc="Maximum number of iterations.")
-    disp: bool = Field(default=True, types=(int, bool),
-                       desc='Value of "disp" argument provided to scipy.optimize.minimize '
-                       'which controls the verbosity of the optimization.')
-    singular_jac_behavior: str = \
-        Field(default='warn',
-              desc="Defines behavior of a zero row/col check after first call to compute_totals:\n"
-              "   error - raise an error.\n"
-              "   warn - raise a warning.\n"
-              "   ignore - don't perform check.")
-    singular_jac_tol: float = Field(default=1e-16,
-                                    desc='Tolerance for zero row/column check.')
-
-class ScipyOptimizeDriverModel(DriverModel):
-    options: ScipyOptimizeDriverOptions = Field(default_factory=ScipyOptimizeDriverOptions)
-
-
-@dmm.register(ScipyOptimizeDriverModel)
 class ScipyOptimizeDriver(Driver):
     """
     Driver wrapper for the scipy.optimize.minimize family of local optimizers.
@@ -199,30 +174,6 @@ class ScipyOptimizeDriver(Driver):
         self._total_jac_format = 'array'
 
         self.cite = CITATIONS
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('optimizer', 'SLSQP', values=_all_optimizers,
-                             desc='Name of optimizer to use')
-        self.options.declare('tol', 1.0e-6, lower=0.0,
-                             desc='Tolerance for termination. For detailed '
-                             'control, use solver-specific options.')
-        self.options.declare('maxiter', 200, lower=0,
-                             desc='Maximum number of iterations.')
-        self.options.declare('disp', default=True, types=(int, bool),
-                             desc='Value of "disp" argument provided to scipy.optimize.minimize '
-                             'which controls the verbosity of the optimization.')
-        self.options.declare('singular_jac_behavior', default='warn',
-                             values=['error', 'warn', 'ignore'],
-                             desc='Defines behavior of a zero row/col check after first call to'
-                             'compute_totals:'
-                             'error - raise an error.'
-                             'warn - raise a warning.'
-                             "ignore - don't perform check.")
-        self.options.declare('singular_jac_tol', default=1e-16,
-                             desc='Tolerance for zero row/column check.')
 
     def _get_name(self):
         """
@@ -861,6 +812,29 @@ class ScipyOptimizeDriver(Driver):
             return -grad[grad_idx, :]
         else:
             return grad[grad_idx, :]
+
+
+class ScipyOptimizeDriverOptions(DriverOptions):
+    optimizer: str = Field(default="SLSQP", desc="Name of optimizer to use.")
+    tol: float = \
+        Field(default=1.0e-6,
+              desc="Tolerance for termination. For detailed control, use solver-specific options.")
+    maxiter: int = Field(default=200, desc="Maximum number of iterations.")
+    disp: Union[int, bool] = Field(default=True,
+                       desc='Value of "disp" argument provided to scipy.optimize.minimize '
+                       'which controls the verbosity of the optimization.')
+    singular_jac_behavior: str = \
+        Field(default='warn',
+              desc="Defines behavior of a zero row/col check after first call to compute_totals:\n"
+              "   error - raise an error.\n"
+              "   warn - raise a warning.\n"
+              "   ignore - don't perform check.")
+    singular_jac_tol: float = Field(default=1e-16, desc='Tolerance for zero row/column check.')
+
+
+@dmm.register(ScipyOptimizeDriver)
+class ScipyOptimizeDriverModel(DriverModel):
+    options: ScipyOptimizeDriverOptions = Field(default_factory=ScipyOptimizeDriverOptions)
 
 
 def signature_extender(fcn, extra_args):

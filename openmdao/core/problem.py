@@ -59,7 +59,8 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.file_utils import _get_outputs_dir, text2html, _get_work_dir
 from openmdao.utils.testing_utils import _fix_comp_check_data
 from openmdao.utils.name_maps import DISTRIBUTED
-from openmdao.utils.validation import DataModelManager as dmm, TypeBaseModel, OptionsBaseModel
+from openmdao.utils.validation import DataModelManager as dmm, TypeBaseModel, OptionsBaseModel, \
+    PolymorphicModel
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
@@ -132,35 +133,6 @@ def _default_prob_name():
     return name.stem
 
 
-class ProblemOptions(OptionsBaseModel):
-    work_dir: str = Field(default=_get_work_dir(), desc="Working directory for the problem.")
-    coloring_dir: str = Field(default=None,
-                              desc="Directory containing coloring files (if any) for this Problem.")
-    group_by_pre_opt_post: bool = \
-        Field(default=False,
-              desc="If True, group subsystems of the top level model into pre-optimization, "
-                    "optimization, and post-optimization, and only iterate over the optimization "
-                    "subsystems during optimization.  This applies only when the top level "
-                    "nonlinear solver is of type NonlinearRunOnce.")
-    allow_post_setup_reorder: bool = \
-        Field(default=True,
-              desc="If True, the execution order of direct subsystems of any group that sets its "
-                    "'auto_order' option to True will be automatically ordered according to data "
-                    "dependencies. If this option is False, the 'auto_order' option will be "
-                    "ignored and a warning will be issued for each group that has set it to True. "
-                    "Note that subsystems of a Group that form a cycle will never be reordered, "
-                    "regardless of the value of the 'auto_order' option.")
-
-
-class ProblemModel(TypeBaseModel):
-    name: str = Field(default=None, desc='The name of the problem.')
-    model: GroupModel = Field(default=None)
-    driver: DriverModel = Field(default=None)
-    reports: Union[str, bool, list[str], None] = Field(default=None)
-    options: ProblemOptions = Field(default_factory=ProblemOptions)
-
-
-@dmm.register(ProblemModel)
 class Problem(object, metaclass=ProblemMetaclass):
     """
     Top-level container for the systems and drivers.
@@ -183,7 +155,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         Since none is acceptable in the environment variable, a value of reports=None
         is equivalent to reports=False. Otherwise, reports may be a sequence of
         strings giving the names of the reports to run.
-    **options : named args
+    **kwargs : named args
         All remaining named args are converted to options.
 
     Attributes
@@ -237,7 +209,7 @@ class Problem(object, metaclass=ProblemMetaclass):
     """
 
     def __init__(self, model=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
-                 **options):
+                 **kwargs):
         """
         Initialize attributes.
         """
@@ -246,7 +218,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         # this function doesn't do anything after the first call
         _load_report_plugins()
 
-        self._data_model = None
         self._driver = None
         self._reports = get_reports_to_activate(reports)
 
@@ -286,8 +257,6 @@ class Problem(object, metaclass=ProblemMetaclass):
             raise TypeError(self.msginfo +
                             ": The value provided for 'driver' is not a valid Driver.")
 
-        self._update_reports(driver)
-
         # can't use driver property here without causing a lint error, so just do it manually
         self._driver = driver
 
@@ -295,11 +264,19 @@ class Problem(object, metaclass=ProblemMetaclass):
         self._run_counter = -1
         self._rec_mgr = RecordingManager()
 
-        self._declare_options(options)
+        data_model = kwargs.pop('data_model', None)
+        if data_model is None:
+            self.init_data_model()
+        else:
+            self.data_model = data_model
+            self.update_from_data_model(data_model)
+
+        self._update_reports(self._driver)
+
+        self._declare_options(kwargs)
 
         # Options passed to models
         self.model_options = {}
-
 
         # register hooks for any reports
         activate_reports(self._reports, self)
@@ -315,9 +292,9 @@ class Problem(object, metaclass=ProblemMetaclass):
         """
         Declare options before kwargs are processed in the init method.
         """
-        model = self.get_data_model()
-        self.options = model.options
-        self.options.update(options)
+        # model = self.get_data_model()
+        # self.options = model.options
+        self.data_model.options.update(options)
 
         # # General options
         # self.options = OptionsDictionary(msginfo=type(self).__name__)
@@ -2656,27 +2633,52 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             return coloring
 
-    @classmethod
-    def from_data_model(cls, data_model: BaseModel) -> 'Problem':
-        """Create an instance from a dictionary."""
-        instance = dmm.inst_from_type_model(cls, data_model)
-        instance._data_model = data_model.copy()
-        instance.update_from_data_model(instance._data_model)
-        return instance
-        
     def update_from_data_model(self, data_model):
-        self.model = dmm.from_data_model(data_model.model)
+        self.name = data_model.name
+        self.model = dmm.from_data_model(data_model.model, orig=self.model)
+        self.driver = dmm.from_data_model(data_model.driver, orig=self.driver)
+        self.options = data_model.options
+        self.reports = data_model.reports
+        return self
 
-    def get_data_model(self):
-        if self._data_model is None:
-            self._data_model = dmm.class_to_data_model_instance(self.__class__)
-            self.options = self._data_model.options
-            self.reports = self._data_model.reports
-        return self._data_model
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
 
     def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
         """Convert this instance to a dictionary."""
-        return self._data_model.model_dump(exclude_none=exclude_none)
+        return self.data_model.model_dump(exclude_none=exclude_none)
+
+
+class ProblemOptions(OptionsBaseModel):
+    work_dir: str = Field(default=_get_work_dir(), desc="Working directory for the problem.")
+    coloring_dir: str = Field(default=None,
+                              desc="Directory containing coloring files (if any) for this Problem.")
+    group_by_pre_opt_post: bool = \
+        Field(default=False,
+              desc="If True, group subsystems of the top level model into pre-optimization, "
+                    "optimization, and post-optimization, and only iterate over the optimization "
+                    "subsystems during optimization.  This applies only when the top level "
+                    "nonlinear solver is of type NonlinearRunOnce.")
+    allow_post_setup_reorder: bool = \
+        Field(default=True,
+              desc="If True, the execution order of direct subsystems of any group that sets its "
+                    "'auto_order' option to True will be automatically ordered according to data "
+                    "dependencies. If this option is False, the 'auto_order' option will be "
+                    "ignored and a warning will be issued for each group that has set it to True. "
+                    "Note that subsystems of a Group that form a cycle will never be reordered, "
+                    "regardless of the value of the 'auto_order' option.")
+
+
+@dmm.register(Problem)
+class ProblemModel(TypeBaseModel):
+    name: str = Field(default=None, desc='The name of the problem.')
+    model: PolymorphicModel = Field(default_factory=GroupModel)
+    driver: PolymorphicModel = Field(default_factory=DriverModel)
+    reports: Union[str, bool, list[str], None] = Field(default=None)
+    options: ProblemOptions = Field(default_factory=ProblemOptions)
+
 
 def _fix_check_data(data):
     """

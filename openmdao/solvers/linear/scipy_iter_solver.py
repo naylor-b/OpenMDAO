@@ -23,26 +23,6 @@ _SOLVER_TYPES = {
 }
 
 
-class _ScipyKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
-
-    solver: str = Field(default='gmres', description='function handle for actual solver')
-    restart: int = Field(default=20,
-                         description='Number of iterations between restarts. Larger values '
-                         'increase iteration cost, but may be necessary for convergence. '
-                         'This option applies only to gmres.')
-    rhs_checking: Union[bool, Dict] = Field(default=False,
-                                            description="If True, check RHS vs. cache and/or "
-                                            "zero to avoid some solves. Can also be set to a "
-                                            "dict of options for the LinearRHSChecker to allow "
-                                            "finer control over it. Allowed options are: "
-                                            f"{LinearRHSChecker.options}")
-
-
-class ScipyKrylovModel(LinearSolverModel):
-    options: _ScipyKrylovOptions = Field(default_factory=_ScipyKrylovOptions)
-
-
-@dmm.register(ScipyKrylovModel)
 class ScipyKrylov(LinearSolver):
     """
     The Krylov iterative solvers in scipy.sparse.linalg.
@@ -339,3 +319,23 @@ class ScipyKrylov(LinearSolver):
             The preferred sparse format for the dr/do matrix of a split jacobian.
         """
         return 'csr'
+
+
+class _ScipyKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+
+    solver: str = Field(default='gmres', description='function handle for actual solver')
+    restart: int = Field(default=20,
+                         description='Number of iterations between restarts. Larger values '
+                         'increase iteration cost, but may be necessary for convergence. '
+                         'This option applies only to gmres.')
+    rhs_checking: Union[bool, Dict] = Field(default=False,
+                                            description="If True, check RHS vs. cache and/or "
+                                            "zero to avoid some solves. Can also be set to a "
+                                            "dict of options for the LinearRHSChecker to allow "
+                                            "finer control over it. Allowed options are: "
+                                            f"{LinearRHSChecker.options}")
+
+
+@dmm.register(ScipyKrylov)
+class ScipyKrylovModel(LinearSolverModel):
+    options: _ScipyKrylovOptions = Field(default_factory=_ScipyKrylovOptions)

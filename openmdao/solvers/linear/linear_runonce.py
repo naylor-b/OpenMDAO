@@ -8,11 +8,6 @@ from openmdao.solvers.solver import LinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class LinearRunOnceModel(LinearSolverModel):
-    options: _NonIterLinearBlockGSOptions = Field(default_factory=_NonIterLinearBlockGSOptions)
-
-
-@dmm.register(LinearRunOnceModel)
 class LinearRunOnce(LinearBlockGS):
     """
     Simple linear solver that performs a single iteration of Guass-Seidel.
@@ -47,3 +42,8 @@ class LinearRunOnce(LinearBlockGS):
 
         # reset after solve is done
         self._scope_in = self._scope_out = _UNDEFINED
+
+
+@dmm.register(LinearRunOnce)
+class LinearRunOnceModel(LinearSolverModel):
+    options: _NonIterLinearBlockGSOptions = Field(default_factory=_NonIterLinearBlockGSOptions)

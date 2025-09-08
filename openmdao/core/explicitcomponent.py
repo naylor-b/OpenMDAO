@@ -20,32 +20,6 @@ from openmdao.utils.validation import DataModelManager as dmm
 _tuplist = (tuple, list)
 
 
-class ExplicitComponentOptions(SystemOptions):
-    distributed: bool = Field(default=False,
-                             desc='If True, set all variables in this component as distributed '
-                                  'across multiple processes')
-    run_root_only: bool = Field(default=False,
-                             desc='If True, call compute, compute_partials, linearize, '
-                                  'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
-                                  'and compute_jacvec_product only on rank 0 and broadcast the '
-                                  'results to the other ranks.')
-    always_opt: bool = Field(default=False,
-                             desc='If True, force nonlinear operations on this component to be '
-                                  'included in the optimization loop even if this component is not '
-                                  'relevant to the design variables and responses.')
-    use_jit: bool = Field(default=True,
-                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
-                             'some other AD package capable of jitting is active.')
-    default_shape: tuple = Field(default=(1,),
-                             desc='Default shape for variables that do not set val to a non-scalar '
-                             'value or set shape, shape_by_conn, copy_shape, or compute_shape.'
-                             ' Default is (1,).')
-
-class ExplicitComponentModel(SystemModel):
-    options: ExplicitComponentOptions = Field(default_factory=ExplicitComponentOptions)
-
-
-@dmm.register(ExplicitComponentModel)
 class ExplicitComponent(Component):
     """
     Class to inherit from when all output variables are explicit.
@@ -643,3 +617,30 @@ class ExplicitComponent(Component):
             self._apply_nonlinear()
             self.compute_fd_jac(jac=jac, method=method)
         return jac.get_sparsity()
+
+
+class ExplicitComponentOptions(SystemOptions):
+    distributed: bool = Field(default=False,
+                             desc='If True, set all variables in this component as distributed '
+                                  'across multiple processes')
+    run_root_only: bool = Field(default=False,
+                             desc='If True, call compute, compute_partials, linearize, '
+                                  'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
+                                  'and compute_jacvec_product only on rank 0 and broadcast the '
+                                  'results to the other ranks.')
+    always_opt: bool = Field(default=False,
+                             desc='If True, force nonlinear operations on this component to be '
+                                  'included in the optimization loop even if this component is not '
+                                  'relevant to the design variables and responses.')
+    use_jit: bool = Field(default=True,
+                             desc='If True, attempt to use jit on compute_primal, assuming jax or '
+                             'some other AD package capable of jitting is active.')
+    default_shape: tuple = Field(default=(1,),
+                             desc='Default shape for variables that do not set val to a non-scalar '
+                             'value or set shape, shape_by_conn, copy_shape, or compute_shape.'
+                             ' Default is (1,).')
+
+
+@dmm.register(ExplicitComponent)
+class ExplicitComponentModel(SystemModel):
+    options: ExplicitComponentOptions = Field(default_factory=ExplicitComponentOptions)

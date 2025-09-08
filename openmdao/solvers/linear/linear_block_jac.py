@@ -6,15 +6,6 @@ from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptio
 from openmdao.solvers.solver import LinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
-class _LinearBlockJacOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
-    pass
-
-
-class LinearBlockJacModel(LinearSolverModel):
-    options: _LinearBlockJacOptions = Field(default_factory=_LinearBlockJacOptions)
-
-
-@dmm.register(LinearBlockJacModel)
 class LinearBlockJac(BlockLinearSolver):
     """
     Linear block Jacobi solver.
@@ -76,3 +67,12 @@ class LinearBlockJac(BlockLinearSolver):
             for i, subsys in enumerate(subs):
                 scope_out, scope_in = scopelist[i]
                 subsys._solve_linear(mode, scope_out, scope_in)
+
+
+class _LinearBlockJacOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+    pass
+
+
+@dmm.register(LinearBlockJac)
+class LinearBlockJacModel(LinearSolverModel):
+    options: _LinearBlockJacOptions = Field(default_factory=_LinearBlockJacOptions)

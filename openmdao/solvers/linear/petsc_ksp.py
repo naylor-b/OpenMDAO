@@ -167,24 +167,6 @@ class Monitor(object):
         self._solver._iter_count += 1
 
 
-class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
-    ksp_type: str = Field(default='fgmres', values=KSP_TYPES,
-                          description='KSP algorithm to use. Default is \'fgmres\'.')
-    restart: int = Field(default=1000, types=int,
-                         desc='Number of iterations between restarts. Larger values increase '
-                         'iteration cost, but may be necessary for convergence')
-    precon_side: str = Field(default='right', values=['left', 'right'],
-                             desc='Preconditioner side, default is right.')
-    rhs_checking: bool = Field(default=False,
-                               desc="If True, check RHS vs. cache and/or zero to avoid some "
-                               "solves.")
-
-
-class PETScKrylovModel(LinearSolverModel):
-    options: _PETScKrylovOptions = Field(default_factory=_PETScKrylovOptions)
-
-
-@dmm.register(PETScKrylovModel)
 class PETScKrylov(LinearSolver):
     """
     LinearSolver that uses PetSC KSP to solve for a system's derivatives.
@@ -521,3 +503,21 @@ class PETScKrylov(LinearSolver):
             The preferred sparse format for the dr/do matrix of a split jacobian.
         """
         return 'csr'
+
+
+class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
+    ksp_type: str = Field(default='fgmres', values=KSP_TYPES,
+                          description='KSP algorithm to use. Default is \'fgmres\'.')
+    restart: int = Field(default=1000, types=int,
+                         desc='Number of iterations between restarts. Larger values increase '
+                         'iteration cost, but may be necessary for convergence')
+    precon_side: str = Field(default='right', values=['left', 'right'],
+                             desc='Preconditioner side, default is right.')
+    rhs_checking: bool = Field(default=False,
+                               desc="If True, check RHS vs. cache and/or zero to avoid some "
+                               "solves.")
+
+
+@dmm.register(PETScKrylov)
+class PETScKrylovModel(LinearSolverModel):
+    options: _PETScKrylovOptions = Field(default_factory=_PETScKrylovOptions)

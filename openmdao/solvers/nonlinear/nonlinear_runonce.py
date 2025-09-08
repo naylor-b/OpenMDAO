@@ -13,15 +13,6 @@ from openmdao.solvers.solver import NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class _NonlinearRunOnceOptions(_NonIterSolverOptions):
-    pass
-
-
-class NonlinearRunOnceModel(NonlinearSolverModel):
-    options: _NonlinearRunOnceOptions = Field(default_factory=_NonlinearRunOnceOptions)
-
-
-@dmm.register(NonlinearRunOnceModel)
 class NonlinearRunOnce(NonlinearSolver):
     """
     Simple solver that runs the containing system once.
@@ -60,3 +51,12 @@ class NonlinearRunOnce(NonlinearSolver):
 
             rec.abs = 0.0
             rec.rel = 0.0
+
+
+class _NonlinearRunOnceOptions(_NonIterSolverOptions):
+    pass
+
+
+@dmm.register(NonlinearRunOnce)
+class NonlinearRunOnceModel(NonlinearSolverModel):
+    options: _NonlinearRunOnceOptions = Field(default_factory=_NonlinearRunOnceOptions)
