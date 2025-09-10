@@ -1,9 +1,13 @@
 """Define the SplineComp class."""
 import numpy as np
+from typing import List, Union, Optional, Dict, Any
+from pydantic import Field, ConfigDict, field_validator
 
 from openmdao.components.interp_util.interp import InterpND
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.components.interp_util.interp import SPLINE_METHODS
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class SplineComp(ExplicitComponent):
@@ -39,30 +43,6 @@ class SplineComp(ExplicitComponent):
         self._n_cp = None
 
         self._no_check_partials = True
-
-    def _declare_options(self):
-        """
-        Declare options.
-        """
-        super()._declare_options()
-
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='Number of points to evaluate at once.')
-        self.options.declare('method', values=SPLINE_METHODS, default='akima',
-                             desc='Spline interpolation method to use for all outputs.')
-        self.options.declare('x_interp_val', types=(list, np.ndarray),
-                             desc='List/array of x interpolated point values.')
-        self.options.declare('x_cp_val', default=None, types=(list, np.ndarray), allow_none=True,
-                             desc='List/array of x control point values, must be monotonically '
-                             'increasing. Optional alternative to num_cp. Not applicable for '
-                             'bsplines. ')
-        self.options.declare('num_cp', default=None, types=(int, ), allow_none=True,
-                             desc='Number of spline control points. Optional alternative to '
-                             'x_cp_val. Required for bsplines. If None, num_cp will be a linspace '
-                             'from 0 to 1.')
-        self.options.declare('interp_options', types=dict, default={},
-                             desc='Dict contains the name and value of options specific to the '
-                             'chosen interpolation method.')
 
     def add_spline(self, y_cp_name, y_interp_name, y_cp_val=None, y_units=None):
         """
@@ -198,3 +178,34 @@ class SplineComp(ExplicitComponent):
             dy_ddata = interp.spline_gradient()
 
             partials[out_name, cp_name] = dy_ddata.flatten()
+
+
+class SplineCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
+    method: str = Field(default='akima', desc='Spline interpolation method to use for all outputs.')
+    x_interp_val: Union[List[float], np.ndarray] = Field(default_factory=list, desc='List/array of x interpolated point values.')
+    x_cp_val: Optional[Union[List[float], np.ndarray]] = Field(default=None,
+                                                               desc='List/array of x control point values, must be monotonically '
+                                                                    'increasing. Optional alternative to num_cp. Not applicable for '
+                                                                    'bsplines.')
+    num_cp: Optional[int] = Field(default=None,
+                                  desc='Number of spline control points. Optional alternative to '
+                                       'x_cp_val. Required for bsplines. If None, num_cp will be a linspace '
+                                       'from 0 to 1.')
+    interp_options: Dict[str, Any] = Field(default_factory=dict,
+                                           desc='Dict contains the name and value of options specific to the '
+                                                'chosen interpolation method.')
+
+    @field_validator('method')
+    @classmethod
+    def validate_method(cls, v):
+        if v not in SPLINE_METHODS:
+            raise ValueError(f"Method '{v}' is not valid. Must be one of {SPLINE_METHODS}")
+        return v
+
+
+@dmm.register(SplineComp)
+class SplineCompModel(ExplicitComponentModel):
+    options: SplineCompOptions = Field(default_factory=SplineCompOptions)

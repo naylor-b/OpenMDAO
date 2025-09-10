@@ -15,7 +15,7 @@ import warnings
 from fnmatch import fnmatchcase
 from numbers import Integral
 from pydantic import Field, BaseModel, ConfigDict
-from typing import List, Union, Tuple, Any
+from typing import List, Union, Tuple
 
 import numpy as np
 
@@ -7175,11 +7175,11 @@ class System(object, metaclass=SystemMetaclass):
         """
         pass
 
-    def init_data_model(self):
+    def init_data_model(self, **kwargs):
         """
         Create a new data model for this instance.
         """
-        self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
+        self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name, **kwargs)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
