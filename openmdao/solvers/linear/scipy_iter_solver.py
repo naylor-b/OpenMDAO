@@ -65,6 +65,26 @@ class ScipyKrylov(LinearSolver):
             for tup in self.precon._assembled_jac_solver_iter():
                 yield tup
 
+    def check_config(self, logger):
+        """
+        Perform optional error checks.
+
+        Parameters
+        ----------
+        logger : object
+            The object that manages logging output.
+        """
+        if self.options['rhs_checking'] is False:
+            system = self._system()
+            redundant_adj = system.pathname in system._relevance.get_redundant_adjoint_systems()
+            if redundant_adj:
+                logger.info(
+                    f"\n'rhs_checking' is disabled for '{system.linear_solver.msginfo}'"
+                    ", but that solver has redundant adjoint solves. If it is "
+                    "expensive to compute derivatives for this solver, turning on "
+                    "'rhs_checking' may improve performance.\n"
+                )
+
     def _setup_solvers(self, system, depth):
         """
         Assign system instance, set depth, and optionally perform setup.

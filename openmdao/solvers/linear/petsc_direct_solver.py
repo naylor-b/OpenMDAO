@@ -13,6 +13,7 @@ from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 from openmdao.utils.validation import DataModelManager as dmm
+from openmdao.utils.mpi import FakeComm
 
 try:
     from petsc4py import PETSc
@@ -22,7 +23,7 @@ try:
     from mpi4py import MPI
     DEFAULT_COMM = MPI.COMM_WORLD
 except ImportError:
-    DEFAULT_COMM = None
+    DEFAULT_COMM = FakeComm()
 
 
 class _SolverType(str, enum.Enum):
@@ -295,6 +296,26 @@ class PETScDirectSolver(DirectSolver):
 
         if PETSc is None:
             raise RuntimeError(f"{self.msginfo}: PETSc is not available. ")
+
+    def check_config(self, logger):
+        """
+        Perform optional error checks.
+
+        Parameters
+        ----------
+        logger : object
+            The object that manages logging output.
+        """
+        if self.options['rhs_checking'] is False:
+            system = self._system()
+            redundant_adj = system.pathname in system._relevance.get_redundant_adjoint_systems()
+            if redundant_adj:
+                logger.info(
+                    f"\n'rhs_checking' is disabled for '{system.linear_solver.msginfo}'"
+                    ", but that solver has redundant adjoint solves. If it is "
+                    "expensive to compute derivatives for this solver, turning on "
+                    "'rhs_checking' may improve performance.\n"
+                )
 
     def _setup_solvers(self, system, depth):
         """

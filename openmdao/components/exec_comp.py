@@ -1082,7 +1082,7 @@ class ExecComp(ExplicitComponent):
                         if subval_is_scalar:
                             partials[u, inp] = imag(subval * inv_stepsize)
                         else:
-                            partials[u, inp] = imag(subval * inv_stepsize).flat
+                            partials[u, inp] = imag(subval * inv_stepsize).ravel()
 
                 # restore old input value
                 ival -= step
