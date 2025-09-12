@@ -1,6 +1,10 @@
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DynamicPressureComp(om.ExplicitComponent):
@@ -26,8 +30,6 @@ class LiftDragForceComp(om.ExplicitComponent):
     Compute the aerodynamic forces on the vehicle in the wind axis frame
     (lift, drag, cross) force.
     """
-    def initialize(self):
-        self.options.declare('num_nodes', types=int)
 
     def setup(self):
         self.add_input(name='CL', val=0.0,
@@ -68,8 +70,6 @@ class FlightPathEOM2D(om.ExplicitComponent):
     ----------
     .. [1] Bryson, Arthur Earl. Dynamic optimization. Vol. 1. Prentice Hall, p.172, 1999.
     """
-    def initialize(self):
-        self.options.declare('num_nodes', types=int)
 
     def setup(self):
         self.add_input(name='m', val=1.0, units='kg',
@@ -142,3 +142,21 @@ class CannonballODE(om.Group):
 
         self.connect('aero.f_drag', 'D')
         self.connect('aero.f_lift', 'L')
+
+
+class LiftDragForceCompOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+
+
+class FlightPathEOM2DOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+
+
+@dmm.register(LiftDragForceComp)
+class LiftDragForceCompModel(ExplicitComponentModel):
+    options: LiftDragForceCompOptions = Field(default_factory=LiftDragForceCompOptions)
+
+
+@dmm.register(FlightPathEOM2D)
+class FlightPathEOM2DModel(ExplicitComponentModel):
+    options: FlightPathEOM2DOptions = Field(default_factory=FlightPathEOM2DOptions)

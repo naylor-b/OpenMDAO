@@ -1,8 +1,11 @@
 """Definition of the Dot Product Component."""
 
 import numpy as np
+from typing import Optional
+from pydantic import Field, ConfigDict
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DotProductComp(ExplicitComponent):
@@ -45,26 +48,6 @@ class DotProductComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='The number of points at which the dot product is computed')
-        self.options.declare('length', types=int, default=3,
-                             desc='The length of vectors a and b')
-        self.options.declare('a_name', types=str, default='a',
-                             desc='The variable name for input vector a.')
-        self.options.declare('b_name', types=str, default='b',
-                             desc='The variable name for input vector b.')
-        self.options.declare('c_name', types=str, default='c',
-                             desc='The variable name for output vector c.')
-        self.options.declare('a_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector a.')
-        self.options.declare('b_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector b.')
-        self.options.declare('c_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector c.')
 
     def add_product(self, c_name, a_name='a', b_name='b', c_units=None, a_units=None, b_units=None,
                     vec_size=1, length=3):
@@ -200,3 +183,21 @@ class DotProductComp(ExplicitComponent):
             # Use the following for sparse partials
             partials[product['c_name'], product['a_name']] = b.ravel()
             partials[product['c_name'], product['b_name']] = a.ravel()
+
+
+class DotProductCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vec_size: int = Field(default=1, desc='The number of points at which the dot product is computed')
+    length: int = Field(default=3, desc='The length of vectors a and b')
+    a_name: str = Field(default='a', desc='The variable name for input vector a.')
+    b_name: str = Field(default='b', desc='The variable name for input vector b.')
+    c_name: str = Field(default='c', desc='The variable name for output vector c.')
+    a_units: Optional[str] = Field(default=None, desc='The units for vector a.')
+    b_units: Optional[str] = Field(default=None, desc='The units for vector b.')
+    c_units: Optional[str] = Field(default=None, desc='The units for vector c.')
+
+
+@dmm.register(DotProductComp)
+class DotProductCompModel(ExplicitComponentModel):
+    options: DotProductCompOptions = Field(default_factory=DotProductCompOptions)

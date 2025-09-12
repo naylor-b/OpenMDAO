@@ -1,15 +1,15 @@
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import splu
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class StatesComp(om.ImplicitComponent):
 
-    def initialize(self):
-        self.options.declare('num_elements', types=int)
-        self.options.declare('force_vector', types=np.ndarray)
 
     def setup(self):
         num_elements = self.options['num_elements']
@@ -115,3 +115,15 @@ class StatesComp(om.ImplicitComponent):
 
         n_K = 2 * num_nodes + 2
         return coo_matrix((data, (rows, cols)), shape=(n_K, n_K)).tocsc()
+
+
+class StatesCompOptions(ImplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    num_elements: int = Field(default=0, desc='Number of beam elements')
+    force_vector: np.ndarray = Field(default=np.zeros(0), desc='Force vector')
+
+
+@dmm.register(StatesComp)
+class StatesCompModel(ImplicitComponentModel):
+    options: StatesCompOptions = Field(default_factory=StatesCompOptions)

@@ -6,12 +6,16 @@ import io
 from contextlib import redirect_stdout
 import numpy as np
 import warnings
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.api import Problem, Group, IndepVarComp, ExecComp, ExplicitComponent
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.components.exec_comp import ExecCompOptions, ExecCompModel
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_warnings
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.file_utils import _get_work_dir
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.paraboloid_problem import ParaboloidProblem
 from openmdao.test_suite.scripts.circuit_analysis import Circuit
 from openmdao.test_suite.components.sellar_feature import SellarMDA
@@ -20,6 +24,31 @@ from openmdao.test_suite.components.sellar import SellarProblem
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2
 from openmdao.test_suite.components.sellar import SellarNoDerivatives
+
+
+class MyOptionsGroup(om.Group):
+    pass
+
+class MyOptionsGroupOptions(GroupOptions):
+    foo: int = 0
+    bar: float = 0.0
+    baz: str = ''
+
+@dmm.register(MyOptionsGroup)
+class MyOptionsGroupModel(GroupModel):
+    options: MyOptionsGroupOptions = Field(default_factory=MyOptionsGroupOptions)
+
+class MyOptionsExecComp(ExecComp):
+    pass
+
+class MyOptionsExecCompOptions(ExecCompOptions):
+    foo: int = 0
+    bar: float = 0.0
+    baz: str = ''
+
+@dmm.register(MyOptionsExecComp)
+class MyOptionsExecCompModel(ExecCompModel):
+    options: MyOptionsExecCompOptions = Field(default_factory=MyOptionsExecCompOptions)
 
 
 @use_tempdirs
@@ -547,24 +576,15 @@ class TestSystem(unittest.TestCase):
         })
 
     def test_model_options_set_all(self):
-
-        def declare_options(system):
-            system.options.declare('foo', types=(int,))
-            system.options.declare('bar', types=(float,))
-            system.options.declare('baz', types=(str,))
-
         p = om.Problem()
 
-        G0 = p.model.add_subsystem('G0', om.Group())
-        G1 = G0.add_subsystem('G1', om.Group())
-        C1 = G0.add_subsystem('C1', om.ExecComp('y1 = a * x + b'))
-        G2 = G1.add_subsystem('G2', om.Group())
-        C2 = G1.add_subsystem('C2', om.ExecComp('y2 = y1**2'))
-        G3 = G2.add_subsystem('G3', om.Group())
-        C3 = G2.add_subsystem('C3', om.ExecComp('y3 = y2**3'))
-
-        for system in (G0, G1, C1, G2, C2, G3, C3):
-            declare_options(system)
+        G0 = p.model.add_subsystem('G0', MyOptionsGroup())
+        G1 = G0.add_subsystem('G1', MyOptionsGroup())
+        C1 = G0.add_subsystem('C1', MyOptionsExecComp('y1 = a * x + b'))
+        G2 = G1.add_subsystem('G2', MyOptionsGroup())
+        C2 = G1.add_subsystem('C2', MyOptionsExecComp('y2 = y1**2'))
+        G3 = G2.add_subsystem('G3', MyOptionsGroup())
+        C3 = G2.add_subsystem('C3', MyOptionsExecComp('y3 = y2**3'))
 
         G0.connect('C1.y1', 'G1.C2.y1')
         G0.connect('G1.C2.y2', 'G1.G2.C3.y2')
@@ -579,24 +599,15 @@ class TestSystem(unittest.TestCase):
             self.assertEqual(system.options['baz'], 'fizz')
 
     def test_model_options_with_filter(self):
-
-        def declare_options(system):
-            system.options.declare('foo', types=(int,))
-            system.options.declare('bar', types=(float,))
-            system.options.declare('baz', types=(str,))
-
         p = om.Problem()
 
-        G0 = p.model.add_subsystem('G0', om.Group())
-        G1 = G0.add_subsystem('G1', om.Group())
-        C1 = G0.add_subsystem('C1', om.ExecComp('y1 = a * x + b'))
-        G2 = G1.add_subsystem('G2', om.Group())
-        C2 = G1.add_subsystem('C2', om.ExecComp('y2 = y1**2'))
-        G3 = G2.add_subsystem('G3', om.Group())
-        C3 = G2.add_subsystem('C3', om.ExecComp('y3 = y2**3'))
-
-        for system in (G0, G1, C1, G2, C2, G3, C3):
-            declare_options(system)
+        G0 = p.model.add_subsystem('G0', MyOptionsGroup())
+        G1 = G0.add_subsystem('G1', MyOptionsGroup())
+        C1 = G0.add_subsystem('C1', MyOptionsExecComp('y1 = a * x + b'))
+        G2 = G1.add_subsystem('G2', MyOptionsGroup())
+        C2 = G1.add_subsystem('C2', MyOptionsExecComp('y2 = y1**2'))
+        G3 = G2.add_subsystem('G3', MyOptionsGroup())
+        C3 = G2.add_subsystem('C3', MyOptionsExecComp('y3 = y2**3'))
 
         G0.connect('C1.y1', 'G1.C2.y1')
         G0.connect('G1.C2.y2', 'G1.G2.C3.y2')
@@ -617,24 +628,15 @@ class TestSystem(unittest.TestCase):
                 self.assertEqual(system.options['baz'], 'im_a_component')
 
     def test_model_options_override(self):
-
-        def declare_options(system):
-            system.options.declare('foo', types=(int,), default=0)
-            system.options.declare('bar', types=(float,), default=0.0)
-            system.options.declare('baz', types=(str,), default='')
-
         p = om.Problem()
 
-        G0 = p.model.add_subsystem('G0', om.Group())
-        G1 = G0.add_subsystem('G1', om.Group())
-        C1 = G0.add_subsystem('C1', om.ExecComp('y1 = a * x + b'))
-        G2 = G1.add_subsystem('G2', om.Group())
-        C2 = G1.add_subsystem('C2', om.ExecComp('y2 = y1**2'))
-        G3 = G2.add_subsystem('G3', om.Group())
-        C3 = G2.add_subsystem('C3', om.ExecComp('y3 = y2**3'))
-
-        for system in (G0, G1, C1, G2, C2, G3, C3):
-            declare_options(system)
+        G0 = p.model.add_subsystem('G0', MyOptionsGroup())
+        G1 = G0.add_subsystem('G1', MyOptionsGroup())
+        C1 = G0.add_subsystem('C1', MyOptionsExecComp('y1 = a * x + b'))
+        G2 = G1.add_subsystem('G2', MyOptionsGroup())
+        C2 = G1.add_subsystem('C2', MyOptionsExecComp('y2 = y1**2'))
+        G3 = G2.add_subsystem('G3', MyOptionsGroup())
+        C3 = G2.add_subsystem('C3', MyOptionsExecComp('y3 = y2**3'))
 
         G0.connect('C1.y1', 'G1.C2.y1')
         G0.connect('G1.C2.y2', 'G1.G2.C3.y2')

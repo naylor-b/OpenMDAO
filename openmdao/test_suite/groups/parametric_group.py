@@ -1,5 +1,8 @@
 """Define the test group classes."""
-from openmdao.core.group import Group
+from pydantic import Field, ConfigDict
+
+from openmdao.core.group import Group, GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class ParametericTestGroup(Group):
@@ -32,16 +35,18 @@ class ParametericTestGroup(Group):
             'jacobian_type': ['matvec', 'dense', 'sparse-csc'],
         }
 
-        super().__init__()
+        super().__init__(**kwargs)
 
-        self.options.declare('local_vector_class', default='default',
-                             values=['default', 'petsc'],
-                             desc='Which local vector implementation to use.')
-        self.options.declare('assembled_jac', default=True,
-                             types=bool,
-                             desc='If an assemebled Jacobian should be used.')
-        self.options.declare('jacobian_type', default='matvec',
-                             values=['dense', 'matvec', 'sparse-csc'],
-                             desc='Controls the type of the assembled jacobian.')
 
-        self.options.update(kwargs)
+        #self.options.update(kwargs)
+
+
+class ParametericTestGroupOptions(GroupOptions):
+    local_vector_class: str = Field(default='default', desc='Which local vector implementation to use.')
+    assembled_jac: bool = Field(default=True, desc='If an assemebled Jacobian should be used.')
+    jacobian_type: str = Field(default='matvec', desc='Controls the type of the assembled jacobian.')
+
+
+@dmm.register(ParametericTestGroup)
+class ParametericTestGroupModel(GroupModel):
+    options: ParametericTestGroupOptions = Field(default_factory=ParametericTestGroupOptions)

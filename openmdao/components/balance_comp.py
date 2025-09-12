@@ -5,7 +5,7 @@ from typing import Callable
 import numpy as np
 from pydantic import Field
 
-from openmdao.core.implicitcomponent import ImplicitComponent, _ImplicitComponentOptions, \
+from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, \
     ImplicitComponentModel
 from openmdao.utils import cs_safe
 from openmdao.utils.general_utils import ensure_compatible
@@ -404,7 +404,7 @@ class BalanceComp(ImplicitComponent):
                 self.declare_partials(of=name, wrt=options['mult_name'], diagonal=True, val=1.0)
 
 
-class BalanceCompOptions(_ImplicitComponentOptions):
+class BalanceCompOptions(ImplicitComponentOptions):
     guess_func: Callable = Field(default=None,
                                  desc='A callable function in the form '
                                  'f(inputs, outputs, residuals) that can provide an initial "guess" '

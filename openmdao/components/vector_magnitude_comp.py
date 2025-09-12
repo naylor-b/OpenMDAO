@@ -2,8 +2,11 @@
 
 
 import numpy as np
+from typing import Optional
+from pydantic import Field, ConfigDict
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class VectorMagnitudeComp(ExplicitComponent):
@@ -41,20 +44,6 @@ class VectorMagnitudeComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='The number of points at which the vector magnitude is computed')
-        self.options.declare('length', types=int, default=3,
-                             desc='The length of the input vector at each point')
-        self.options.declare('in_name', types=str, default='a',
-                             desc='The variable name for input vector.')
-        self.options.declare('units', types=str, default=None, allow_none=True,
-                             desc='The units of the input vector.')
-        self.options.declare('mag_name', types=str, default='a_mag',
-                             desc='The variable name for output vector magnitude.')
 
     def add_magnitude(self, mag_name, in_name, units=None, vec_size=1, length=3):
         """
@@ -158,3 +147,18 @@ class VectorMagnitudeComp(ExplicitComponent):
             # Use the following for sparse partials
             partials[magnitude['mag_name'], magnitude['in_name']] = \
                 a.ravel() / np.repeat(np.sqrt(np.einsum('ni,ni->n', a, a)), magnitude['length'])
+
+
+class VectorMagnitudeCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vec_size: int = Field(default=1, desc='The number of points at which the vector magnitude is computed')
+    length: int = Field(default=3, desc='The length of the input vector at each point')
+    in_name: str = Field(default='a', desc='The variable name for input vector.')
+    units: Optional[str] = Field(default=None, desc='The units of the input vector.')
+    mag_name: str = Field(default='a_mag', desc='The variable name for output vector magnitude.')
+
+
+@dmm.register(VectorMagnitudeComp)
+class VectorMagnitudeCompModel(ExplicitComponentModel):
+    options: VectorMagnitudeCompOptions = Field(default_factory=VectorMagnitudeCompOptions)

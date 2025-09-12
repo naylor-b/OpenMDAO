@@ -619,10 +619,7 @@ class ExplicitComponent(Component):
         return jac.get_sparsity()
 
 
-class ExplicitComponentOptions(SystemOptions):
-    distributed: bool = Field(default=False,
-                             desc='If True, set all variables in this component as distributed '
-                                  'across multiple processes')
+class NonDistributedExplicitComponentOptions(SystemOptions):
     run_root_only: bool = Field(default=False,
                              desc='If True, call compute, compute_partials, linearize, '
                                   'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
@@ -639,6 +636,12 @@ class ExplicitComponentOptions(SystemOptions):
                              desc='Default shape for variables that do not set val to a non-scalar '
                              'value or set shape, shape_by_conn, copy_shape, or compute_shape.'
                              ' Default is (1,).')
+
+
+class ExplicitComponentOptions(NonDistributedExplicitComponentOptions):
+    distributed: bool = Field(default=False,
+                             desc='If True, set all variables in this component as distributed '
+                                  'across multiple processes')
 
 
 @dmm.register(ExplicitComponent)

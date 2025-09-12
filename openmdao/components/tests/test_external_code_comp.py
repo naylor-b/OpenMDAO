@@ -6,9 +6,13 @@ import tempfile
 import unittest
 
 from scipy.optimize import fsolve
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.components.external_code_comp import STDOUT
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.assert_utils import assert_near_equal
 
@@ -242,9 +246,15 @@ class TestExternalCodeCompArgs(unittest.TestCase):
         self.assertTrue(extcode.options['poll_delay'] == 999)
 
         # check subclass kwargs are also passed to options
+        class MyCompOptions(ExplicitComponentOptions):
+            my_arg: str = Field(default='foo', desc='subclass option')
+
         class MyComp(om.ExternalCodeComp):
-            def initialize(self):
-                self.options.declare('my_arg', 'foo', desc='subclass option')
+            pass
+
+        @dmm.register(MyComp)
+        class MyCompModel(ExplicitComponentModel):
+            options: MyCompOptions = Field(default_factory=MyCompOptions)
 
         my_comp = MyComp(poll_delay=999, my_arg='bar')
 
@@ -252,8 +262,8 @@ class TestExternalCodeCompArgs(unittest.TestCase):
         self.assertTrue(my_comp.options['my_arg'] == 'bar')
 
         # check that options are those declared in both classes
-        extcode_opts = set(extcode.options._dict.keys())
-        my_comp_opts = set(my_comp.options._dict.keys())
+        extcode_opts = set(extcode.options.keys())
+        my_comp_opts = set(my_comp.options.keys())
 
         self.assertEqual(my_comp_opts.difference(extcode_opts), set(('my_arg',)))
 
@@ -535,10 +545,10 @@ class TestExternalCodeImplicitCompFeature(unittest.TestCase):
 
     def test_simple_external_code_implicit_comp(self):
 
-        class MachExternalCodeComp(om.ExternalCodeImplicitComp):
+        class MachExternalCodeCompOptions(ImplicitComponentOptions):
+            super_sonic: bool = Field(default=False, desc='Whether the flow is supersonic')
 
-            def initialize(self):
-                self.options.declare('super_sonic', types=bool)
+        class MachExternalCodeComp(om.ExternalCodeImplicitComp):
 
             def setup(self):
                 self.add_input('area_ratio', val=1.0, units=None)
@@ -592,6 +602,11 @@ class TestExternalCodeImplicitCompFeature(unittest.TestCase):
                 with open(self.output_file, 'r') as output_file:
                     mach = float(output_file.read())
                 outputs['mach'] = mach
+
+        @dmm.register(MachExternalCodeComp)
+        class MachExternalCodeCompModel(ImplicitComponentModel):
+            options: MachExternalCodeCompOptions = Field(default_factory=MachExternalCodeCompOptions)
+
 
         group = om.Group()
         mach_comp = group.add_subsystem('comp', MachExternalCodeComp(), promotes=['*'])

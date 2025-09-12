@@ -121,19 +121,16 @@ class ImplicitFuncComp(ImplicitComponent):
         """
         Define our inputs and outputs.
         """
-        optignore = {'is_option'}
-
         for name, meta in self._apply_nonlinear_func.get_input_meta():
             _check_var_name(self, name)
             if 'is_option' in meta and meta['is_option']:
-                kwargs = _copy_with_ignore(meta, omf._allowed_declare_options_args,
-                                           ignore=optignore)
-                self.options.declare(name, **kwargs)
+                raise RuntimeError(f"{self.msginfo}: Dynamic options are no longer supported for "
+                                   "ImplicitFuncComp.")
             else:
                 kwargs = omf._filter_dict(meta, omf._allowed_add_input_args)
                 self.add_input(name, **kwargs)
 
-        for i, (name, meta) in enumerate(self._apply_nonlinear_func.get_output_meta()):
+        for name, meta in self._apply_nonlinear_func.get_output_meta():
             _check_var_name(self, name)
             kwargs = _copy_with_ignore(meta, omf._allowed_add_output_args, ignore=('resid',))
             self.add_output(name, **kwargs)

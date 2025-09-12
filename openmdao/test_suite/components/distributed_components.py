@@ -4,17 +4,17 @@ Distributed components.
 Components that are used in multiple places for testing distributed components.
 """
 import numpy as np
-import openmdao.api as om
+from pydantic import Field, ConfigDict
 
+import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.array_utils import evenly_distrib_idxs
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DistribComp(om.ExplicitComponent):
     """Simple Distributed Component."""
 
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         comm = self.comm
@@ -40,9 +40,6 @@ class DistribComp(om.ExplicitComponent):
 class Summer(om.ExplicitComponent):
     """Sums an input array."""
 
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         self.add_input('invec', np.ones(self.options['size'], float))
@@ -56,9 +53,6 @@ class Summer(om.ExplicitComponent):
 class DistribCompDerivs(om.ExplicitComponent):
     """Simple Distributed Component with Derivatives."""
 
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         comm = self.comm
@@ -100,9 +94,6 @@ class DistribCompDerivs(om.ExplicitComponent):
 class SummerDerivs(om.ExplicitComponent):
     """Sums an input array."""
 
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         self.add_input('invec', np.ones(self.options['size'], float))
@@ -115,3 +106,24 @@ class SummerDerivs(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['sum'] = np.sum(inputs['invec'])
+
+
+# Pydantic Models for Distributed Components
+
+class DistribCompOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
+class SummerOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
+# Register the models
+@dmm.register(DistribComp)
+class DistribCompModel(ExplicitComponentModel):
+    options: DistribCompOptions = Field(default_factory=DistribCompOptions)
+
+
+@dmm.register(Summer)
+class SummerModel(ExplicitComponentModel):
+    options: SummerOptions = Field(default_factory=SummerOptions)

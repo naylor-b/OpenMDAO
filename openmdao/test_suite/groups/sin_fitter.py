@@ -3,8 +3,12 @@
 """
 
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 def lgl(n, tol=np.finfo(float).eps):
@@ -157,8 +161,6 @@ class LGLFit(om.ExplicitComponent):
     Given values at discretization nodes, provide interpolated values at midpoint nodes and
     an approximation of arclength.
     """
-    def initialize(self):
-        self.options.declare(name='num_nodes', types=int)
 
     def setup(self):
         n = self.options['num_nodes']
@@ -186,8 +188,6 @@ class LGLFit(om.ExplicitComponent):
 
 class DefectComp(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare(name='num_nodes', types=int)
 
     def setup(self):
         n = self.options['num_nodes']
@@ -207,8 +207,6 @@ class DefectComp(om.ExplicitComponent):
 
 class ArcLengthFunction(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare(name='num_nodes', types=int)
 
     def setup(self):
         n = self.options['num_nodes']
@@ -232,8 +230,6 @@ class ArcLengthQuadrature(om.ExplicitComponent):
     """
     Computes the arclength of a polynomial segment whose values are given at the LGL nodes.
     """
-    def initialize(self):
-        self.options.declare(name='num_nodes', types=int)
 
     def setup(self):
         n = self.options['num_nodes']
@@ -301,3 +297,39 @@ class SineFitter(om.Group):
         self.add_design_var('y_lgl', lower=-1000.0, upper=1000.0)
         self.add_constraint('defect.defect', equals=0.)
         self.add_objective('arclength_quad.arclength')
+
+
+class LGLFitOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=8, desc='Number of nodes')
+
+
+class DefectCompOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=8, desc='Number of nodes')
+
+
+class ArcLengthFunctionOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=8, desc='Number of nodes')
+
+
+class ArcLengthQuadratureOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=8, desc='Number of nodes')
+
+
+@dmm.register(LGLFit)
+class LGLFitModel(ExplicitComponentModel):
+    options: LGLFitOptions = Field(default_factory=LGLFitOptions)
+
+
+@dmm.register(DefectComp)
+class DefectCompModel(ExplicitComponentModel):
+    options: DefectCompOptions = Field(default_factory=DefectCompOptions)
+
+
+@dmm.register(ArcLengthFunction)
+class ArcLengthFunctionModel(ExplicitComponentModel):
+    options: ArcLengthFunctionOptions = Field(default_factory=ArcLengthFunctionOptions)
+
+
+@dmm.register(ArcLengthQuadrature)
+class ArcLengthQuadratureModel(ExplicitComponentModel):
+    options: ArcLengthQuadratureOptions = Field(default_factory=ArcLengthQuadratureOptions)

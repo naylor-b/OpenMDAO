@@ -9,8 +9,10 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver
+from openmdao.core.driver import Driver, DriverOptions, DriverModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.solvers.nonlinear.nonlinear_run_once import NonlinearRunOnceOptions
 
 
 class BadOpt(object):
@@ -54,7 +56,7 @@ class NonSerIComp(om.ImplicitComponent):
         self.options.declare('problem')
 
 
-class _NonSerNLOptions(om.NonlinearRunOnce.options):
+class _NonSerNLOptions(NonlinearRunOnceOptions):
     bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
     bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
     nonrec: float = Field(3.0, exclude=True)
@@ -76,12 +78,18 @@ class NonSerLN(om.LinearRunOnce):
 
 
 class NonSerDriver(Driver):
+    pass
 
-    def _declare_options(self):
-        super()._declare_options()
-        self.options.declare('bad', [{(1, BadOpt): (2, 3)}])
-        self.options.declare('bad2', {((1, ), (2, )): 'stuff'})
-        self.options.declare('nonrec', 3.0, recordable=False)
+
+class NonSerDriverOptions(DriverOptions):
+    bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
+    bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
+    nonrec: float = Field(3.0, exclude=True)
+
+
+@dmm.register(NonSerDriver)
+class NonSerDriverModel(DriverModel):
+    options: NonSerDriverOptions = Field(default_factory=NonSerDriverOptions)
 
 
 @use_tempdirs

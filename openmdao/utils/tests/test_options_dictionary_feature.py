@@ -1,6 +1,7 @@
 import unittest
 
 import numpy as np
+from pydantic import Field, field_validator
 
 import openmdao.api as om
 from openmdao.test_suite.components.options_feature_array import ArrayMultiplyComp
@@ -8,6 +9,8 @@ from openmdao.test_suite.components.options_feature_function import UnitaryFunct
 from openmdao.test_suite.components.options_feature_lincomb import LinearCombinationComp
 from openmdao.test_suite.components.options_feature_vector import VectorDoublingComp
 from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class TestOptionsDictionary(unittest.TestCase):
@@ -71,10 +74,10 @@ class TestOptionsDictionary(unittest.TestCase):
 
     def test_simple_values(self):
 
-        class VectorDoublingComp(om.ExplicitComponent):
+        class VectorDoublingCompOptions(ExplicitComponentOptions):
+            size: int = Field(values=[2, 4, 6, 8], desc='Size of vector')
 
-            def initialize(self):
-                self.options.declare('size', values=[2, 4, 6, 8])
+        class VectorDoublingComp(om.ExplicitComponent):
 
             def setup(self):
                 size = self.options['size']
@@ -104,10 +107,16 @@ class TestOptionsDictionary(unittest.TestCase):
             if value % 2 != 0:
                 raise ValueError(f"Option '{name}' with value {value} must be an even number.")
 
-        class VectorDoublingComp(om.ExplicitComponent):
+        class VectorDoublingCompOptions2(ExplicitComponentOptions):
+            size: int = Field(default=2, desc='Size of vector (must be even)')
 
-            def initialize(self):
-                self.options.declare('size', types=int, lower=2, upper=8, check_valid=check_even)
+            @field_validator('size')
+            @classmethod
+            def check_even(cls, value):
+                if value % 2 != 0:
+                    raise ValueError(f"Option 'size' with value {value} must be an even number.")
+
+        class VectorDoublingComp(om.ExplicitComponent):
 
             def setup(self):
                 size = self.options['size']
@@ -125,6 +134,10 @@ class TestOptionsDictionary(unittest.TestCase):
             VectorDoublingComp(size=5)
         except Exception as err:
             self.assertEqual(str(err), "Option 'size' with value 5 must be an even number.")
+
+        @dmm.register(VectorDoublingComp)
+        class VectorDoublingCompModel(ExplicitComponentModel):
+            options: VectorDoublingCompOptions2 = Field(default_factory=VectorDoublingCompOptions2)
 
 
 if __name__ == "__main__":

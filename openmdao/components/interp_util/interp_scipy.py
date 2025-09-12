@@ -10,9 +10,11 @@ except ImportError:
         raise RuntimeError(msg)
 
 import numpy as np
+from pydantic import Field
 
-from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm
-from openmdao.utils.options_dictionary import OptionsDictionary
+from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
+    InterpAlgorithmOptions, InterpAlgorithmModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 SCIPY_ORDERS = {
     "scipy_slinear": 2,
@@ -55,9 +57,8 @@ class InterpScipy(InterpAlgorithm):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, kwargs)
 
         self._vectorized = True
 
@@ -80,13 +81,6 @@ class InterpScipy(InterpAlgorithm):
             if n_p <= k:
                 self._ki[-1] = n_p - 1
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('interp_method', default='scipy_slinear',
-                             values=["scipy_slinear", "scipy_cubic", "scipy_quintic"],
-                             desc='Interpolation method to use for scipy.')
 
     def check_config(self):
         """
@@ -314,3 +308,12 @@ class InterpScipy(InterpAlgorithm):
                 val = np.outer(val, interp(pt[i]))
 
         return val
+
+
+class InterpScipyOptions(InterpAlgorithmOptions):
+    interp_method: str = Field(default='scipy_slinear', desc='Interpolation method to use for scipy.')
+
+
+@dmm.register(InterpScipy)
+class InterpScipyModel(InterpAlgorithmModel):
+    options: InterpScipyOptions = Field(default_factory=InterpScipyOptions)

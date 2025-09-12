@@ -4,10 +4,12 @@ Interpolate using am Akima spline.
 Based on NPSS implementation, with improvements from Andrew Ning (BYU).
 """
 import numpy as np
+from pydantic import Field
 
 from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
-    InterpAlgorithmSemi, InterpAlgorithmFixed
+    InterpAlgorithmSemi, InterpAlgorithmFixed, InterpAlgorithmOptions, InterpAlgorithmModel
 from openmdao.utils.array_utils import abs_complex, dv_abs_complex, shape_to_len
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 def abs_smooth_complex(x, delta_x):
@@ -105,18 +107,6 @@ class InterpAkima(InterpAlgorithm):
         self.k = 4
         self._name = 'akima'
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('delta_x', default=0.,
-                             desc="half-width of the smoothing interval added in the valley of "
-                             "absolute-value function. This allows the derivatives with respect to"
-                             " the data points (dydxpt, dydypt) to also be C1 continuous. Set "
-                             "parameter to 0 to get the original Akima function (but only if you "
-                             "don't need dydxpt, dydypt")
-        self.options.declare('eps', default=1e-30,
-                             desc='Value that triggers division-by-zero safeguard.')
 
     def interpolate(self, x, idx, slice_idx):
         """
@@ -803,19 +793,6 @@ class InterpAkimaSemi(InterpAlgorithmSemi):
         self.k = 4
         self._name = 'akima'
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('delta_x', default=0.,
-                             desc="half-width of the smoothing interval added in the valley of "
-                             "absolute-value function. This allows the derivatives with respect to"
-                             " the data points (dydxpt, dydypt) to also be C1 continuous. Set "
-                             "parameter to 0 to get the original Akima function (but only if you "
-                             "don't need dydxpt, dydypt")
-        self.options.declare('eps', default=1e-30,
-                             desc='Value that triggers division-by-zero safeguard.')
-
     def interpolate(self, x):
         """
         Compute the interpolated value over this grid dimension.
@@ -1335,18 +1312,6 @@ class Interp1DAkima(InterpAlgorithmFixed):
         self._name = '1D-akima'
         self._vectorized = False
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('delta_x', default=0.,
-                             desc="half-width of the smoothing interval added in the valley of "
-                             "absolute-value function. This allows the derivatives with respect to"
-                             " the data points (dydxpt, dydypt) to also be C1 continuous. Set "
-                             "parameter to 0 to get the original Akima function (but only if you "
-                             "don't need dydxpt, dydypt")
-        self.options.declare('eps', default=1e-30,
-                             desc='Value that triggers division-by-zero safeguard.')
 
     def vectorized(self, x):
         """
@@ -1742,3 +1707,36 @@ class Interp1DAkima(InterpAlgorithmFixed):
             d = np.hstack((0.0, d))
 
         return a, b, c, d
+
+
+# Pydantic Models for InterpAkima Components
+
+class InterpAkimaOptions(InterpAlgorithmOptions):
+    delta_x: float = Field(default=0.0, desc="half-width of the smoothing interval added in the valley of absolute-value function. This allows the derivatives with respect to the data points (dydxpt, dydypt) to also be C1 continuous. Set parameter to 0 to get the original Akima function (but only if you don't need dydxpt, dydypt")
+    eps: float = Field(default=1e-30, desc='Value that triggers division-by-zero safeguard.')
+
+
+class InterpAkimaSemiOptions(InterpAlgorithmOptions):
+    delta_x: float = Field(default=0.0, desc="half-width of the smoothing interval added in the valley of absolute-value function. This allows the derivatives with respect to the data points (dydxpt, dydypt) to also be C1 continuous. Set parameter to 0 to get the original Akima function (but only if you don't need dydxpt, dydypt")
+    eps: float = Field(default=1e-30, desc='Value that triggers division-by-zero safeguard.')
+
+
+class InterpAkimaFixedOptions(InterpAlgorithmOptions):
+    delta_x: float = Field(default=0.0, desc="half-width of the smoothing interval added in the valley of absolute-value function. This allows the derivatives with respect to the data points (dydxpt, dydypt) to also be C1 continuous. Set parameter to 0 to get the original Akima function (but only if you don't need dydxpt, dydypt")
+    eps: float = Field(default=1e-30, desc='Value that triggers division-by-zero safeguard.')
+
+
+# Register the models
+@dmm.register(InterpAkima)
+class InterpAkimaModel(InterpAlgorithmModel):
+    options: InterpAkimaOptions = Field(default_factory=InterpAkimaOptions)
+
+
+@dmm.register(InterpAkimaSemi)
+class InterpAkimaSemiModel(InterpAlgorithmModel):
+    options: InterpAkimaSemiOptions = Field(default_factory=InterpAkimaSemiOptions)
+
+
+@dmm.register(Interp1DAkima)
+class InterpAkimaFixedModel(InterpAlgorithmModel):
+    options: InterpAkimaFixedOptions = Field(default_factory=InterpAkimaFixedOptions)

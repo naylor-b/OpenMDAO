@@ -41,13 +41,6 @@ class NewtonSolver(NonlinearSolver):
 
         self.linear_solver = None
         self._linesearch = BoundsEnforceLS()
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
         self.supports['linesearch'] = True
         self.supports['gradients'] = True
         self.supports['implicit_components'] = True

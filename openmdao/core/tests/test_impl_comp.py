@@ -4,11 +4,14 @@ import unittest
 from io import StringIO
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.general_utils import remove_whitespace
 from openmdao.test_suite.components.sellar import SellarImplicitDis1, SellarImplicitDis2
+from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 # Note: The following class definitions are used in feature docs
@@ -1561,16 +1564,17 @@ class CacheLinSolutionTestCase(unittest.TestCase):
             p.driver._compute_totals(of=['C1.y'], wrt=['indeps.x'])
 
 
-class LinearSystemCompPrimal(om.ImplicitComponent):
+class LinearSystemCompPrimalOptions(ImplicitComponentOptions):
+    size: int = Field(default=1, desc='Size of the linear system')
+
+
+class LinearSystemCompPrimal(ImplicitComponent):
     def __init__(self, input_prefix, output_prefix, domap, **kwargs):
         super().__init__(**kwargs)
         self.Aname = input_prefix + 'A'
         self.bname = input_prefix + 'b'
         self.xname = output_prefix + 'x'
         self.domap = domap
-
-    def initialize(self):
-        self.options.declare('size', default=1, types=int)
 
     def setup(self):
         size = self.options['size']
@@ -1618,6 +1622,11 @@ class LinearSystemCompPrimal(om.ImplicitComponent):
 
     def compute_primal(self, A, b, x):
         return A.dot(x) - b
+
+
+@dmm.register(LinearSystemCompPrimal)
+class LinearSystemCompPrimalModel(ImplicitComponentModel):
+    options: LinearSystemCompPrimalOptions = Field(default_factory=LinearSystemCompPrimalOptions)
 
 
 class TestMappedNames(unittest.TestCase):

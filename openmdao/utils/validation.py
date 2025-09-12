@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic_core import core_schema
-from typing import List, Dict, Optional, Type, Any, Iterator, Tuple, Literal
+from typing import List, Dict, Optional, Type, Any, Iterator, Tuple
 import importlib
 import enum
 
@@ -155,6 +155,31 @@ class OptionsBaseModel(ValidateOnAssignModel):
         """
         return iter(self.model_fields)
 
+    def items(self) -> Iterator[Tuple[str, Any]]:
+        """
+        Iterate over the options in the model.
+        """
+        for key, meta in self.model_fields.items():
+            yield key, getattr(self, key)
+
+    def values(self) -> Iterator[Any]:
+        """
+        Iterate over the values of the options in the model.
+        """
+        return [getattr(self, key) for key in self.model_fields]
+
+    def keys(self) -> Iterator[str]:
+        """
+        Iterate over the keys of the options in the model.
+        """
+        return iter(self.model_fields)
+
+    def __len__(self) -> int:
+        """
+        Return the number of options in the model.
+        """
+        return len(self.model_fields)
+
     def update(self, dct: Dict[str, Any]):
         for name, value in dct.items():
             setattr(self, name, value)
@@ -216,6 +241,23 @@ class OptionsBaseModel(ValidateOnAssignModel):
             wrapper['recordable'] = not info.exclude
             yield key, wrapper
 
+    def is_read_only(self, key: str) -> bool:
+        """
+        Check if the option is read-only.
+        """
+        fieldinfo = self.model_fields[key]
+        try:
+            return fieldinfo.json_schema()['readOnly']
+        except (KeyError, AttributeError):
+            return False
+
+    def sorted_model_dump(self):
+        """
+        Return a sorted dictionary of the options.
+        """
+        dump = self.model_dump()
+        return {key: dump[key] for key in sorted(dump)}
+
 
 class DataModelManager:
     # type path --> (class, Pydantic model)
@@ -227,6 +269,7 @@ class DataModelManager:
         Class decorator to bind a Pydantic model to an OpenMDAO class.
 
         Both the class and the Pydantic model will then be retrievable using the type path.
+        This should wrap the *data model* class, not the corresponding OpenMDAO class.
         """
         def decorator(pydantic_model: Type):
             type_path = _class_to_type(class_)
@@ -360,5 +403,16 @@ class DataModelManager:
         kwargs = data_model.kwargs.copy()
         kwargs['data_model'] = data_model
         inst = klass(*args, **kwargs)
-        #inst.update_from_data_model(data_model)
         return inst
+
+    @staticmethod
+    def setup_data_model(inst: Any, kwargs: Dict[str, Any]):
+        data_model = kwargs.pop('data_model', None)
+        if data_model is None:
+            data_model = inst.init_data_model()
+        else:
+            inst.data_model = data_model
+            inst.update_from_data_model(data_model)
+
+        if 'options' in data_model.model_fields:
+            inst.data_model.options.update(kwargs)

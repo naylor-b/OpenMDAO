@@ -1,10 +1,13 @@
 """Components for use in `CycleGroup`. For details, see `CycleGroup`."""
 import numpy as np
 import scipy.sparse as sparse
+from typing import Tuple
+from pydantic import Field, ConfigDict
 
 import unittest
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 PSI = 1.
@@ -72,28 +75,8 @@ class ExplicitCycleComp(ExplicitComponent):
     def __str__(self):
         return 'Explicit Cycle Component'
 
-    def initialize(self):
-        self.options.declare('jacobian_type', default='matvec',
-                              values=['matvec', 'dense', 'sparse-csc'],
-                              desc='method of assembling derivatives')
-        self.options.declare('partial_type', default='array',
-                              values=['array', 'sparse', 'aij'],
-                              desc='type of partial derivatives')
-        self.options.declare('num_var', types=int, default=1,
-                              desc='Number of variables per component')
-        self.options.declare('var_shape', types=tuple, default=(3,),
-                              desc='Shape of each variable')
-        self.options.declare('index', types=int,
-                              desc='Index of the component. Used for testing implicit connections')
-        self.options.declare('connection_type', default='explicit',
-                              values=['explicit', 'implicit'],
-                              desc='How to connect variables.')
-        self.options.declare('partial_method', default='exact',
-                              values=('exact', 'fd', 'cs'),
-                              desc='How derivatives should be solved (exact, fd, or cs)')
-        self.options.declare('num_comp', types=int, default=2,
-                              desc='Total number of components')
 
+    def initialize(self):
         self.angle_param = 'theta'
 
         self._cycle_names = {}
@@ -309,6 +292,22 @@ class ExplicitCycleComp(ExplicitComponent):
             partials[theta_out, theta] = self.make_jacobian_entry(dtheta, pd_type)
 
 
+class ExplicitCycleCompOptions(ExplicitComponentOptions):
+    jacobian_type: str = Field(default='matvec', desc='method of assembling derivatives')
+    partial_type: str = Field(default='array', desc='type of partial derivatives')
+    num_var: int = Field(default=1, desc='Number of variables per component')
+    var_shape: Tuple[int, ...] = Field(default=(3,), desc='Shape of each variable')
+    index: int = Field(default=0, desc='Index of the component. Used for testing implicit connections')
+    connection_type: str = Field(default='explicit', desc='How to connect variables.')
+    partial_method: str = Field(default='exact', desc='How derivatives should be solved (exact, fd, or cs)')
+    num_comp: int = Field(default=2, desc='Total number of components')
+
+
+@dmm.register(ExplicitCycleComp)
+class ExplicitCycleCompModel(ExplicitComponentModel):
+    options: ExplicitCycleCompOptions = Field(default_factory=ExplicitCycleCompOptions)
+
+
 class ExplicitFirstComp(ExplicitCycleComp):
     def __str__(self):
         return 'Explicit Cycle Component - First'
@@ -326,6 +325,22 @@ class ExplicitFirstComp(ExplicitCycleComp):
         y = A.dot(np.ones(self.size))
         self._vector_to_outputs(y, outputs)
         outputs[self._cycle_names['theta_out']] = theta
+
+
+class ExplicitFirstCompOptions(ExplicitCycleCompOptions):
+    jacobian_type: str = Field(default='matvec', desc='method of assembling derivatives')
+    partial_type: str = Field(default='array', desc='type of partial derivatives')
+    num_var: int = Field(default=1, desc='Number of variables per component')
+    var_shape: Tuple[int, ...] = Field(default=(3,), desc='Shape of each variable')
+    index: int = Field(default=0, desc='Index of the component. Used for testing implicit connections')
+    connection_type: str = Field(default='explicit', desc='How to connect variables.')
+    partial_method: str = Field(default='exact', desc='How derivatives should be solved (exact, fd, or cs)')
+    num_comp: int = Field(default=2, desc='Total number of components')
+
+
+@dmm.register(ExplicitFirstComp)
+class ExplicitFirstCompModel(ExplicitComponentModel):
+    options: ExplicitFirstCompOptions = Field(default_factory=ExplicitFirstCompOptions)
 
 
 class ExplicitLastComp(ExplicitFirstComp):
@@ -413,3 +428,19 @@ class ExplicitLastComp(ExplicitFirstComp):
                         d_inputs[theta] += .5*dtheta_out
                     if psi in d_inputs:
                         d_inputs[psi] += -dtheta_out/(2*k-2)
+
+
+class ExplicitLastCompOptions(ExplicitCycleCompOptions):
+    jacobian_type: str = Field(default='matvec', desc='method of assembling derivatives')
+    partial_type: str = Field(default='array', desc='type of partial derivatives')
+    num_var: int = Field(default=1, desc='Number of variables per component')
+    var_shape: Tuple[int, ...] = Field(default=(3,), desc='Shape of each variable')
+    index: int = Field(default=0, desc='Index of the component. Used for testing implicit connections')
+    connection_type: str = Field(default='explicit', desc='How to connect variables.')
+    partial_method: str = Field(default='exact', desc='How derivatives should be solved (exact, fd, or cs)')
+    num_comp: int = Field(default=2, desc='Total number of components')
+
+
+@dmm.register(ExplicitLastComp)
+class ExplicitLastCompModel(ExplicitComponentModel):
+    options: ExplicitLastCompOptions = Field(default_factory=ExplicitLastCompOptions)

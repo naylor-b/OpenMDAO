@@ -5676,8 +5676,8 @@ class GroupOptions(ImplicitSystemOptions):
 class ConnectionData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    src: str = Field(desc="Source variable name")
-    tgt: str = Field(desc="Target variable name")
+    src: str = Field(default="", desc="Source variable name")
+    tgt: str = Field(default="", desc="Target variable name")
     src_indices: Any = Field(default=None, desc="Indices of the source variable that will be "
                              "connected to the target variable")
     flat_src_indices: bool = Field(default=None, desc="If True, src is treated as a flat array.")
@@ -5685,7 +5685,7 @@ class ConnectionData(BaseModel):
 
 class InputDefaultData(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    name: str = Field(desc="Name of the input default")
+    name: str = Field(default="", desc="Name of the input default")
     val: Any = Field(default=None, desc="Value of the input default")
     units: str = Field(default=None, desc="Units of the input default")
     src_shape: Any = Field(default=None, desc="Shape of the source variable that will be "

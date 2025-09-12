@@ -1,14 +1,19 @@
 import unittest
 import numpy as np
 from openmdao.utils.mpi import MPI
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
+
+
+class TwoDArrayAdderOptions(ExplicitComponentOptions):
+    n0: int = Field(default=1, desc='First dimension size')
+    n1: int = Field(default=1, desc='Second dimension size')
 
 
 class TwoDArrayAdder(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare('n0')
-        self.options.declare('n1')
 
     def setup(self):
         n0 = self.options['n0']
@@ -18,6 +23,11 @@ class TwoDArrayAdder(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['x_sum'] = np.sum(inputs['x'], axis=0)
+
+
+@dmm.register(TwoDArrayAdder)
+class TwoDArrayAdderModel(ExplicitComponentModel):
+    options: TwoDArrayAdderOptions = Field(default_factory=TwoDArrayAdderOptions)
 
 
 @unittest.skipUnless(MPI, "MPI is required.")

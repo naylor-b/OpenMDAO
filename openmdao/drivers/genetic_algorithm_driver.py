@@ -22,6 +22,8 @@ John Wiley & Sons, Ltd.
 """
 import os
 import copy
+from typing import Dict, Any
+from pydantic import Field
 
 import numpy as np
 
@@ -31,10 +33,11 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class SimpleGADriver(Driver):
@@ -106,54 +109,6 @@ class SimpleGADriver(Driver):
         self._concurrent_color = 0
 
         self._nfit = 0  # Number of successful function evaluations
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('bits', default={}, types=(dict),
-                             desc='Number of bits of resolution. Default is an empty dict, where '
-                             'every unspecified variable is assumed to be integer, and the number '
-                             'of bits is calculated automatically. If you have a continuous var, '
-                             'you should set a bits value as a key in this dictionary.')
-        self.options.declare('elitism', types=bool, default=True,
-                             desc='If True, replace worst performing point with best from previous'
-                             ' generation each iteration.')
-        self.options.declare('gray', types=bool, default=False,
-                             desc='If True, use Gray code for binary encoding. Gray coding makes'
-                             ' the binary representation of adjacent integers differ by one bit.')
-        self.options.declare('cross_bits', types=bool, default=False,
-                             desc='If True, crossover swaps single bits instead the default'
-                             ' k-point crossover.')
-        self.options.declare('max_gen', default=100,
-                             desc='Number of generations before termination.')
-        self.options.declare('pop_size', default=0,
-                             desc='Number of points in the GA. Set to 0 and it will be computed '
-                             'as four times the number of bits.')
-        self.options.declare('run_parallel', types=bool, default=False,
-                             desc='Set to True to execute the points in a generation in parallel.')
-        self.options.declare('procs_per_model', default=1, lower=1,
-                             desc='Number of processors to give each model under MPI.')
-        self.options.declare('penalty_parameter', default=10., lower=0.,
-                             desc='Penalty function parameter.')
-        self.options.declare('penalty_exponent', default=1.,
-                             desc='Penalty function exponent.')
-        self.options.declare('Pc', default=0.1, lower=0., upper=1.,
-                             desc='Crossover rate.')
-        self.options.declare('Pm', default=0.01, lower=0., upper=1., allow_none=True,
-                             desc='Mutation rate.')
-        self.options.declare('multi_obj_weights', default={}, types=(dict),
-                             desc='Weights of objectives for multi-objective optimization.'
-                             'Weights are specified as a dictionary with the absolute names'
-                             'of the objectives. The same weights for all objectives are assumed, '
-                             'if not given.')
-        self.options.declare('multi_obj_exponent', default=1., lower=0.,
-                             desc='Multi-objective weighting exponent.')
-        self.options.declare('compute_pareto', default=False, types=(bool, ),
-                             desc='When True, compute a set of non-dominated points based on all '
-                             'given objectives and update it each generation. The multi-objective '
-                             'weight and exponents are ignored because the algorithm uses all '
-                             'objective values instead of a composite.')
 
     def _setup_driver(self, problem):
         """
@@ -1096,3 +1051,26 @@ class GeneticAlgorithm(object):
             prev = 1 if b[i - 1] == 0 else 0
             b[i] = b[i - 1] if g[i] == 0 else prev
         return b
+
+
+class SimpleGADriverOptions(DriverOptions):
+    bits: Dict[str, Any] = Field(default_factory=dict, desc='Number of bits of resolution. Default is an empty dict, where every unspecified variable is assumed to be integer, and the number of bits is calculated automatically. If you have a continuous var, you should set a bits value as a key in this dictionary.')
+    elitism: bool = Field(default=True, desc='If True, replace worst performing point with best from previous generation each iteration.')
+    gray: bool = Field(default=False, desc='If True, use Gray code for binary encoding. Gray coding makes the binary representation of adjacent integers differ by one bit.')
+    cross_bits: bool = Field(default=False, desc='If True, crossover swaps single bits instead the default k-point crossover.')
+    max_gen: int = Field(default=100, desc='Number of generations before termination.')
+    pop_size: int = Field(default=0, desc='Number of points in the GA. Set to 0 and it will be computed as four times the number of bits.')
+    run_parallel: bool = Field(default=False, desc='Set to True to execute the points in a generation in parallel.')
+    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+    penalty_parameter: float = Field(default=10.0, desc='Penalty function parameter.')
+    penalty_exponent: float = Field(default=1.0, desc='Penalty function exponent.')
+    Pc: float = Field(default=0.1, desc='Crossover rate.')
+    Pm: float = Field(default=0.01, desc='Mutation rate.')
+    multi_obj_weights: Dict[str, Any] = Field(default_factory=dict, desc='Weights of objectives for multi-objective optimization. Weights are specified as a dictionary with the absolute names of the objectives. The same weights for all objectives are assumed, if not given.')
+    multi_obj_exponent: float = Field(default=1.0, desc='Multi-objective weighting exponent.')
+    compute_pareto: bool = Field(default=False, desc='When True, compute a set of non-dominated points based on all given objectives and update it each generation. The multi-objective weight and exponent options are ignored.')
+
+
+@dmm.register(SimpleGADriver)
+class SimpleGADriverModel(DriverModel):
+    options: SimpleGADriverOptions = Field(default_factory=SimpleGADriverOptions)

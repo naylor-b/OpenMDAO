@@ -6,8 +6,11 @@ import itertools
 from collections.abc import Iterable
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.testing_utils import use_tempdirs
@@ -460,9 +463,11 @@ class TestParallelListStates(unittest.TestCase):
                          ['par.C1.x', 'par.C2.x', 'par.C4.x'])
 
 
+class ExCompOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+
+
 class ExComp(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare('num_nodes', types=int)
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -475,6 +480,11 @@ class ExComp(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['deltav_dot'] = inputs['accel']
+
+
+@dmm.register(ExComp)
+class ExCompModel(ExplicitComponentModel):
+    options: ExCompOptions = Field(default_factory=ExCompOptions)
 
 
 class SubGroup(om.Group):

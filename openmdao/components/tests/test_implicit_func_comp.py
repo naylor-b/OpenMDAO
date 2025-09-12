@@ -221,37 +221,6 @@ class TestImplicitFuncComp(unittest.TestCase):
         assert_check_partials(p.check_partials(includes=['comp'], out_stream=None), atol=1e-5)
         assert_check_totals(p.check_totals(of=['comp.x'], wrt=['comp.a', 'comp.b', 'comp.c'], out_stream=None))
 
-    def test_apply_nonlinear_option(self):
-
-        def apply_nl(a, b, c, x, opt):
-            R_x = a * x ** 2 + b * x + c
-            if opt == 'foo':
-                R_x = -R_x
-            return R_x
-
-        f = (omf.wrap(apply_nl)
-                .add_output('x', resid='R_x', val=0.0)
-                .declare_option('opt', default='foo')
-                .declare_partials(of='*', wrt='*', method='cs')
-                )
-
-        p = om.Problem()
-        p.model.add_subsystem('comp', om.ImplicitFuncComp(f))
-
-        # need this since comp is implicit and doesn't have a solve_linear
-        p.model.linear_solver = om.DirectSolver()
-        p.model.nonlinear_solver = om.NewtonSolver(solve_subsystems=False, iprint=0)
-
-        p.setup()
-
-        p.set_val('comp.a', 2.)
-        p.set_val('comp.b', -8.)
-        p.set_val('comp.c', 6.)
-        p.run_model()
-
-        assert_check_partials(p.check_partials(includes=['comp'], out_stream=None), atol=1e-5)
-        assert_check_totals(p.check_totals(of=['comp.x'], wrt=['comp.a', 'comp.b', 'comp.c'], out_stream=None))
-
     def test_apply_nonlinear_no_method(self):
 
         def apply_nl(a, b, c, x):
@@ -422,8 +391,6 @@ class TestJax(unittest.TestCase):
 
             f = (omf.wrap(apply_nl)
                     .add_output('x', resid='R_x', val=0.0)
-                    .declare_option('ex1', default='foo')
-                    .declare_option('ex2', default='bar')
                     .declare_partials(of='*', wrt='*', method='jax')
                     )
         else:

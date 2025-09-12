@@ -27,11 +27,16 @@ depend on particular values of 'theta' (or 'x_i'/'y_i' values) without taking th
 """
 
 import numpy as np
+from typing import Tuple
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
 from openmdao.test_suite.components.cycle_comps import PSI, \
     ExplicitCycleComp, ExplicitFirstComp, ExplicitLastComp
-from openmdao.test_suite.groups.parametric_group import ParametericTestGroup
+from openmdao.test_suite.groups.parametric_group import ParametericTestGroup, \
+    ParametericTestGroupOptions, ParametericTestGroupModel
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class CycleGroup(ParametericTestGroup):
@@ -48,22 +53,6 @@ class CycleGroup(ParametericTestGroup):
             'num_var': [3, 1],
             'var_shape': [(2, 3), (3,)],
         })
-
-        self.options.declare('num_comp', types=int, default=2,
-                             desc='Total number of components')
-        self.options.declare('num_var', types=int, default=1,
-                             desc='Number of variables per component')
-        self.options.declare('var_shape', default=(3,),
-                             desc='Shape of each variable')
-        self.options.declare('connection_type', default='explicit',
-                             values=['explicit', 'implicit'],
-                             desc='How to connect variables.')
-        self.options.declare('partial_type', default='array',
-                             values=['array', 'sparse', 'aij'],
-                             desc='type of partial derivatives')
-        self.options.declare('partial_method', default='exact',
-                             values=('exact', 'fd', 'cs'),
-                             desc='Method used to solve derivatives (exact, fd, cs).')
 
     def setup(self):
         num_comp = self.options['num_comp']
@@ -179,3 +168,18 @@ class CycleGroup(ParametericTestGroup):
                 '{0}.{1}'.format(prev_name, out_var),
                 '{0}.{1}'.format(current_name, in_var)
             )
+
+
+class CycleGroupOptions(ParametericTestGroupOptions):
+    num_comp: int = Field(default=2, desc='Total number of components')
+    num_var: int = Field(default=1, desc='Number of variables per component')
+    var_shape: Tuple[int, ...] = Field(default=(3,), desc='Shape of each variable')
+    connection_type: str = Field(default='explicit', desc='How to connect variables.')
+    partial_type: str = Field(default='array', desc='type of partial derivatives')
+    partial_method: str = Field(default='exact', desc='Method used to solve derivatives (exact, fd, cs).')
+
+
+@dmm.register(CycleGroup)
+class CycleGroupModel(ParametericTestGroupModel):
+    options: CycleGroupOptions = Field(default_factory=CycleGroupOptions)
+

@@ -5,9 +5,10 @@ import copy
 
 from io import StringIO
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver
+from openmdao.core.driver import Driver, DriverSupports, DriverModel
 from openmdao.devtools.debug import config_summary
 from openmdao.visualization.n2_viewer.n2_viewer import _get_viewer_data
 from openmdao.test_suite.components.sellar import StateConnection, \
@@ -16,6 +17,7 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_no_warning
 from openmdao.utils.general_utils import remove_whitespace
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.om_warnings import OMDeprecationWarning
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class ModCompEx(om.ExplicitComponent):
@@ -128,6 +130,16 @@ class DiscreteDriver(Driver):
 
     def run(self):
         self.get_design_var_values()
+
+
+class DiscreteDriverSupports(DriverSupports):
+    integer_design_vars = True
+
+
+@dmm.register(DiscreteDriver)
+class DiscreteDriverModel(DriverModel):
+
+    supports: DiscreteDriverSupports = Field(default_factory=DiscreteDriverSupports)
 
 
 class _DiscreteVal(object):

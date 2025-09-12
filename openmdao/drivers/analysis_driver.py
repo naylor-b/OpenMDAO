@@ -5,13 +5,15 @@ from collections import deque
 from collections.abc import Iterable
 import itertools
 import traceback
+from pydantic import Field
 
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
 from openmdao.core.analysis_error import AnalysisError
 
 from openmdao.drivers.analysis_generator import AnalysisGenerator, SequenceGenerator
 from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning, DriverWarning
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class AnalysisDriver(Driver):
@@ -81,20 +83,6 @@ class AnalysisDriver(Driver):
         self._num_colors = 1
         self._prev_sample_vars = set()
         self._total_jac_format = 'dict'
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('run_parallel', types=bool, default=False,
-                             desc='Set to True to execute samples in parallel.')
-        self.options.declare('batch_size', types=int, default=1000,
-                             desc='Number of samples to distribute among the processors '
-                             'at a time when run_parallel is True. This should be limited when '
-                             'the memory required to store the batch size of samples grows too '
-                             'large.')
-        self.options.declare('procs_per_model', types=int, default=1, lower=1,
-                             desc='Number of processors to give each model under MPI.')
 
     def add_response(self, name, indices=None, units=None,
                      linear=False, parallel_deriv_color=None,
@@ -436,3 +424,14 @@ class AnalysisDriver(Driver):
         """
         self._metadata['name'] = case_name
         return self._metadata
+
+
+class AnalysisDriverOptions(DriverOptions):
+    run_parallel: bool = Field(default=False, desc='Set to True to execute samples in parallel.')
+    batch_size: int = Field(default=1000, desc='Number of samples to distribute among the processors at a time when run_parallel is True. This should be limited when the memory required to store the batch size of samples grows too large.')
+    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+
+
+@dmm.register(AnalysisDriver)
+class AnalysisDriverModel(DriverModel):
+    options: AnalysisDriverOptions = Field(default_factory=AnalysisDriverOptions)

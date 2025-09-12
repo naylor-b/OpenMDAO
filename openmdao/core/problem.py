@@ -13,13 +13,13 @@ import textwrap
 import traceback
 import time
 import atexit
-from typing import Dict, Any, Union
+from typing import Union
 
 from itertools import chain
 
 from io import TextIOBase, StringIO
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 import numpy as np
 
@@ -260,20 +260,20 @@ class Problem(object, metaclass=ProblemMetaclass):
         # can't use driver property here without causing a lint error, so just do it manually
         self._driver = driver
 
-        self._metadata = {'setup_status': _SetupStatus.PRE_SETUP}
+        self._metadata = {
+            'setup_status': _SetupStatus.PRE_SETUP,
+            # setting defaults here because instead of in the options data model, otherwise getting
+            # weird differences in temp dir names
+            # at least on OS X, e.g., /var/folders/... vs. /private/var/folders/...
+            'work_dir': _get_work_dir(),
+            'coloring_dir': os.path.join(_get_work_dir(), 'coloring_files')
+        }
         self._run_counter = -1
         self._rec_mgr = RecordingManager()
 
-        data_model = kwargs.pop('data_model', None)
-        if data_model is None:
-            self.init_data_model()
-        else:
-            self.data_model = data_model
-            self.update_from_data_model(data_model)
+        dmm.setup_data_model(self, kwargs)
 
         self._update_reports(self._driver)
-
-        self._declare_options(kwargs)
 
         # Options passed to models
         self.model_options = {}
@@ -287,41 +287,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         # call cleanup at system exit, if requested
         if 'cleanup' in os.environ.get('OPENMDAO_ATEXIT', '').split(','):
             atexit.register(self.cleanup)
-
-    def _declare_options(self, options):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        # model = self.get_data_model()
-        # self.options = model.options
-        self.data_model.options.update(options)
-
-        # # General options
-        # self.options = OptionsDictionary(msginfo=type(self).__name__)
-        # default_workdir = options['work_dir'] if 'work_dir' in options else _get_work_dir()
-        # self.options.declare('work_dir', default=default_workdir,
-        #                      desc='Working directory for the problem.')
-        # self.options.declare('coloring_dir', types=str,
-        #                      default=os.path.join(default_workdir, 'coloring_files'),
-        #                      desc='Directory containing coloring files (if any) for this Problem.')
-        # self.options.declare('group_by_pre_opt_post', types=bool,
-        #                      default=False,
-        #                      desc="If True, group subsystems of the top level model into "
-        #                      "pre-optimization, optimization, and post-optimization, and only "
-        #                      "iterate over the optimization subsystems during optimization.  This "
-        #                      "applies only when the top level nonlinear solver is of type"
-        #                      "NonlinearRunOnce.")
-        # self.options.declare('allow_post_setup_reorder', types=bool,
-        #                      default=True,
-        #                      desc="If True, the execution order of direct subsystems of any group "
-        #                      "that sets its 'auto_order' option to True will be automatically "
-        #                      "ordered according to data dependencies. If this option is False, the "
-        #                      "'auto_order' option will be ignored and a warning will be issued for "
-        #                      "each group that has set it to True. Note that subsystems of a Group "
-        #                      "that form a cycle will never be reordered, regardless of the value of"
-        #                      " the 'auto_order' option.")
-        # self.options.update(options)
-
 
     def _set_name(self, name):
         if not MPI or self.comm.rank == 0:
@@ -393,6 +358,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         """
         self._update_reports(driver)
         self._driver = driver
+        self.data_model.driver = driver.data_model
 
     @property
     def msginfo(self):
@@ -2638,22 +2604,26 @@ class Problem(object, metaclass=ProblemMetaclass):
         self.model = dmm.from_data_model(data_model.model, orig=self.model)
         self.driver = dmm.from_data_model(data_model.driver, orig=self.driver)
         self.options = data_model.options
+        self.recording_options = data_model.recording_options
         self.reports = data_model.reports
+        if self.options['work_dir'] == '':
+            self.options['work_dir'] = _get_work_dir()
+        if self.options['coloring_dir'] == '':
+            self.options['coloring_dir'] = os.path.join(_get_work_dir(), 'coloring_files')
         return self
 
     def init_data_model(self):
-        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.data_model = dmm.class_to_data_model_instance(self.__class__,
+                                                           name=self._name,
+                                                           model=self.model.data_model,
+                                                           driver=self.driver.data_model)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
-    def to_dict(self, exclude_none: bool = False) -> Dict[str, Any]:
-        """Convert this instance to a dictionary."""
-        return self.data_model.model_dump(exclude_none=exclude_none)
-
 
 class ProblemOptions(OptionsBaseModel):
-    work_dir: str = Field(default=_get_work_dir(), desc="Working directory for the problem.")
-    coloring_dir: str = Field(default=None,
+    work_dir: str = Field(default='', desc="Working directory for the problem.")
+    coloring_dir: str = Field(default='',
                               desc="Directory containing coloring files (if any) for this Problem.")
     group_by_pre_opt_post: bool = \
         Field(default=False,
@@ -2671,6 +2641,54 @@ class ProblemOptions(OptionsBaseModel):
                     "regardless of the value of the 'auto_order' option.")
 
 
+class ProblemRecordingOptions(OptionsBaseModel):
+
+    record_desvars: bool = \
+        Field(default=True, desc="Set to True to record design variables at the problem level.")
+    record_responses: bool = Field(default=False,
+                                   desc="Set to True to record responses at the problem level.")
+    record_objectives: bool = Field(default=True,
+                                   desc="Set to True to record objectives at the problem level.")
+    record_constraints: bool = Field(default=True,
+                                   desc="Set to True to record constraints at the problem level.")
+    includes: list[str] = Field(default_factory=list,
+                                desc="Patterns for variables to include in recording. "
+                                "Uses fnmatch wildcards.")
+    excludes: list[str] = Field(default_factory=list,
+                                desc="Patterns for vars to exclude in recording (processed "
+                                "post-includes). Uses fnmatch wildcards.")
+    options_excludes: list[str] = Field(default_factory=list,
+                                        desc="User-defined metadata to exclude in recording")
+    record_viewer_data: bool = Field(default=True,
+                                    desc="Set to True to record viewer data at the problem level")
+    record_coloring: bool = Field(default=True,
+                                  desc="Set to True to record coloring at the problem level")
+    record_derivatives: bool = Field(default=False,
+                                    desc="Set to True to record derivatives at the problem level")
+    record_inputs: bool = Field(default=True,
+                                desc="Set to True to record inputs at the problem level")
+    record_outputs: bool = Field(default=True,
+                                  desc="Set to True to record outputs at the problem level")
+    record_residuals: bool = Field(default=False,
+                                   desc="Set to True to record residuals at the problem level")
+    record_derivatives: bool = Field(default=False,
+                                    desc="Set to True to record derivatives at the problem level")
+    record_abs_error: bool = Field(default=True,
+                                   desc='Set to True to record absolute error at the problem level')
+    record_rel_error: bool = Field(default=True,
+                                   desc='Set to True to record relative error at the problem level')
+    record_solver_residuals: bool = \
+        Field(default=False, desc='Set to True to record residuals at the problem level')
+    includes: list[str] = Field(default_factory=list,
+                                desc='Patterns for variables to include in recording. '
+                                     'Uses fnmatch wildcards')
+    excludes: list[str] = Field(default_factory=list,
+                                desc='Patterns for vars to exclude in recording '
+                                     '(processed post-includes). Uses fnmatch wildcards')
+    options_excludes: list[str] = Field(default_factory=list,
+                                        desc='User-defined metadata to exclude in recording')
+
+
 @dmm.register(Problem)
 class ProblemModel(TypeBaseModel):
     name: str = Field(default=None, desc='The name of the problem.')
@@ -2678,6 +2696,7 @@ class ProblemModel(TypeBaseModel):
     driver: PolymorphicModel = Field(default_factory=DriverModel)
     reports: Union[str, bool, list[str], None] = Field(default=None)
     options: ProblemOptions = Field(default_factory=ProblemOptions)
+    recording_options: ProblemRecordingOptions = Field(default_factory=ProblemRecordingOptions)
 
 
 def _fix_check_data(data):

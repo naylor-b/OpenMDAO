@@ -1126,10 +1126,10 @@ class ExecCompOptions(ExplicitComponentOptions):
                        desc="Units to be assigned to all variables in this component. "
                        "Default is None, which means units may be provided for variables "
                        "individually.")
-    shape: tuple = Field(default=None,
-                         desc="Shape to be assigned to all variables in this component. "
-                         "Default is None, which means shape may be provided for variables "
-                         "individually.")
+    shape: Union[tuple, int] = \
+        Field(default=None,
+              desc="Shape to be assigned to all variables in this component. "
+              "Default is None, which means shape may be provided for variables individually.")
     shape_by_conn: bool = Field(default=False,
                                 desc="If True, shape all inputs and outputs based on their "
                                 "connection. Default is False.")

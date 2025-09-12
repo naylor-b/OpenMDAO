@@ -228,9 +228,9 @@ def _make_opt_value_table(driver):
         HTML table that displays driver settings info.
     """
     opt_settings = []
-    for key, meta in driver.options.items():
-        meta = driver.options._dict[key]
-        opt_settings.append((key, meta['val'], meta['desc']))
+    for key, meta in driver.options.raw_items():
+        meta = driver.options.get_meta(key)
+        opt_settings.append((key, meta['val'], meta.get('desc')))
     opt_settings_table = generate_table(opt_settings, headers=['Setting', 'Val', 'Description'],
                                         tablefmt='html')
 

@@ -819,10 +819,10 @@ class TestNewton(unittest.TestCase):
 
         prob.setup()
 
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(Exception) as context:
             prob.run_model()
 
-        msg = "NewtonSolver in <model> <class Group>: Options ['solve_subsystems'] are required but have not been set."
+        msg = "NewtonSolver in <model> <class Group>: Option 'solve_subsystems' is required but has not been set."
         self.assertEqual(str(context.exception), msg)
 
 

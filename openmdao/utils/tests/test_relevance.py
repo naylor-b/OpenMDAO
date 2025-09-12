@@ -1,10 +1,14 @@
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.utils.relevance import _vars2systems
 from openmdao.utils.assert_utils import assert_check_totals
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class TestRelevance(unittest.TestCase):
@@ -67,12 +71,13 @@ class TestRelevanceEmptyGroups(unittest.TestCase):
         assert_check_totals(prob.check_totals(method='cs', out_stream=None))
 
 
+class LinearEquationOptions(ExplicitComponentOptions):
+    numInputs: int = Field(default=3, desc='Number of inputs')
+    numOutputs: int = Field(default=2, desc='Number of outputs')
+
+
 class LinearEquation(om.ExplicitComponent):
     """A linear equation y = Ax - b"""
-
-    def initialize(self):
-        self.options.declare("numInputs", types=int, default=3)
-        self.options.declare("numOutputs", types=int, default=2)
 
     def setup(self):
         np.random.seed(0)
@@ -89,11 +94,12 @@ class LinearEquation(om.ExplicitComponent):
         outputs["res"] = self.A @ inputs["x"] - self.b
 
 
+class SquaredNormOptions(ExplicitComponentOptions):
+    numInputs: int = Field(default=3, desc='Number of inputs')
+
+
 class SquaredNorm(om.ExplicitComponent):
     """The square of the L2 norm of a vector"""
-
-    def initialize(self):
-        self.options.declare("numInputs", types=int, default=3)
 
     def setup(self):
         nIn = self.options["numInputs"]
@@ -109,10 +115,12 @@ class SquaredNorm(om.ExplicitComponent):
         outputs["xNorm"] = np.dot(inputs["x"], inputs["x"])
 
 
+class UnderdeterminedSystemOptions(GroupOptions):
+    numInputs: int = Field(default=3, desc='Number of inputs')
+    numOutputs: int = Field(default=2, desc='Number of outputs')
+
+
 class UnderdeterminedSystem(om.Group):
-    def initialize(self):
-        self.options.declare("numInputs", types=int, default=3)
-        self.options.declare("numOutputs", types=int, default=2)
 
     def setup(self):
         nIn = self.options["numInputs"]
@@ -135,3 +143,18 @@ class TestRelevanceNoObjLinearConstraint(unittest.TestCase):
         prob.setup()
         prob.run_model()
         assert_check_totals(prob.check_totals(show_only_incorrect=True))
+
+
+@dmm.register(LinearEquation)
+class LinearEquationModel(ExplicitComponentModel):
+    options: LinearEquationOptions = Field(default_factory=LinearEquationOptions)
+
+
+@dmm.register(SquaredNorm)
+class SquaredNormModel(ExplicitComponentModel):
+    options: SquaredNormOptions = Field(default_factory=SquaredNormOptions)
+
+
+@dmm.register(UnderdeterminedSystem)
+class UnderdeterminedSystemModel(GroupModel):
+    options: UnderdeterminedSystemOptions = Field(default_factory=UnderdeterminedSystemOptions)

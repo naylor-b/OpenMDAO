@@ -2,11 +2,13 @@
 
 import numpy as np
 import inspect
+from pydantic import Field, ConfigDict
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
-from openmdao.components.interp_util.interp import InterpND, TABLE_METHODS
+from openmdao.components.interp_util.interp import InterpND
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MetaModelStructuredComp(ExplicitComponent):
@@ -57,20 +59,6 @@ class MetaModelStructuredComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Initialize the component.
-        """
-        self.options.declare('extrapolate', types=bool, default=False,
-                             desc='Sets whether extrapolation should be performed '
-                                  'when an input is out of bounds.')
-        self.options.declare('training_data_gradients', types=bool, default=False,
-                             desc='Sets whether gradients with respect to output '
-                                  'training data should be computed.')
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='Number of points to evaluate at once.')
-        self.options.declare('method', values=TABLE_METHODS, default='scipy_cubic',
-                             desc='Spline interpolation method to use for all outputs.')
 
     def add_input(self, name, val=1.0, training_data=None, **kwargs):
         """
@@ -258,3 +246,17 @@ class MetaModelStructuredComp(ExplicitComponent):
                         dy_ddata[j] = val.reshape(self.grad_shape[1:])
 
                 partials[out_name, "%s_train" % out_name] = dy_ddata
+
+
+class MetaModelStructuredCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    extrapolate: bool = Field(default=False, desc='Sets whether extrapolation should be performed when an input is out of bounds.')
+    training_data_gradients: bool = Field(default=False, desc='Sets whether gradients with respect to output training data should be computed.')
+    vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
+    method: str = Field(default='scipy_cubic', desc='Spline interpolation method to use for all outputs.')
+
+
+@dmm.register(MetaModelStructuredComp)
+class MetaModelStructuredCompModel(ExplicitComponentModel):
+    options: MetaModelStructuredCompOptions = Field(default_factory=MetaModelStructuredCompOptions)

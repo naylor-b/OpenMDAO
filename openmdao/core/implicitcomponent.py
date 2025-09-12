@@ -1041,10 +1041,7 @@ class ImplicitComponent(Component):
         return jac.get_sparsity()
 
 
-class _ImplicitComponentOptions(ImplicitSystemOptions):
-    distributed: bool = Field(default=False,
-                             desc='If True, set all variables in this component as distributed '
-                                  'across multiple processes')
+class NonDistributedImplicitComponentOptions(ImplicitSystemOptions):
     run_root_only: bool = Field(default=False,
                              desc='If True, call compute, compute_partials, linearize, '
                                   'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
@@ -1063,9 +1060,15 @@ class _ImplicitComponentOptions(ImplicitSystemOptions):
                              ' Default is (1,).')
 
 
+class ImplicitComponentOptions(NonDistributedImplicitComponentOptions):
+    distributed: bool = Field(default=False,
+                             desc='If True, set all variables in this component as distributed '
+                                  'across multiple processes')
+
+
 @dmm.register(ImplicitComponent)
 class ImplicitComponentModel(SystemModel):
-    options: _ImplicitComponentOptions = Field(default_factory=_ImplicitComponentOptions)
+    options: ImplicitComponentOptions = Field(default_factory=ImplicitComponentOptions)
 
 
 class _ResidsWrapper(object):

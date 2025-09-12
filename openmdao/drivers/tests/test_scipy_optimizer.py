@@ -8,8 +8,11 @@ from packaging.version import Version
 
 import numpy as np
 from scipy import __version__ as scipy_version
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.expl_comp_array import TestExplCompArrayDense, TestExplCompArraySparse, TestExplCompArrayJacVec
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_distributed import DistParab
@@ -40,10 +43,11 @@ def rosenbrock(x):
     return sum((1 - x_0) ** 2) + 100 * sum((x_1 - x_0 ** 2) ** 2)
 
 
-class Rosenbrock(om.ExplicitComponent):
+class RosenbrockOptions(ExplicitComponentOptions):
+    vec_size: int = Field(default=6, desc='Size of input vector.')
 
-    def initialize(self):
-        self.options.declare('vec_size', default=6, desc='Size of input vector.')
+
+class Rosenbrock(om.ExplicitComponent):
 
     def setup(self):
         self.add_input('x', np.ones(self.options['vec_size']))
@@ -52,6 +56,12 @@ class Rosenbrock(om.ExplicitComponent):
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         x = inputs['x']
         outputs['f'] = rosenbrock(x)
+
+
+@dmm.register(Rosenbrock)
+class RosenbrockModel(ExplicitComponentModel):
+    options: RosenbrockOptions = Field(default_factory=RosenbrockOptions)
+
 
 def rastrigin(x):
     a = 10  # constant

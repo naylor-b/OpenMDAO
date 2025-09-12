@@ -5,8 +5,12 @@ This version minimizes volume while satisfying a max bending stress constraint i
 for each loadcase.
 """
 import numpy as np
+from typing import Optional
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.local_stiffness_matrix_comp import LocalStiffnessMatrixComp
 from openmdao.test_suite.test_examples.beam_optimization.components.moment_comp import MomentOfInertiaComp
@@ -53,17 +57,6 @@ class MultipointBeamGroup(om.Group):
     System setup for minimization of volume (i.e., mass) subject to KS aggregated bending stress constraints.
     """
 
-    def initialize(self):
-        self.options.declare('E')
-        self.options.declare('L')
-        self.options.declare('b')
-        self.options.declare('volume')
-        self.options.declare('max_bending')
-        self.options.declare('num_elements', 5)
-        self.options.declare('num_cp', 50)
-        self.options.declare('num_load_cases', 1)
-        self.options.declare('parallel_derivs', False, types=bool, allow_none=True)
-        self.options.declare('ks_add_constraint', default=False, types=bool)
 
     def setup(self):
         E = self.options['E']
@@ -155,3 +148,23 @@ class MultipointBeamGroup(om.Group):
 
         self.add_design_var('interp.h_cp', lower=1e-2, upper=10.)
         self.add_objective('volume_comp.volume')
+
+
+class MultipointBeamGroupOptions(GroupOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
+    L: float = Field(default=1.0, desc='Length of the beam')
+    b: float = Field(default=0.1, desc='Width of the beam')
+    volume: float = Field(default=0.01, desc='Target volume of the beam')
+    max_bending: float = Field(default=100.0, desc='Maximum allowable bending stress')
+    num_elements: int = Field(default=5, desc='Number of beam elements')
+    num_cp: int = Field(default=50, desc='Number of control points for spline interpolation')
+    num_load_cases: int = Field(default=1, desc='Number of load cases to analyze')
+    parallel_derivs: Optional[bool] = Field(default=False, desc='Whether to use parallel derivatives')
+    ks_add_constraint: bool = Field(default=False, desc='Whether to add KS constraint')
+
+
+@dmm.register(MultipointBeamGroup)
+class MultipointBeamGroupModel(GroupModel):
+    options: MultipointBeamGroupOptions = Field(default_factory=MultipointBeamGroupOptions)

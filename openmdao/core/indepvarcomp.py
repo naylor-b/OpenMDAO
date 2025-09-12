@@ -91,49 +91,6 @@ class IndepVarComp(ExplicitComponent):
         self._no_check_partials = True
         self.options['derivs_method'] = None
 
-    # def initialize(self):
-    #     """
-    #     Declare options.
-    #     """
-    #     opt = self.options
-    #     opt.declare('name', types=str,
-    #                 desc="Name of the variable in this component's namespace.")
-    #     opt.declare('val', types=(float, list, tuple, np.ndarray), default=1.0,
-    #                 desc="The initial value of the variable being added in user-defined units.")
-    #     opt.declare('shape', types=(int, tuple, list), default=None,
-    #                 desc="Shape of this variable, only required if val is not an array.")
-    #     opt.declare('units', types=str, default=None,
-    #                 desc="Units in which the output variables will be provided to the "
-    #                      "component during execution.")
-    #     opt.declare('res_units', types=str, default=None,
-    #                 desc="Units in which the residuals of this output will be given to "
-    #                      "the user when requested.")
-    #     opt.declare('desc', types=str, default=None,
-    #                 desc="Description of the variable")
-    #     opt.declare('lower', types=(int, float, list, tuple, np.ndarray), default=None,
-    #                 desc="Lower bound(s) in user-defined units. It can be (1) a float, "
-    #                      "(2) an array_like consistent with the shape arg (if given), or "
-    #                      "(3) an array_like matching the shape of val, if val is array_like. "
-    #                      "A value of None means this output has no lower bound.")
-    #     opt.declare('upper', types=(int, float, list, tuple, np.ndarray), default=None,
-    #                 desc="Upper bound(s) in user-defined units. It can be (1) a float, "
-    #                      "(2) an array_like consistent with the shape arg (if given), or "
-    #                      "(3) an array_like matching the shape of val, if val is array_like. "
-    #                      "A value of None means this output has no upper bound.")
-    #     opt.declare('ref', types=float, default=1.,
-    #                 desc="Scaling parameter. The value in the user-defined units of this output "
-    #                      "variable when the scaled value is 1")
-    #     opt.declare('ref0', types=float, default=0.,
-    #                 desc="Scaling parameter. The value in the user-defined units of this output "
-    #                      "variable when the scaled value is 0.")
-    #     opt.declare('res_ref', types=float, default=None,
-    #                 desc="Scaling parameter. The value in the user-defined res_units of this "
-    #                      "output's residual when the scaled value is 1. Default is None, which "
-    #                      "means residual scaling matches output scaling.")
-    #     opt.declare('tags', types=(str, list), default=None,
-    #                 desc="User defined tags that can be used to filter what gets listed when "
-    #                      "calling list_outputs.")
-
     def _configure_check(self):
         """
         Do any error checking on i/o configuration.
@@ -234,7 +191,7 @@ class IndepVarComp(ExplicitComponent):
 
 
 class IndepVarCompOptions(ExplicitComponentOptions):
-    name: str = Field(default="Name of the variable in this component's namespace.")
+    name: str = Field(default="", desc="Name of the variable in this component's namespace.")
     val: Any = Field(default=1.0, esc="The initial value of the variable "
                      "being added in user-defined units.")
     shape: Tuple[int, ...] = Field(default=None,

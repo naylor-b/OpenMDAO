@@ -3,10 +3,13 @@ import numpy as np
 import scipy.linalg as linalg
 import os.path
 from hashlib import md5
+from typing import Optional, Union
+from pydantic import Field, ConfigDict
 from scipy.optimize import minimize
 
-from openmdao.surrogate_models.surrogate_model import SurrogateModel
+from openmdao.surrogate_models.surrogate_model import SurrogateModel, SurrogateModelModel
 from openmdao.utils.om_warnings import issue_warning, CacheWarning
+from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
 
 MACHINE_EPSILON = np.finfo(np.double).eps
 
@@ -78,31 +81,6 @@ class KrigingSurrogate(SurrogateModel):
         self.Y_mean = np.zeros(0)
         self.Y_std = np.zeros(0)
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('eval_rmse', types=bool, default=False,
-                             desc="Flag indicating whether the Root Mean Squared Error (RMSE) "
-                                  "should be computed. Set to False by default.")
-
-        # nugget smoothing parameter from [Sasena, 2002]
-        self.options.declare('nugget', default=10. * MACHINE_EPSILON,
-                             desc="Nugget smoothing parameter for smoothing noisy data. Represents "
-                                  "the variance of the input values. If nugget is an ndarray, it "
-                                  "must be of the same length as the number of training points. "
-                                  "Default: 10. * Machine Epsilon")
-
-        self.options.declare('lapack_driver', types=str, default='gesvd',
-                             desc="Which lapack driver should be used for scipy's linalg.svd."
-                                  "Options are 'gesdd' which is faster but not as robust,"
-                                  "or 'gesvd' which is slower but more reliable."
-                                  "'gesvd' is the default.")
-
-        self.options.declare('training_cache', types=str, default=None,
-                             desc="Cache the trained model to avoid repeating training and write "
-                                  "it to the given file. If the specified file exists, it will be "
-                                  "used to load the weights")
 
     def train(self, x, y):
         """
@@ -366,3 +344,17 @@ class KrigingSurrogate(SurrogateModel):
         jac = np.einsum('i,j,ij->ij', self.Y_std, 1. /
                         self.X_std, gradr.dot(self.alpha).T)
         return jac
+
+
+class KrigingSurrogateOptions(OptionsBaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    eval_rmse: bool = Field(default=False, desc="Flag indicating whether the Root Mean Squared Error (RMSE) should be computed. Set to False by default.")
+    nugget: Union[float, np.ndarray] = Field(default=10. * MACHINE_EPSILON, desc="Nugget smoothing parameter for smoothing noisy data. Represents the variance of the input values. If nugget is an ndarray, it must be of the same length as the number of training points. Default: 10. * Machine Epsilon")
+    lapack_driver: str = Field(default='gesvd', desc="Which lapack driver should be used for scipy's linalg.svd. Options are 'gesdd' which is faster but not as robust, or 'gesvd' which is slower but more reliable. 'gesvd' is the default.")
+    training_cache: Optional[str] = Field(default=None, desc="Cache the trained model to avoid repeating training and write it to the given file. If the specified file exists, it will be used to load the weights")
+
+
+@dmm.register(KrigingSurrogate)
+class KrigingSurrogateModel(SurrogateModelModel):
+    options: KrigingSurrogateOptions = Field(default_factory=KrigingSurrogateOptions)

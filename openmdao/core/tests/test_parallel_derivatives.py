@@ -8,8 +8,12 @@ import time
 from packaging.version import Version
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.groups.parallel_groups import FanOutGrouped, FanInGrouped, FanInGrouped2
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.testing_utils import use_tempdirs
@@ -480,11 +484,11 @@ class IndicesTestCase2(unittest.TestCase):
         assert_near_equal(J['G1.par1.c4.y', 'G1.par1.p.x'][0], np.array([8., 0.]), 1e-6)
 
     def test_src_indices_rev(self):
-        class DummyComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('a',default=0.)
-                self.options.declare('b',default=0.)
+        class DummyCompOptions(ExplicitComponentOptions):
+            a: float = Field(default=0., desc='Parameter a')
+            b: float = Field(default=0., desc='Parameter b')
 
+        class DummyComp(om.ExplicitComponent):
             def setup(self):
                 self.add_input('x')
                 self.add_output('y', 0.)
@@ -500,6 +504,10 @@ class IndicesTestCase2(unittest.TestCase):
                             # print(self.pathname, 'compute_jvp: dinputs[x]', d_inputs['x'])
                 else:
                     raise RuntimeError("fwd mode not supported")
+
+        @dmm.register(DummyComp)
+        class DummyCompModel(ExplicitComponentModel):
+            options: DummyCompOptions = Field(default_factory=DummyCompOptions)
 
         class DummyGroup(om.ParallelGroup):
             def setup(self):
@@ -759,12 +767,15 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
     N_PROCS = 3
 
     def setup_model(self, size):
+        class DelayCompOptions(ExplicitComponentOptions):
+            time: float = Field(default=3.0, desc='Time parameter')
+            size: int = Field(default=1, desc='Size parameter')
+
         class DelayComp(om.ExplicitComponent):
 
-            def initialize(self):
+            def __init__(self):
+                super().__init__()
                 self.counter = 0
-                self.options.declare('time', default=3.0)
-                self.options.declare('size', default=1)
 
             def setup(self):
                 size = self.options['size']
@@ -796,6 +807,11 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
                             d_inputs['x'] += np.linspace(3, 10, size)*d_outputs['y']
                         if 'y2' in d_outputs:
                             d_inputs['x'] += np.linspace(2, 4, size)*d_outputs['y2']
+
+        @dmm.register(DelayComp)
+        class DelayCompModel(ExplicitComponentModel):
+            options: DelayCompOptions = Field(default_factory=DelayCompOptions)
+
         model = om.Group()
         iv = om.IndepVarComp()
         mysize = size
@@ -1080,10 +1096,12 @@ class TestAutoIVCParDerivBug(unittest.TestCase):
         assert_check_totals(prob.check_totals(method='cs', show_only_incorrect=True))
 
 
+class LinearCompOptions(ExplicitComponentOptions):
+    a: float = Field(default=0.0, desc="slope")
+    b: float = Field(default=0.0, desc="y-intercept")
+
+
 class LinearComp(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare("a", desc="slope")
-        self.options.declare("b", desc="y-intercept")
 
     def setup(self):
         self.a = self.options["a"]
@@ -1097,10 +1115,18 @@ class LinearComp(om.ExplicitComponent):
         outputs["y"] = self.a * inputs["x"] + self.b
         outputs["z"] = self.a * inputs["x"] ** 2 + self.b * inputs["x"] + 1.0
 
+
+@dmm.register(LinearComp)
+class LinearCompModel(ExplicitComponentModel):
+    options: LinearCompOptions = Field(default_factory=LinearCompOptions)
+
+
+class LinearGroupOptions(GroupOptions):
+    a: float = Field(default=0.0, desc="slope")
+    b: float = Field(default=0.0, desc="y-intercept")
+
+
 class LinearGroup(om.Group):
-    def initialize(self):
-        self.options.declare("a", desc="slope")
-        self.options.declare("b", desc="y-intercept")
 
     def setup(self):
         self.add_subsystem("ivc", om.IndepVarComp("x", val=0.0), promotes=["*"])
@@ -1109,6 +1135,11 @@ class LinearGroup(om.Group):
         self.add_design_var("x", lower=-100.0, upper=100.0)
         # Add constraint to find x intercept
         self.add_constraint("y", equals=0.0, parallel_deriv_color="lift_con")
+
+
+@dmm.register(LinearGroup)
+class LinearGroupModel(GroupModel):
+    options: LinearGroupOptions = Field(default_factory=LinearGroupOptions)
 
 
 @use_tempdirs

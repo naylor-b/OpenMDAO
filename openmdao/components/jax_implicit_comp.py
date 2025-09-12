@@ -7,9 +7,12 @@ import inspect
 from types import MethodType
 from itertools import chain
 from functools import partial
+from pydantic import Field
 
-from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.core.implicitcomponent import ImplicitComponent, \
+    NonDistributedImplicitComponentOptions, ImplicitComponentModel
 from openmdao.utils.om_warnings import issue_warning
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.jax_utils import jax, jit, _jax_register_pytree_class, \
     _compute_sparsity, get_vmap_tangents, _update_subjac_sparsity, \
     _jax_derivs2partials, _ensure_returns_tuple, _update_add_input_kwargs, \
@@ -73,18 +76,6 @@ class JaxImplicitComponent(ImplicitComponent):
                           f"'{fallback_derivs_method}' will be used for derivatives.")
             self.options['derivs_method'] = fallback_derivs_method
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-        self.options.declare('default_to_dyn_shapes', types=bool, default=False,
-                             desc='If True, use dynamic shaping for any variables whose value is '
-                             'scalar and whose shape is not explicitly set. Inputs will use '
-                             'shape_by_conn and outputs will use a compute_shape method based '
-                             'on jax.eval_shape. Default is False.')
-
-        self.options.undeclare("distributed")
 
     def _setup_check(self):
         """
@@ -541,3 +532,17 @@ class JaxImplicitComponent(ImplicitComponent):
             self._output_shapes = {n: shp for n, shp in zip(self._var_rel_names['output'],
                                                             out_shapes)}
         return self._output_shapes[name]
+
+
+class JaxImplicitComponentOptions(NonDistributedImplicitComponentOptions):
+
+    default_to_dyn_shapes: bool = \
+        Field(default=False,
+              desc='If True, use dynamic shaping for any variables whose value is scalar and whose '
+              'shape is not explicitly set. Inputs will use shape_by_conn and outputs will use a '
+              'compute_shape method based on jax.eval_shape. Default is False.')
+
+
+@dmm.register(JaxImplicitComponent)
+class JaxImplicitComponentModel(ImplicitComponentModel):
+    options: JaxImplicitComponentOptions = Field(default_factory=JaxImplicitComponentOptions)

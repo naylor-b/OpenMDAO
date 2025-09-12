@@ -3,8 +3,11 @@
 
 import numpy as np
 import scipy.linalg as spla
+from typing import Optional, Tuple
+from pydantic import Field, ConfigDict
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MatrixVectorProductComp(ExplicitComponent):
@@ -55,27 +58,6 @@ class MatrixVectorProductComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='The number of points at which the matrix vector product '
-                                  'is to be computed')
-        self.options.declare('A_name', types=str, default='A',
-                             desc='The variable name for the matrix.')
-        self.options.declare('A_shape', types=tuple, default=(3, 3),
-                             desc='The shape of the input matrix at a single point.')
-        self.options.declare('A_units', types=str, default=None, allow_none=True,
-                             desc='The units of the input matrix.')
-        self.options.declare('x_name', types=str, default='x',
-                             desc='The name of the input vector.')
-        self.options.declare('x_units', types=str, default=None, allow_none=True,
-                             desc='The units of the input vector.')
-        self.options.declare('b_name', types=str, default='b',
-                             desc='The variable name of the output vector.')
-        self.options.declare('b_units', types=str, default=None, allow_none=True,
-                             desc='The units of the output vector.')
 
     def add_product(self, b_name, A_name='A', x_name='x', A_units=None, x_units=None, b_units=None,
                     vec_size=1, A_shape=(3, 3)):
@@ -239,3 +221,21 @@ class MatrixVectorProductComp(ExplicitComponent):
             # Use the following for sparse partials
             partials[b_name, A_name] = np.repeat(x, A.shape[1], axis=0).ravel()
             partials[b_name, x_name] = A.ravel()
+
+
+class MatrixVectorProductCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vec_size: int = Field(default=1, desc='The number of points at which the matrix vector product is to be computed')
+    A_name: str = Field(default='A', desc='The variable name for the matrix.')
+    A_shape: Tuple[int, int] = Field(default=(3, 3), desc='The shape of the input matrix at a single point.')
+    A_units: Optional[str] = Field(default=None, desc='The units of the input matrix.')
+    x_name: str = Field(default='x', desc='The name of the input vector.')
+    x_units: Optional[str] = Field(default=None, desc='The units of the input vector.')
+    b_name: str = Field(default='b', desc='The variable name of the output vector.')
+    b_units: Optional[str] = Field(default=None, desc='The units of the output vector.')
+
+
+@dmm.register(MatrixVectorProductComp)
+class MatrixVectorProductCompModel(ExplicitComponentModel):
+    options: MatrixVectorProductCompOptions = Field(default_factory=MatrixVectorProductCompOptions)

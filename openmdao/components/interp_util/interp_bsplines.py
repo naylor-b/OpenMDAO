@@ -3,8 +3,12 @@ Interpolation usng simple B-splines.
 """
 import numpy as np
 from scipy.sparse import csr_matrix
+from typing import Optional
+from pydantic import Field, ConfigDict
 
-from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm
+from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
+    InterpAlgorithmOptions, InterpAlgorithmModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 CITATIONS = """
 @conference {Hwang2012c,
@@ -62,21 +66,6 @@ class InterpBSplines(InterpAlgorithm):
         self.grid = None
         self.x_cp_start = self.options['x_cp_start']
         self.x_cp_end = self.options['x_cp_end']
-
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('order', default=4,
-                             desc='B-spline order.')
-        self.options.declare('x_cp_start', default=None, allow_none=True,
-                             types=(float, int),
-                             desc='Location of first control point. If None, use the first '
-                             'interpolation point.')
-        self.options.declare('x_cp_end', default=None, allow_none=True,
-                             types=(float, int),
-                             desc='Location of last control point. If None, use the last '
-                             'interpolation point.')
 
     def check_config(self):
         """
@@ -233,3 +222,16 @@ class InterpBSplines(InterpAlgorithm):
         data, rows, cols = data.flatten(), rows.flatten(), cols.flatten()
 
         return csr_matrix((data, (rows, cols)), shape=(num_pt, num_cp))
+
+
+class InterpBSplinesOptions(InterpAlgorithmOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    order: int = Field(default=4, desc='B-spline order.')
+    x_cp_start: Optional[float] = Field(default=None, desc='Location of first control point. If None, use the first interpolation point.')
+    x_cp_end: Optional[float] = Field(default=None, desc='Location of last control point. If None, use the last interpolation point.')
+
+
+@dmm.register(InterpBSplines)
+class InterpBSplinesModel(InterpAlgorithmModel):
+    options: InterpBSplinesOptions = Field(default_factory=InterpBSplinesOptions)

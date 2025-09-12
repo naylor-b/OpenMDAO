@@ -3,11 +3,16 @@ import sys
 import itertools
 
 import numpy as np
+from pydantic import Field
+
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_check_totals
 from openmdao.utils.jax_utils import jax
 from openmdao.utils.testing_utils import parameterized_name
+from openmdao.utils.validation import DataModelManager as dmm
 
+from openmdao.components.jax_implicit_comp import JaxImplicitComponentOptions, \
+    JaxImplicitComponentModel
 
 try:
     from parameterized import parameterized
@@ -62,10 +67,11 @@ class JaxQuadraticCompPrimal(om.JaxImplicitComponent):
         return a * x ** 2 + b * x + c
 
 
-class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
+class JaxLinearSystemCompPrimalOptions(JaxImplicitComponentOptions):
+    size: int = Field(default=1, desc='Size of the linear system')
 
-    def initialize(self):
-        self.options.declare('size', default=1, types=int)
+
+class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
 
     def setup(self):
         size = self.options['size']
@@ -88,11 +94,18 @@ class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
         return A.dot(x) - b
 
 
-class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
+@dmm.register(JaxLinearSystemCompPrimal)
+class JaxLinearSystemCompPrimalModel(JaxImplicitComponentModel):
+    options: JaxLinearSystemCompPrimalOptions = Field(default_factory=JaxLinearSystemCompPrimalOptions)
 
-    def initialize(self):
-        self.options.declare('size', default=1, types=int)
-        self.options.declare('adder', default=1., types=float)
+
+
+class JaxLinearSystemCompPrimalwOptionOptions(JaxImplicitComponentOptions):
+    size: int = Field(default=1, desc='Size of the linear system')
+    adder: float = Field(default=1., desc='Adder value')
+
+
+class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
 
     def setup(self):
         size = self.options['size']
@@ -118,10 +131,17 @@ class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
         return A.dot(x + self.options['adder']) - b
 
 
-class JaxLinearSystemCompPrimalwDiscrete(om.JaxImplicitComponent):
+@dmm.register(JaxLinearSystemCompPrimalwOption)
+class JaxLinearSystemCompPrimalwOptionModel(JaxImplicitComponentModel):
+    options: JaxLinearSystemCompPrimalwOptionOptions = Field(default_factory=JaxLinearSystemCompPrimalwOptionOptions)
 
-    def initialize(self):
-        self.options.declare('size', default=1, types=int)
+
+
+class JaxLinearSystemCompPrimalwDiscreteOptions(JaxImplicitComponentOptions):
+    size: int = Field(default=1, desc='Size of the linear system')
+
+
+class JaxLinearSystemCompPrimalwDiscrete(om.JaxImplicitComponent):
 
     def setup(self):
         size = self.options['size']
@@ -143,6 +163,12 @@ class JaxLinearSystemCompPrimalwDiscrete(om.JaxImplicitComponent):
 
     def compute_primal(self, A, b, x, c_discrete):
         return A.dot(x + int(c_discrete)) - b
+
+
+@dmm.register(JaxLinearSystemCompPrimalwDiscrete)
+class JaxLinearSystemCompPrimalwDiscreteModel(JaxImplicitComponentModel):
+    options: JaxLinearSystemCompPrimalwDiscreteOptions = Field(default_factory=JaxLinearSystemCompPrimalwDiscreteOptions)
+
 
 
 @unittest.skipIf(jax is None or sys.version_info < (3, 9), 'jax is not available or python < 3.9.')

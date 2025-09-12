@@ -2,9 +2,18 @@
 Base class for interpolation methods.  New methods should inherit from this class.
 """
 import numpy as np
+from pydantic import Field, BaseModel
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.utils.options_dictionary import OptionsDictionary
+from openmdao.utils.validation import OptionsBaseModel, DataModelManager as dmm
+
+
+class InterpAlgorithmOptions(OptionsBaseModel):
+    """
+    Options for the InterpAlgorithm class.
+    """
+    pass
 
 
 class InterpAlgorithm(object):
@@ -54,9 +63,8 @@ class InterpAlgorithm(object):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, kwargs)
 
         self.subtable = None
 
@@ -256,6 +264,24 @@ class InterpAlgorithm(object):
             dimensions.
         """
         raise NotImplementedError()
+
+    def update_from_data_model(self, data_model):
+        self.options = data_model.options
+        return self
+
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+
+@dmm.register(InterpAlgorithm)
+class InterpAlgorithmModel(BaseModel):
+    """
+    Model for the InterpAlgorithm class.
+    """
+    options: InterpAlgorithmOptions = Field(default_factory=InterpAlgorithmOptions)
+
 
 
 class InterpAlgorithmFixed(object):

@@ -1,8 +1,11 @@
 """Definition of the Cross Product Component."""
 
 import numpy as np
+from typing import Optional
+from pydantic import Field, ConfigDict
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class CrossProductComp(ExplicitComponent):
@@ -53,23 +56,8 @@ class CrossProductComp(ExplicitComponent):
 
     def initialize(self):
         """
-        Declare options.
+        Initialize cross product matrices.
         """
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='The number of points at which the cross product is computed')
-        self.options.declare('a_name', types=str, default='a',
-                             desc='The variable name for vector a.')
-        self.options.declare('b_name', types=str, default='b',
-                             desc='The variable name for vector b.')
-        self.options.declare('c_name', types=str, default='c',
-                             desc='The variable name for vector c.')
-        self.options.declare('a_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector a.')
-        self.options.declare('b_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector b.')
-        self.options.declare('c_units', types=str, default=None, allow_none=True,
-                             desc='The units for vector c.')
-
         self._k = np.array([[0, 0, 0, -1, 0, 1],
                             [0, 1, 0, 0, -1, 0],
                             [-1, 0, 1, 0, 0, 0]], dtype=float)
@@ -210,3 +198,20 @@ class CrossProductComp(ExplicitComponent):
                 np.einsum('...j,ji->...i', b, self._minus_k).ravel()
             partials[product['c_name'], product['b_name']] = \
                 np.einsum('...j,ji->...i', a, self._k).ravel()
+
+
+class CrossProductCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    vec_size: int = Field(default=1, desc='The number of points at which the cross product is computed')
+    a_name: str = Field(default='a', desc='The variable name for vector a.')
+    b_name: str = Field(default='b', desc='The variable name for vector b.')
+    c_name: str = Field(default='c', desc='The variable name for vector c.')
+    a_units: Optional[str] = Field(default=None, desc='The units for vector a.')
+    b_units: Optional[str] = Field(default=None, desc='The units for vector b.')
+    c_units: Optional[str] = Field(default=None, desc='The units for vector c.')
+
+
+@dmm.register(CrossProductComp)
+class CrossProductCompModel(ExplicitComponentModel):
+    options: CrossProductCompOptions = Field(default_factory=CrossProductCompOptions)

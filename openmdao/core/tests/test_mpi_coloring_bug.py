@@ -1,12 +1,17 @@
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 # check that pyoptsparse is installed
@@ -35,11 +40,11 @@ class StateOptionsDictionary(om.OptionsDictionary):
         self.declare(name='rate_source')
 
 
+class CollocationCompOptions(ExplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
 class CollocationComp(om.ExplicitComponent):
-
-    def initialize(self):
-
-        self.options.declare('state_options', types=dict)
 
     def setup(self):
         num_col_nodes = 1
@@ -113,10 +118,16 @@ class CollocationComp(om.ExplicitComponent):
             partials[var_names['defect'], var_names['f_computed']] = -k
 
 
-class StateInterpComp(om.ExplicitComponent):
+@dmm.register(CollocationComp)
+class CollocationCompModel(ExplicitComponentModel):
+    options: CollocationCompOptions = Field(default_factory=CollocationCompOptions)
 
-    def initialize(self):
-        self.options.declare('state_options', types=dict)
+
+class StateInterpCompOptions(ExplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
+class StateInterpComp(om.ExplicitComponent):
 
     def setup(self):
         num_disc_nodes = 2
@@ -246,11 +257,16 @@ class StateInterpComp(om.ExplicitComponent):
             partials[xdotc_name, xd_name] = (self.jacs['Ad'][name])[r_nz, c_nz]
 
 
+@dmm.register(StateInterpComp)
+class StateInterpCompModel(ExplicitComponentModel):
+    options: StateInterpCompOptions = Field(default_factory=StateInterpCompOptions)
+
+
+class StateIndependentsCompOptions(ImplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
 class StateIndependentsComp(om.ImplicitComponent):
-
-    def initialize(self):
-
-        self.options.declare('state_options', types=dict)
 
     def setup(self):
         state_options = self.options['state_options']
@@ -279,6 +295,12 @@ class StateIndependentsComp(om.ImplicitComponent):
             row_col = np.arange(num_state_input_nodes*np.prod(shape))
             self.declare_partials(of=state_var_name, wrt=state_var_name,
                                   rows=row_col, cols=row_col, val=-1.0)
+
+
+@dmm.register(StateIndependentsComp)
+class StateIndependentsCompModel(ImplicitComponentModel):
+    options: StateIndependentsCompOptions = Field(default_factory=StateIndependentsCompOptions)
+
 
 class Trajectory(om.Group):
 
@@ -322,6 +344,11 @@ class Trajectory(om.Group):
             g.linear_solver = om.DirectSolver()
 
 
+class PhaseOptions(GroupOptions):
+    ode_class: object = Field(default=None, desc='ODE class')
+    transcription: object = Field(default=None, desc='Transcription method')
+
+
 class Phase(om.Group):
 
     def __init__(self, **kwargs):
@@ -332,10 +359,6 @@ class Phase(om.Group):
         self._objectives = {}
 
         super().__init__(**_kwargs)
-
-    def initialize(self):
-        self.options.declare('ode_class', default=None)
-        self.options.declare('transcription')
 
     def add_state(self, name, rate_source):
         if name not in self.state_options:
@@ -423,10 +446,16 @@ class GaussLobatto(object):
                           'collocation_constraint.f_approx:{0}'.format(name))
 
 
-class FiniteBurnODE(om.ExplicitComponent):
+@dmm.register(Phase)
+class PhaseModel(GroupModel):
+    options: PhaseOptions = Field(default_factory=PhaseOptions)
 
-    def initialize(self):
-        self.options.declare('num_nodes', types=int)
+
+class FiniteBurnODEOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+
+
+class FiniteBurnODE(om.ExplicitComponent):
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -442,6 +471,11 @@ class FiniteBurnODE(om.ExplicitComponent):
     def compute(self, inputs, outputs):
         at = inputs['accel']
         outputs['deltav_dot'] = at
+
+
+@dmm.register(FiniteBurnODE)
+class FiniteBurnODEModel(ExplicitComponentModel):
+    options: FiniteBurnODEOptions = Field(default_factory=FiniteBurnODEOptions)
 
 
 def make_traj():

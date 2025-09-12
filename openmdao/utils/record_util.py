@@ -135,7 +135,7 @@ def check_valid_sqlite3_db(filename):
         raise IOError('File does not contain a valid sqlite database ({0})'.format(filename))
 
 
-def check_path(path, includes, excludes, include_all_path=False):
+def check_path(path, includes, excludes=(), include_all_path=False):
     """
     Calculate whether `path` should be recorded.
 

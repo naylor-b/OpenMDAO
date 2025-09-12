@@ -3,8 +3,11 @@ import unittest
 import time
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.distributed_components import DistribComp, Summer
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
 from openmdao.utils.array_utils import evenly_distrib_idxs, take_nth
@@ -18,14 +21,12 @@ except ImportError:
     PETScVector = None
 
 
+class InOutArrayCompOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+    delay: float = Field(default=.01, desc="Time to sleep in compute function.")
+
+
 class InOutArrayComp(om.ExplicitComponent):
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
-
-        self.options.declare('delay', types=float, default=.01,
-                             desc="Time to sleep in compute function.")
 
     def setup(self):
         arr_size = self.options['arr_size']
@@ -42,12 +43,17 @@ class InOutArrayComp(om.ExplicitComponent):
         partials['outvec', 'invec'] = 2.0 * np.ones((self.options['arr_size'],))
 
 
+@dmm.register(InOutArrayComp)
+class InOutArrayCompModel(ExplicitComponentModel):
+    options: InOutArrayCompOptions = Field(default_factory=InOutArrayCompOptions)
+
+
+class DistribCompSimpleOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+
+
 class DistribCompSimple(om.ExplicitComponent):
     """Uses 2 procs but takes full input vars"""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         arr_size = self.options['arr_size']
@@ -72,12 +78,17 @@ class DistribCompSimple(om.ExplicitComponent):
             outputs['outvec'] = inputs['invec'] * 0.75
 
 
+@dmm.register(DistribCompSimple)
+class DistribCompSimpleModel(ExplicitComponentModel):
+    options: DistribCompSimpleOptions = Field(default_factory=DistribCompSimpleOptions)
+
+
+class DistribInputCompOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=11, desc="Size of input and output vectors.")
+
+
 class DistribInputComp(om.ExplicitComponent):
     """Uses all procs and takes input var slices"""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=11,
-                             desc="Size of input and output vectors.")
 
     def compute(self, inputs, outputs):
         if MPI:
@@ -102,14 +113,19 @@ class DistribInputComp(om.ExplicitComponent):
         self.add_output('outvec', np.ones(arr_size, float), shape=np.int32(arr_size),
                         distributed=True)
 
+
+@dmm.register(DistribInputComp)
+class DistribInputCompModel(ExplicitComponentModel):
+    options: DistribInputCompOptions = Field(default_factory=DistribInputCompOptions)
+
+
+class DistribOverlappingInputCompOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=11, desc="Size of input and output vectors.")
+    local_size: int = Field(default=1, desc="Local size of output vector.")
+
+
 class DistribOverlappingInputComp(om.ExplicitComponent):
     """Uses 2 procs and takes input var slices"""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=11,
-                             desc="Size of input and output vectors.")
-        self.options.declare('local_size', types=int, default=1,
-                             desc="Local size of output vector.")
 
     def compute(self, inputs, outputs):
         outputs['outvec'][:] = 0
@@ -133,12 +149,17 @@ class DistribOverlappingInputComp(om.ExplicitComponent):
         self.add_input('invec', np.ones(local_size, float), distributed=True)
 
 
+@dmm.register(DistribOverlappingInputComp)
+class DistribOverlappingInputCompModel(ExplicitComponentModel):
+    options: DistribOverlappingInputCompOptions = Field(default_factory=DistribOverlappingInputCompOptions)
+
+
+class DistribInputDistribOutputCompOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=11, desc="Size of input and output vectors.")
+
+
 class DistribInputDistribOutputComp(om.ExplicitComponent):
     """Uses 2 procs and takes input var slices."""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=11,
-                             desc="Size of input and output vectors.")
 
     def compute(self, inputs, outputs):
         outputs['outvec'] = inputs['invec']*2.0
@@ -158,12 +179,17 @@ class DistribInputDistribOutputComp(om.ExplicitComponent):
         self.add_output('outvec', np.ones(sizes[rank], float), distributed=True)
 
 
+@dmm.register(DistribInputDistribOutputComp)
+class DistribInputDistribOutputCompModel(ExplicitComponentModel):
+    options: DistribInputDistribOutputCompOptions = Field(default_factory=DistribInputDistribOutputCompOptions)
+
+
+class DistribCompWithDerivsOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=11, desc="Size of input and output vectors.")
+
+
 class DistribCompWithDerivs(om.ExplicitComponent):
     """Uses 2 procs and takes input var slices, but also computes partials"""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=11,
-                             desc="Size of input and output vectors.")
 
     def compute(self, inputs, outputs):
         outputs['outvec'] = inputs['invec']*2.0
@@ -192,6 +218,11 @@ class DistribCompWithDerivs(om.ExplicitComponent):
                                                  cols=np.arange(0, sizes[rank]))
 
 
+@dmm.register(DistribCompWithDerivs)
+class DistribCompWithDerivsModel(ExplicitComponentModel):
+    options: DistribCompWithDerivsOptions = Field(default_factory=DistribCompWithDerivsOptions)
+
+
 class DistribInputDistribOutputDiscreteComp(DistribInputDistribOutputComp):
 
     def compute(self, inputs, outputs, discrete_inputs, discrete_outputs):
@@ -204,12 +235,12 @@ class DistribInputDistribOutputDiscreteComp(DistribInputDistribOutputComp):
         self.add_discrete_output('disc_out', 'foobar')
 
 
+class DistribNoncontiguousCompOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
 class DistribNoncontiguousComp(om.ExplicitComponent):
     """Used in tests of non-contiguous input var slices"""
-
-    def initialize(self):
-        self.options.declare('size', types=int,
-                             desc="Size of input and output vectors.")
 
     def compute(self, inputs, outputs):
         outputs['outvec'] = inputs['invec']*2.0
@@ -221,12 +252,17 @@ class DistribNoncontiguousComp(om.ExplicitComponent):
         self.add_output('outvec', np.ones(size, float), distributed=True)
 
 
+@dmm.register(DistribNoncontiguousComp)
+class DistribNoncontiguousCompModel(ExplicitComponentModel):
+    options: DistribNoncontiguousCompOptions = Field(default_factory=DistribNoncontiguousCompOptions)
+
+
+class DistribGatherCompOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=11, desc="Size of input and output vectors.")
+
+
 class DistribGatherComp(om.ExplicitComponent):
     """Uses 2 procs gathers a distrib input into a full output"""
-
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=11,
-                             desc="Size of input and output vectors.")
 
     def compute(self, inputs, outputs):
         if MPI:
@@ -251,12 +287,17 @@ class DistribGatherComp(om.ExplicitComponent):
         self.add_output('outvec', np.ones(arr_size, float), distributed=True)
 
 
+@dmm.register(DistribGatherComp)
+class DistribGatherCompModel(ExplicitComponentModel):
+    options: DistribGatherCompOptions = Field(default_factory=DistribGatherCompOptions)
+
+
+class NonDistribGatherCompOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
 class NonDistribGatherComp(om.ExplicitComponent):
     """Uses 2 procs gathers a distrib output into a full input"""
-
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         size = self.options['size']
@@ -266,6 +307,11 @@ class NonDistribGatherComp(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['outvec'] = inputs['invec']
+
+
+@dmm.register(NonDistribGatherComp)
+class NonDistribGatherCompModel(ExplicitComponentModel):
+    options: NonDistribGatherCompOptions = Field(default_factory=NonDistribGatherCompOptions)
 
 
 @unittest.skipUnless(PETScVector is None, "Only runs when PETSc is not available")
@@ -1084,17 +1130,20 @@ class TestGroupMPI(unittest.TestCase):
 
     def test_promote_distrib(self):
 
-        class MyComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('size', types=int, default=1,
-                                     desc="Size of input vector x.")
+        class MyCompOptions(ExplicitComponentOptions):
+            size: int = Field(default=1, desc="Size of input vector x.")
 
+        class MyComp(om.ExplicitComponent):
             def setup(self):
                 self.add_input('x', np.ones(self.options['size']), distributed=True)
                 self.add_output('y', 1.0, distributed=True)
 
             def compute(self, inputs, outputs):
                 outputs['y'] = np.sum(inputs['x'])*2.0
+
+        @dmm.register(MyComp)
+        class MyCompModel(ExplicitComponentModel):
+            options: MyCompOptions = Field(default_factory=MyCompOptions)
 
         p = om.Problem()
 

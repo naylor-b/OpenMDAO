@@ -4,14 +4,17 @@ Design-of-Experiments Driver.
 
 import traceback
 import inspect
+from typing import Any
+from pydantic import Field
 
 import numpy as np
 
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.drivers.doe_generators import DOEGenerator, ListGenerator
 
 from openmdao.utils.mpi import MPI
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DOEDriver(Driver):
@@ -78,16 +81,6 @@ class DOEDriver(Driver):
         self._quantities = []
         self._total_jac_format = 'dict'
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('generator', types=(DOEGenerator), default=DOEGenerator(),
-                             desc='The case generator. If default, no cases are generated.')
-        self.options.declare('run_parallel', types=bool, default=False,
-                             desc='Set to True to execute cases in parallel.')
-        self.options.declare('procs_per_model', types=int, default=1, lower=1,
-                             desc='Number of processors to give each model under MPI.')
 
     def _setup_comm(self, comm):
         """
@@ -286,3 +279,14 @@ class DOEDriver(Driver):
                     recorder.record_on_process = True
 
         super()._setup_recording()
+
+class DOEDriverOptions(DriverOptions):
+    generator: Any = Field(default=DOEGenerator(), desc='The case generator. If default, no cases are generated.')
+    run_parallel: bool = Field(default=False, desc='Set to True to execute cases in parallel.')
+    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+
+
+@dmm.register(DOEDriver)
+class DOEDriverModel(DriverModel):
+    options: DOEDriverOptions = Field(default_factory=DOEDriverOptions)
+

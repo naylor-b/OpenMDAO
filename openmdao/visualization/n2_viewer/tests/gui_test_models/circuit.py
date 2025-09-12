@@ -1,12 +1,14 @@
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 class Resistor(om.ExplicitComponent):
     """Computes current across a resistor using Ohm's law."""
 
-    def initialize(self):
-        self.options.declare('R', default=1., desc='Resistance in Ohms')
 
     def setup(self):
         self.add_input('V_in', units='V', desc='Voltage in')
@@ -26,9 +28,6 @@ class Resistor(om.ExplicitComponent):
 class Diode(om.ExplicitComponent):
     """Computes current across a diode using the Shockley diode equation."""
 
-    def initialize(self):
-        self.options.declare('Is', default=1e-15, desc='Saturation current in Amps')
-        self.options.declare('Vt', default=.025875, desc='Thermal voltage in Volts')
 
     def setup(self):
         self.add_input('V_in', units='V', desc='Voltage in')
@@ -58,9 +57,6 @@ class Diode(om.ExplicitComponent):
 class Node(om.ImplicitComponent):
     """Computes voltage residual across a node based on incoming and outgoing current."""
 
-    def initialize(self):
-        self.options.declare('n_in', default=1, types=int, desc='number of connections with + assumed in')
-        self.options.declare('n_out', default=1, types=int, desc='number of current connections + assumed out')
 
     def setup(self):
         self.add_output('V', val=5., units='V', desc='Voltage')
@@ -131,3 +127,35 @@ p['circuit.n1.V'] = 10.
 p['circuit.n2.V'] = 1e-3
 
 p.run_model()
+
+
+# Pydantic Models for Circuit Components
+
+class ResistorOptions(ExplicitComponentOptions):
+    R: float = Field(default=1.0, desc='Resistance in Ohms')
+
+
+class DiodeOptions(ExplicitComponentOptions):
+    Is: float = Field(default=1e-15, desc='Saturation current in Amps')
+    Vt: float = Field(default=0.025875, desc='Thermal voltage in Volts')
+
+
+class NodeOptions(ImplicitComponentOptions):
+    n_in: int = Field(default=1, desc='number of connections with + assumed in')
+    n_out: int = Field(default=1, desc='number of current connections + assumed out')
+
+
+# Register the models
+@dmm.register(Resistor)
+class ResistorModel(ExplicitComponentModel):
+    options: ResistorOptions = Field(default_factory=ResistorOptions)
+
+
+@dmm.register(Diode)
+class DiodeModel(ExplicitComponentModel):
+    options: DiodeOptions = Field(default_factory=DiodeOptions)
+
+
+@dmm.register(Node)
+class NodeModel(ImplicitComponentModel):
+    options: NodeOptions = Field(default_factory=NodeOptions)

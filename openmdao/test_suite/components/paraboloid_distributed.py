@@ -4,21 +4,17 @@ each index.
 This version is used for testing, so it will have different options.
 """
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.mpi import MPI
 from openmdao.utils.array_utils import evenly_distrib_idxs
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DistParab(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
-
-        self.options.declare('deriv_type', default='dense',
-                             values=['dense', 'fd', 'cs', 'sparse'],
-                             desc="Method for computing derivatives.")
 
     def setup(self):
         arr_size = self.options['arr_size']
@@ -75,9 +71,6 @@ class DistParab(om.ExplicitComponent):
 
 class DistParabFeature(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
 
@@ -111,9 +104,6 @@ class DistParabFeature(om.ExplicitComponent):
 
 class DistParabDeprecated(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         arr_size = self.options['arr_size']
@@ -149,3 +139,33 @@ class DistParabDeprecated(om.ExplicitComponent):
         partials['f_xy', 'x'] = 2.0 * x + 2.0 * a + y
         partials['f_xy', 'y'] = 2.0 * y + 8.0 + x
         partials['f_xy', 'offset'] = 2.0 * a + 2.0 * x
+
+
+class DistParabOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+    deriv_type: str = Field(default='dense', desc="Method for computing derivatives.")
+
+
+class DistParabFeatureOptions(ExplicitComponentOptions):
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+
+
+class DistParabDeprecatedOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+
+
+@dmm.register(DistParab)
+class DistParabModel(ExplicitComponentModel):
+    options: DistParabOptions = Field(default_factory=DistParabOptions)
+
+
+@dmm.register(DistParabFeature)
+class DistParabFeatureModel(ExplicitComponentModel):
+    options: DistParabFeatureOptions = Field(default_factory=DistParabFeatureOptions)
+
+
+@dmm.register(DistParabDeprecated)
+class DistParabDeprecatedModel(ExplicitComponentModel):
+    options: DistParabDeprecatedOptions = Field(default_factory=DistParabDeprecatedOptions)

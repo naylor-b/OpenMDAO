@@ -1,8 +1,9 @@
 """
 Class definition for SurrogateModel, the base class for all surrogate models.
 """
-from openmdao.utils.options_dictionary import OptionsDictionary
+from pydantic import BaseModel, Field
 
+from openmdao.utils.validation import OptionsBaseModel, DataModelManager as dmm
 
 class SurrogateModel(object):
     """
@@ -26,10 +27,7 @@ class SurrogateModel(object):
         Initialize all attributes.
         """
         self.trained = False
-
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
-        self._declare_options()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, kwargs)
 
     def train(self, x, y):
         """
@@ -80,11 +78,24 @@ class SurrogateModel(object):
         """
         pass
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        pass
+    def update_from_data_model(self, data_model):
+        self.options = data_model.options
+        return self
+
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+
+class SurrogateModelOptions(OptionsBaseModel):
+    pass
+
+
+@dmm.register(SurrogateModel)
+class SurrogateModelModel(BaseModel):
+    options: SurrogateModelOptions = Field(default_factory=SurrogateModelOptions)
+
 
 
 class MultiFiSurrogateModel(SurrogateModel):

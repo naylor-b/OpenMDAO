@@ -9,13 +9,13 @@ from copy import deepcopy
 from contextlib import contextmanager
 from collections import defaultdict
 from itertools import chain
-from enum import IntEnum, Enum
+from enum import IntEnum
+from typing import Literal, Union, Tuple, List
 import warnings
 
 from fnmatch import fnmatchcase
 from numbers import Integral
 from pydantic import Field, BaseModel, ConfigDict
-from typing import List, Union, Tuple
 
 import numpy as np
 
@@ -523,18 +523,9 @@ class System(object, metaclass=SystemMetaclass):
 
         self._jac_func_ = None  # for computing jacobian using AD (jax)
 
-        data_model = kwargs.pop('data_model', None)
-        if data_model is None:
-            self.init_data_model()
-        else:
-            self.data_model = data_model
-            self.update_from_data_model(data_model)
+        dmm.setup_data_model(self, kwargs)
 
-        # TODO: these seem to be used for the same purpose, so why do we have both?
         self.initialize()
-        self._declare_options()
-
-        self.options.update(kwargs)
 
     if _om_dump:
         @property
@@ -775,20 +766,6 @@ class System(object, metaclass=SystemMetaclass):
                 dist_sizes = sizes_in[:, toidx[wrt]] if tometa_in[wrt]['distributed'] else None
                 yield wrt, start, end, vec, _full_slice, dist_sizes
                 start = end
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-
-        This is optionally implemented by subclasses of Component or Group
-        that themselves are intended to be subclassed by the end user. The
-        options of the intermediate class are declared here leaving the
-        `initialize` method available for user-defined options.
-        """
-        pass
-        # model = self.get_data_model()
-        # self.options = model.options
-        # self.recording_options = model.recording_options
 
     def _have_output_solver_options_been_applied(self):
         """
@@ -7175,11 +7152,11 @@ class System(object, metaclass=SystemMetaclass):
         """
         pass
 
-    def init_data_model(self, **kwargs):
+    def init_data_model(self):
         """
         Create a new data model for this instance.
         """
-        self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name, **kwargs)
+        self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
@@ -7233,31 +7210,16 @@ class System(object, metaclass=SystemMetaclass):
         return self.data_model
 
 
-class _AsmJacType(Enum):
-    csc = "csc"
-    csr = "csr"
-    dense = "dense"
-    none = None
-
-
-class _DerivsType(Enum):
-    jax = "jax"
-    cs = "cs"
-    fd = "fd"
-    none = None
-
-
 class SystemOptions(OptionsBaseModel):
-    derivs_method: _DerivsType = Field(default=None,
-                                       desc='The method to use for computing derivatives.')
+    derivs_method: Union[Literal['jax'], Literal['cs'], Literal['fd'], None] = \
+        Field(default=None, desc='The method to use for computing derivatives.')
 
 
 class ImplicitSystemOptions(SystemOptions):
-    assembled_jac_type: _AsmJacType = Field(default=None,
-                                            desc='Linear solver(s) in this group or implicit '
-                                            'component, if using an assembled jacobian, will use    '
-                                            'this type.')
-
+    assembled_jac_type: Union[Literal['csc'], Literal['csr'], Literal['dense'], None] = \
+        Field(default=None,
+              desc='Linear solver(s) in this group or implicit component, if using an assembled '
+              'jacobian, will use this type.')
 
 
 class SystemRecordingOptions(OptionsBaseModel):

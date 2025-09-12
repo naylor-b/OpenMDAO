@@ -71,7 +71,7 @@ class BaseCaseReader(object):
         list or dict
             The cases identified by source.
         """
-        pass
+        raise NotImplementedError("get_cases not implemented for this CaseReader")
 
     def get_case(self, case_id, recurse=True):
         """
@@ -89,7 +89,7 @@ class BaseCaseReader(object):
         dict
             The case identified by case_id.
         """
-        pass
+        raise NotImplementedError("get_case not implemented for this CaseReader")
 
     def list_sources(self, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -107,7 +107,7 @@ class BaseCaseReader(object):
             One or more of: `problem`, `driver`, `<system hierarchy location>`,
                             `<solver hierarchy location>`
         """
-        pass
+        raise NotImplementedError("list_sources not implemented for this CaseReader")
 
     def list_source_vars(self, source, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -126,7 +126,7 @@ class BaseCaseReader(object):
         dict
             {'inputs':[key list], 'outputs':[key list], 'residuals':[key list]}. No recurse.
         """
-        pass
+        raise NotImplementedError("list_source_vars not implemented for this CaseReader")
 
     def list_cases(self, source=None, recurse=True, flat=True, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -150,7 +150,7 @@ class BaseCaseReader(object):
         iterator or dict
             An iterator or a nested dictionary of identified cases.
         """
-        pass
+        raise NotImplementedError("list_cases not implemented for this CaseReader")
 
     def list_model_options(self, run_number=0, system=None, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -171,7 +171,7 @@ class BaseCaseReader(object):
         dict
             {system: {key: val}}.
         """
-        pass
+        raise NotImplementedError("list_model_options not implemented for this CaseReader")
 
     def list_solver_options(self, run_number=0, solver=None, out_stream=_DEFAULT_OUT_STREAM):
         """
@@ -192,4 +192,4 @@ class BaseCaseReader(object):
         dict
             {solver: {key: val}}.
         """
-        pass
+        raise NotImplementedError("list_solver_options not implemented for this CaseReader")

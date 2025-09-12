@@ -1933,7 +1933,7 @@ class TestSqliteCaseReader(unittest.TestCase):
         subs_options = cr._system_options['subs']['component_options']
 
         # no options should have been recorded for d1
-        self.assertEqual(len(subs_options._dict), 0)
+        self.assertEqual(len(subs_options), 0)
 
     def test_pre_load(self):
         prob = SellarProblem(nonlinear_solver=om.NonlinearBlockGS,

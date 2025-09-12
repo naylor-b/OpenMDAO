@@ -357,7 +357,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         else:
             driver_opt_settings = None
 
-        driver_supports = driver.supports
+        driver_supports = driver.supports.model_dump()
 
         # set default behavior for values flag
         if is_undefined(values):
@@ -544,7 +544,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         'type': driver_type,
         'options': driver_options,
         'opt_settings': driver_opt_settings,
-        'supports': driver_supports.model_dump(),
+        'supports': driver_supports,
     }
     data_dict['design_vars'] = root_group.get_design_vars(use_prom_ivc=False)
     data_dict['responses'] = root_group.get_responses(use_prom_ivc=False)

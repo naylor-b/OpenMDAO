@@ -4,6 +4,9 @@ import unittest
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_check_partials, assert_near_equal
+from pydantic import Field
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class TestJaxUtils(unittest.TestCase):
@@ -56,11 +59,11 @@ class TestJaxUtils(unittest.TestCase):
         if jax is None:
             self.skipTest('jax is not available.')
 
-        class PowComp(om.JaxExplicitComponent):
+        class PowCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+            pow: int = Field(default=2, desc='Power value')
 
-            def initialize(self):
-                self.options.declare('vec_size', types=(int,))
-                self.options.declare('pow', types=(int,))
+        class PowComp(om.JaxExplicitComponent):
 
             def setup(self):
                 n = self.options['vec_size']
@@ -75,6 +78,11 @@ class TestJaxUtils(unittest.TestCase):
 
             def compute_primal(self, x):
                 return x**self.options['pow']
+
+        @dmm.register(PowComp)
+        class PowCompModel(ExplicitComponentModel):
+            options: PowCompOptions = Field(default_factory=PowCompOptions)
+
 
         p = om.Problem()
         powcomp = p.model.add_subsystem('c', PowComp(derivs_method='jax', vec_size=11, pow=2))

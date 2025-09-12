@@ -50,6 +50,10 @@ class ScipyKrylov(LinearSolver):
 
         self.precon = None
         self._lin_rhs_checker = None
+        self.options['maxiter'] = 1000
+        self.options['atol'] = 1.0e-12
+
+        self.supports['implicit_components'] = True
 
     def _assembled_jac_solver_iter(self):
         """
@@ -60,18 +64,6 @@ class ScipyKrylov(LinearSolver):
         if self.precon is not None:
             for tup in self.precon._assembled_jac_solver_iter():
                 yield tup
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
-        # changing the default maxiter from the base class
-        self.options['maxiter'] = 1000
-        self.options['atol'] = 1.0e-12
-
-        self.supports['implicit_components'] = True
 
     def _setup_solvers(self, system, depth):
         """

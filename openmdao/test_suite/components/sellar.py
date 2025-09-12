@@ -8,10 +8,16 @@ From Sellar's analytic problem.
     Aerospace Sciences Meeting and Exhibit, Reno, NV, January 1996.
 """
 import inspect
+from typing import Optional, Any
+from pydantic import Field, ConfigDict
 
 import numpy as np
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class SellarDis1(om.ExplicitComponent):
@@ -191,20 +197,6 @@ class SellarNoDerivatives(om.Group):
     Group containing the Sellar MDA. This version uses the disciplines without derivatives.
     """
 
-    def initialize(self):
-        self.options.declare('nonlinear_solver', default=None,
-                             desc='Nonlinear solver for Sellar MDA')
-        self.options.declare('nl_atol', default=None,
-                             desc='User-specified atol for nonlinear solver.')
-        self.options.declare('nl_maxiter', default=None,
-                             desc='Iteration limit for nonlinear solver.')
-        self.options.declare('linear_solver', default=None,
-                             desc='Linear solver')
-        self.options.declare('ln_atol', default=None,
-                             desc='User-specified atol for linear solver.')
-        self.options.declare('ln_maxiter', default=None,
-                             desc='Iteration limit for linear solver.')
-
     def setup(self):
         cycle = self.add_subsystem('cycle', om.Group(), promotes=['x', 'z', 'y1', 'y2'])
         cycle.add_subsystem('d1', SellarDis1(), promotes=['x', 'z', 'y1', 'y2'])
@@ -242,20 +234,6 @@ class SellarDerivatives(om.Group):
     """
     Group containing the Sellar MDA. This version uses the disciplines with derivatives.
     """
-
-    def initialize(self):
-        self.options.declare('nonlinear_solver', default=None,
-                             desc='Nonlinear solver (class or instance) for Sellar MDA')
-        self.options.declare('nl_atol', default=None,
-                             desc='User-specified atol for nonlinear solver.')
-        self.options.declare('nl_maxiter', default=None,
-                             desc='Iteration limit for nonlinear solver.')
-        self.options.declare('linear_solver', default=None,
-                             desc='Linear solver (class or instance)')
-        self.options.declare('ln_atol', default=None,
-                             desc='User-specified atol for linear solver.')
-        self.options.declare('ln_maxiter', default=None,
-                             desc='Iteration limit for linear solver.')
 
     def setup(self):
         self.add_subsystem('d1', SellarDis1withDerivatives(), promotes=['x', 'z', 'y1', 'y2'])
@@ -325,24 +303,6 @@ class SellarDerivativesGrouped(om.Group):
     """
     Group containing the Sellar MDA. This version uses the disciplines with derivatives.
     """
-
-    def initialize(self):
-        self.options.declare('nonlinear_solver', default=None, recordable=False,
-                             desc='Nonlinear solver (class or instance) for Sellar MDA')
-        self.options.declare('nl_atol', default=None,
-                             desc='User-specified atol for nonlinear solver.')
-        self.options.declare('nl_maxiter', default=None,
-                             desc='Iteration limit for nonlinear solver.')
-        self.options.declare('linear_solver', default=None, recordable=False,
-                             desc='Linear solver (class or instance)')
-        self.options.declare('ln_atol', default=None,
-                             desc='User-specified atol for linear solver.')
-        self.options.declare('ln_maxiter', default=None,
-                             desc='Iteration limit for linear solver.')
-        self.options.declare('mda_nonlinear_solver', default=None, recordable=False,
-                             desc='Nonlinear solver (class or instance)')
-        self.options.declare('mda_linear_solver', default=None, recordable=False,
-                             desc='Linear solver (class or instance) for Sellar MDA')
 
     def setup(self):
         self.mda = mda = self.add_subsystem('mda', om.Group(), promotes=['x', 'z', 'y1', 'y2'])
@@ -431,20 +391,6 @@ class SellarStateConnection(om.Group):
     """
     Group containing the Sellar MDA. This version uses the disciplines with derivatives.
     """
-
-    def initialize(self):
-        self.options.declare('nonlinear_solver', default=om.NewtonSolver(solve_subsystems=False),
-                             desc='Nonlinear solver (class or instance) for Sellar MDA')
-        self.options.declare('nl_atol', default=None,
-                             desc='User-specified atol for nonlinear solver.')
-        self.options.declare('nl_maxiter', default=None,
-                             desc='Iteration limit for nonlinear solver.')
-        self.options.declare('linear_solver', default=om.ScipyKrylov,
-                             desc='Linear solver (class or instance)')
-        self.options.declare('ln_atol', default=None,
-                             desc='User-specified atol for linear solver.')
-        self.options.declare('ln_maxiter', default=None,
-                             desc='Iteration limit for linear solver.')
 
     def setup(self):
         sub = self.add_subsystem('sub', om.Group(),
@@ -663,3 +609,104 @@ class SellarProblemWithArrays(om.Problem):
 
         # default to non-verbose
         self.set_solver_print(0)
+
+
+# Pydantic Models for Sellar Components
+
+class SellarDis1Options(ExplicitComponentOptions):
+    units: Optional[str] = Field(default=None, desc='Units for the component')
+    scaling: Optional[bool] = Field(default=None, desc='Whether to use scaling')
+
+
+class SellarDis2Options(ExplicitComponentOptions):
+    units: Optional[str] = Field(default=None, desc='Units for the component')
+    scaling: Optional[bool] = Field(default=None, desc='Whether to use scaling')
+
+
+class SellarNoDerivativesOptions(GroupOptions):
+    nonlinear_solver: Optional[Any] = Field(default=None, desc='Nonlinear solver for Sellar MDA')
+    nl_atol: Optional[float] = Field(default=None, desc='User-specified atol for nonlinear solver.')
+    nl_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for nonlinear solver.')
+    linear_solver: Optional[Any] = Field(default=None, desc='Linear solver')
+    ln_atol: Optional[float] = Field(default=None, desc='User-specified atol for linear solver.')
+    ln_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for linear solver.')
+
+
+class SellarDerivativesOptions(GroupOptions):
+    nonlinear_solver: Optional[Any] = Field(default=None, desc='Nonlinear solver (class or instance) for Sellar MDA')
+    nl_atol: Optional[float] = Field(default=None, desc='User-specified atol for nonlinear solver.')
+    nl_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for nonlinear solver.')
+    linear_solver: Optional[Any] = Field(default=None, desc='Linear solver (class or instance)')
+    ln_atol: Optional[float] = Field(default=None, desc='User-specified atol for linear solver.')
+    ln_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for linear solver.')
+
+
+class SellarDerivativesGroupedOptions(GroupOptions):
+    nonlinear_solver: Optional[Any] = Field(default=None, desc='Nonlinear solver (class or instance) for Sellar MDA')
+    nl_atol: Optional[float] = Field(default=None, desc='User-specified atol for nonlinear solver.')
+    nl_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for nonlinear solver.')
+    linear_solver: Optional[Any] = Field(default=None, desc='Linear solver (class or instance)')
+    ln_atol: Optional[float] = Field(default=None, desc='User-specified atol for linear solver.')
+    ln_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for linear solver.')
+    mda_nonlinear_solver: Optional[Any] = Field(default=None, desc='Nonlinear solver (class or instance)')
+    mda_linear_solver: Optional[Any] = Field(default=None, desc='Linear solver (class or instance) for Sellar MDA')
+
+
+class SellarStateConnectionOptions(GroupOptions):
+    nonlinear_solver: Any = Field(default=om.NewtonSolver(solve_subsystems=False), desc='Nonlinear solver (class or instance) for Sellar MDA')
+    nl_atol: Optional[float] = Field(default=None, desc='User-specified atol for nonlinear solver.')
+    nl_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for nonlinear solver.')
+    linear_solver: Any = Field(default=om.ScipyKrylov, desc='Linear solver (class or instance)')
+    ln_atol: Optional[float] = Field(default=None, desc='User-specified atol for linear solver.')
+    ln_maxiter: Optional[int] = Field(default=None, desc='Iteration limit for linear solver.')
+
+
+class SellarImplicitDis1Options(ImplicitComponentOptions):
+    units: Optional[str] = Field(default=None, desc='Units for the component')
+    scaling: Optional[bool] = Field(default=None, desc='Whether to use scaling')
+
+
+class SellarImplicitDis2Options(ImplicitComponentOptions):
+    units: Optional[str] = Field(default=None, desc='Units for the component')
+    scaling: Optional[bool] = Field(default=None, desc='Whether to use scaling')
+
+
+# Register the models
+@dmm.register(SellarDis1)
+class SellarDis1Model(ExplicitComponentModel):
+    options: SellarDis1Options = Field(default_factory=SellarDis1Options)
+
+
+@dmm.register(SellarDis2)
+class SellarDis2Model(ExplicitComponentModel):
+    options: SellarDis2Options = Field(default_factory=SellarDis2Options)
+
+
+@dmm.register(SellarNoDerivatives)
+class SellarNoDerivativesModel(GroupModel):
+    options: SellarNoDerivativesOptions = Field(default_factory=SellarNoDerivativesOptions)
+
+
+@dmm.register(SellarDerivatives)
+class SellarDerivativesModel(GroupModel):
+    options: SellarDerivativesOptions = Field(default_factory=SellarDerivativesOptions)
+
+
+@dmm.register(SellarDerivativesGrouped)
+class SellarDerivativesGroupedModel(GroupModel):
+    options: SellarDerivativesGroupedOptions = Field(default_factory=SellarDerivativesGroupedOptions)
+
+
+@dmm.register(SellarStateConnection)
+class SellarStateConnectionModel(GroupModel):
+    options: SellarStateConnectionOptions = Field(default_factory=SellarStateConnectionOptions)
+
+
+@dmm.register(SellarImplicitDis1)
+class SellarImplicitDis1Model(ImplicitComponentModel):
+    options: SellarImplicitDis1Options = Field(default_factory=SellarImplicitDis1Options)
+
+
+@dmm.register(SellarImplicitDis2)
+class SellarImplicitDis2Model(ImplicitComponentModel):
+    options: SellarImplicitDis2Options = Field(default_factory=SellarImplicitDis2Options)

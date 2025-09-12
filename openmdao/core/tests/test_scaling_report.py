@@ -205,9 +205,9 @@ class TestDriverScalingReport3(unittest.TestCase):
         sm.add_input('y', val=0.)
         sm.add_output('z', val=0.)
 
-        sm.options['train_x'] = x_train
-        sm.options['train_y'] = y_train
-        sm.options['train_z'] = z_train
+        sm.options.training_data['x'] = x_train
+        sm.options.training_data['y'] = y_train
+        sm.options.training_data['z'] = z_train
 
         # With or without the line below does not matter
         # Only when method is set to fd, then RuntimeWarning disappears

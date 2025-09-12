@@ -9,6 +9,10 @@ import openmdao.api as om
 
 from openmdao.utils.jax_utils import jax, jnp
 from openmdao.utils.testing_utils import parameterized_name
+from pydantic import Field
+from openmdao.components.jax_explicit_comp import JaxExplicitComponentOptions, \
+    JaxExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 try:
     from parameterized import parameterized
@@ -67,13 +71,14 @@ class DotProdMultPrimal(DotProdMultPrimalNoDeclPartials):
         self.declare_partials(of=['zz'], wrt=['y'])
 
 
+class DotProdMultPrimalOptionOptions(JaxExplicitComponentOptions):
+    mult: float = Field(default=1.0, desc='Multiplier value')
+
+
 class DotProdMultPrimalOption(om.JaxExplicitComponent):
     def __init__(self, stat=2., **kwargs):
         super().__init__(**kwargs)
         self.stat = stat
-
-    def initialize(self):
-        self.options.declare('mult', default=1.0, types=float, allow_none=False)
 
     def setup(self):
         self.add_input('x', shape_by_conn=True)
@@ -88,6 +93,11 @@ class DotProdMultPrimalOption(om.JaxExplicitComponent):
         z = jnp.dot(x, y)
         zz = y * self.options['mult'] * self.stat
         return z, zz
+
+
+@dmm.register(DotProdMultPrimalOption)
+class DotProdMultPrimalOptionModel(JaxExplicitComponentModel):
+    options: DotProdMultPrimalOptionOptions = Field(default_factory=DotProdMultPrimalOptionOptions)
 
 
 class DotProductMultDiscretePrimal(om.JaxExplicitComponent):

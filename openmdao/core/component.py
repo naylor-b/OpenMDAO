@@ -620,8 +620,10 @@ class Component(System):
         if distributed is not False:
             if distributed is None:
                 distributed = False
-            # using ._dict below to avoid tons of deprecation warnings
-            distributed = distributed or self.options.distributed
+            try:
+                distributed = distributed or self.options.distributed
+            except AttributeError:
+                distributed = False
 
         if compute_shape is not None and is_lambda(compute_shape):
             compute_shape = LambdaPickleWrapper(compute_shape)
@@ -896,8 +898,10 @@ class Component(System):
         if distributed is not False:
             if distributed is None:
                 distributed = False
-            # using ._dict below to avoid tons of deprecation warnings
-            distributed = distributed or self.options.distributed
+            try:
+                distributed = distributed or self.options.distributed
+            except AttributeError:
+                distributed = False
 
         if copy_shape and compute_shape:
             raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "

@@ -1310,15 +1310,13 @@ class TestJax2retvals(unittest.TestCase):
 @unittest.skipIf(jax is None, "jax is not installed")
 class TestJaxNonDifferentiableArgs(unittest.TestCase):
     def check_derivs(self, mode, use_jit, method):
-        def func(a, b, c, ex1, ex2):
+        def func(a, b, c):
             x = 2. * a * b + 3. * c
             y = 5. * a * c - 2.5 * b
             return x, y
 
         f = (omf.wrap(func)
                 .defaults(shape=3)
-                .declare_option('ex1', default='foo')
-                .declare_option('ex2', default='bar')
                 .declare_partials(of='*', wrt='*', method=method)
                 )
 

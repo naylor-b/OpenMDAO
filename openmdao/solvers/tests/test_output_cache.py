@@ -1,10 +1,13 @@
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class SubComp1(om.ExplicitComponent):
@@ -73,6 +76,10 @@ class CoupledGroup(om.Group):
         self.linear_solver = om.DirectSolver(assemble_jac=True)
 
 
+class NLBGSGroupOptions(ImplicitComponentOptions):
+    use_guess: bool = Field(default=False, desc='Whether to use guess')
+
+
 class NLBGSGroup(om.Group):
     def setup(self):
         self.add_subsystem("coupling", CoupledGroup())
@@ -88,13 +95,15 @@ class NLBGSGroup(om.Group):
         solver.options["err_on_non_converge"] = True
         self.linear_solver = om.DirectSolver(assemble_jac=True)
 
-    def initialize(self):
-        self.options.declare('use_guess', types=bool, default=False)
-
     def guess_nonlinear(self, inputs, outputs, residuals):
         if self.options['use_guess']:
             # this guess will cause an AnalysisError
             outputs["coupling.balance.x"] = -1.
+
+
+@dmm.register(NLBGSGroup)
+class NLBGSGroupModel(ImplicitComponentModel):
+    options: NLBGSGroupOptions = Field(default_factory=NLBGSGroupOptions)
 
 
 class TestOutputCache(unittest.TestCase):

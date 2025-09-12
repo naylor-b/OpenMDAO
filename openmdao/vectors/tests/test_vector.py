@@ -1,8 +1,11 @@
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
@@ -84,11 +87,11 @@ class TestVector(unittest.TestCase):
 A = np.array([[1.0, 8.0, 0.0], [-1.0, 10.0, 2.0], [3.0, 100.5, 1.0]])
 
 
-class DistribQuadtric(om.ImplicitComponent):
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-            desc="Size of input and output vectors.")
+class DistribQuadtricOptions(ImplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
 
+
+class DistribQuadtric(om.ImplicitComponent):
     def setup(self):
         comm = self.comm
         rank = comm.rank
@@ -127,12 +130,16 @@ class DistribQuadtric(om.ImplicitComponent):
             y[i] = (-b + np.sqrt(b**2 - 4*a*c))/(2*a)
 
 
+@dmm.register(DistribQuadtric)
+class DistribQuadtricModel(ImplicitComponentModel):
+    options: DistribQuadtricOptions = Field(default_factory=DistribQuadtricOptions)
+
+
+class SerialLinearOptions(ImplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
 class SerialLinear(om.ImplicitComponent):
-    def initialize(self):
-
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
-
     def setup(self):
         size = self.options['size']
         self.add_input('y', np.ones(size, float))
@@ -148,6 +155,11 @@ class SerialLinear(om.ImplicitComponent):
         y = inputs['y']
         x = outputs['x']
         x[:] = np.linalg.inv(A).dot(y)
+
+
+@dmm.register(SerialLinear)
+class SerialLinearModel(ImplicitComponentModel):
+    options: SerialLinearOptions = Field(default_factory=SerialLinearOptions)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")

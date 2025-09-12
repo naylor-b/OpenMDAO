@@ -1,14 +1,13 @@
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MultiComplianceComp(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('num_elements', types=int)
-        self.options.declare('force_vector', types=np.ndarray)
-        self.options.declare('num_rhs', types=int)
 
     def setup(self):
         num_elements = self.options['num_elements']
@@ -29,3 +28,16 @@ class MultiComplianceComp(om.ExplicitComponent):
         for j in range(num_rhs):
             force_vector = self.options['force_vector'][:, j]
             outputs['compliance_%d' % j] = np.dot(force_vector, inputs['displacements_%d' % j])
+
+
+class MultiComplianceCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    num_elements: int = Field(default=0, desc='Number of beam elements')
+    force_vector: np.ndarray = Field(default=np.zeros(0), desc='Force vector')
+    num_rhs: int = Field(default=0, desc='Number of right-hand sides')
+
+
+@dmm.register(MultiComplianceComp)
+class MultiComplianceCompModel(ExplicitComponentModel):
+    options: MultiComplianceCompOptions = Field(default_factory=MultiComplianceCompOptions)

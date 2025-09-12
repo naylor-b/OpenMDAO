@@ -7,8 +7,7 @@ import sys
 import time
 import os
 import weakref
-from pydantic import Field, model_validator
-from typing import Dict, Any
+from pydantic import Field
 
 import numpy as np
 import scipy.sparse as sp
@@ -300,15 +299,8 @@ class Driver(object, metaclass=DriverMetaclass):
         self._total_jac = None
         self._total_jac_linear = None
 
-        data_model = kwargs.pop('data_model', None)
-        if data_model is None:
-            self.init_data_model()
-        else:
-            self.data_model = data_model
-            self.update_from_data_model(data_model)
+        dmm.setup_data_model(self, kwargs)
 
-        self._declare_options()
-        self.options.update(kwargs)
         self.result = DriverResult(self)
         self._has_scaling = False
         self._filtered_vars_to_record = None
@@ -347,18 +339,6 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         # shut down all recorders
         self._rec_mgr.shutdown()
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-
-        This is optionally implemented by subclasses of Driver.
-        """
-        pass
-        # model = self.get_data_model()
-        # self.options = model.options
-        # self.recording_options = model.recording_options
-        # self.supports = model.supports
 
     def _setup_comm(self, comm):
         """
@@ -2431,10 +2411,10 @@ class DriverRecordingOptions(OptionsBaseModel):
         Field(default=True,
               desc="Set to True to record constraints at the driver level.")
     includes: list[str] = \
-        Field(default=list,
+        Field(default_factory=list,
               desc="Patterns for variables to include in recording. Uses fnmatch wildcards.")
     excludes: list[str] = \
-        Field(default=list,
+        Field(default_factory=list,
               desc="Patterns for vars to exclude in recording (processed post-includes). Uses "
               "fnmatch wildcards.")
     record_derivatives: bool = Field(default=False,
@@ -2455,7 +2435,7 @@ class DriverSupports(OptionsBaseModel):
     linear_only_designvars: bool = False
     two_sided_constraints: bool = False
     multiple_objectives: bool = False
-    integer_design_vars: bool = False
+    integer_design_vars: bool = True
     gradients: bool = False
     active_set: bool = False
     simultaneous_derivatives: bool = False

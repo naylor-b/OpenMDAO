@@ -9,6 +9,8 @@ import sys
 import json
 import signal
 from packaging.version import Version
+from typing import Any, Optional, Union
+from pydantic import Field
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -21,13 +23,15 @@ except ImportError:
 except Exception as err:
     pyoptsparse = err
 
-from openmdao.core.constants import _DEFAULT_REPORTS_DIR, _ReprClass
+from openmdao.core.constants import _DEFAULT_REPORTS_DIR
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.driver import Driver, RecordingDebugging, filter_by_meta
+from openmdao.core.driver import Driver, RecordingDebugging, filter_by_meta, DriverModel, \
+    DriverOptions
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import FakeComm, MPI
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
+from openmdao.utils.validation import DataModelManager as dmm
 
 # what version of pyoptspare are we working with
 if pyoptsparse and hasattr(pyoptsparse, '__version__'):
@@ -235,43 +239,6 @@ class pyOptSparseDriver(Driver):
 
         self.cite = CITATIONS
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('optimizer', default='SLSQP', values=optlist,
-                             desc='Name of optimizers to use')
-        self.options.declare('title', default='Optimization using pyOpt_sparse',
-                             desc='Title of this optimization run')
-        self.options.declare('print_opt_prob', types=bool, default=False,
-                             desc='Print the opt problem summary before running the optimization')
-        self.options.declare('print_results', types=(bool, str), default=True,
-                             desc='Print pyOpt results if True')
-        self.options.declare('gradient_method', default='openmdao',
-                             values={'openmdao', 'pyopt_fd', 'snopt_fd'},
-                             desc='Finite difference implementation to use')
-        self.options.declare('user_terminate_signal', default=DEFAULT_SIGNAL, allow_none=True,
-                             desc='OS signal that triggers a clean user-termination. '
-                                  'Only SNOPT supports this option.')
-        self.options.declare('singular_jac_behavior', default='warn',
-                             values=['error', 'warn', 'ignore'],
-                             desc='Defines behavior of a zero row/col check after first call to'
-                                  'compute_totals:'
-                                  'error - raise an error.'
-                                  'warn - raise a warning.'
-                                  "ignore - don't perform check.")
-        self.options.declare('singular_jac_tol', default=1e-16,
-                             desc='Tolerance for zero row/column check.')
-        self.options.declare('hist_file', types=str, default=None, allow_none=True,
-                             desc='File location for saving pyopt_sparse optimization history. '
-                                  'Default is None for no output.')
-        self.options.declare('hotstart_file', types=str, default=None, allow_none=True,
-                             desc='File location of a pyopt_sparse optimization history to use '
-                                  'to hot start the optimization. Default is None.')
-        self.options.declare('output_dir', types=(str, _ReprClass), default=_DEFAULT_REPORTS_DIR,
-                             allow_none=True,
-                             desc='Directory location of pyopt_sparse output files.'
-                             'Default is {prob_name}_out/reports.')
 
     @property
     def hist_file(self):
@@ -959,3 +926,22 @@ class pyOptSparseDriver(Driver):
         self._user_termination_flag = True
         if self._in_user_function:
             raise UserRequestedException('User requested termination.')
+
+
+class PyOptSparseDriverOptions(DriverOptions):
+    optimizer: str = Field(default='SLSQP', desc='Name of optimizers to use')
+    title: str = Field(default='Optimization using pyOpt_sparse', desc='Title of this optimization run')
+    print_opt_prob: bool = Field(default=False, desc='Print the opt problem summary before running the optimization')
+    print_results: Union[bool, str] = Field(default=True, desc='Print pyOpt results if True')
+    gradient_method: str = Field(default='openmdao', desc='Finite difference implementation to use')
+    user_terminate_signal: Optional[int] = Field(default=DEFAULT_SIGNAL, desc='OS signal that triggers a clean user-termination. Only SNOPT supports this option.')
+    singular_jac_behavior: str = Field(default='warn', desc='Defines behavior of a zero row/col check after first call to compute_totals. error - raise an error. warn - raise a warning. ignore - don\'t perform check.')
+    singular_jac_tol: float = Field(default=1e-16, desc='Tolerance for zero row/column check.')
+    hist_file: Optional[str] = Field(default=None, desc='File location for saving pyopt_sparse optimization history. Default is None for no output.')
+    hotstart_file: Optional[str] = Field(default=None, desc='File location of a pyopt_sparse optimization history to use to hot start the optimization. Default is None.')
+    output_dir: Any = Field(default=_DEFAULT_REPORTS_DIR, desc='Directory location of pyopt_sparse output files.')
+
+
+@dmm.register(pyOptSparseDriver)
+class PyOptSparseDriverMode(DriverModel):
+    options: PyOptSparseDriverOptions = Field(default_factory=PyOptSparseDriverOptions)

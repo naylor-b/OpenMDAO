@@ -6,7 +6,6 @@ from openmdao.core.driver import Driver
 from openmdao.solvers.solver import Solver
 from openmdao.core.problem import Problem
 from openmdao.utils.mpi import MPI
-from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.record_util import check_path
 
 
@@ -182,16 +181,14 @@ class CaseRecorder(object):
         excludes = system.recording_options['options_excludes']
 
         if excludes:
-            user_options = OptionsDictionary()
-            user_options._all_recordable = system.options._all_recordable
-            for key in system.options._dict:
-                if check_path(key, [], excludes, True):
-                    user_options._dict[key] = system.options._dict[key]
-            user_options._read_only = system.options._read_only
+            user_options = {}
+            for key in sorted(system.options):
+                if check_path(key, None, excludes, True):
+                    user_options[key] = getattr(system.options, key)
 
             return scaling_vecs, user_options
         else:
-            return scaling_vecs, system.options
+            return scaling_vecs, system.options.sorted_model_dump()
 
     def record_metadata_system(self, system, run_number=None):
         """

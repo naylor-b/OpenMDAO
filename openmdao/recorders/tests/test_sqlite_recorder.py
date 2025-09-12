@@ -6,8 +6,14 @@ import sqlite3
 
 
 import numpy as np
+from pydantic import Field, deprecated
+from typing import Optional
+
 
 import openmdao.api as om
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.driver import DriverOptions, DriverModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.scripts.circuit_analysis import Resistor, Diode, Node
 from openmdao.test_suite.components.ae_tests import AEComp
@@ -464,13 +470,13 @@ class TestSqliteRecorder(unittest.TestCase):
             "Run Number: 0",
             "    Subsystem : root",
             "        assembled_jac_type: None",
-            "        derivs_method: None",
             "        auto_order: False",
+            "        derivs_method: None",
             "    Subsystem : p1",
+            "        always_opt: False",
             "        derivs_method: None",
             "        distributed: False",
             "        run_root_only: False",
-            "        always_opt: False",
             "        use_jit: True",
             "        default_shape: (1,)",
             "        name: UNDEFINED",
@@ -830,11 +836,27 @@ class TestSqliteRecorder(unittest.TestCase):
     def test_deprecated_option(self):
         # check that deprecated options are recorded but no warning is issued
         from openmdao.core.driver import Driver
+
+        class MyDriverOptions(DriverOptions):
+            user_terminate_signal: Optional[str] = \
+                Field(default=None,
+                      desc='Signal that triggers a clean user-termination.')
+
+            @deprecated("The option was misspelled and is deprecated.")
+            @property
+            def user_teriminate_signal(self):
+                return self.user_terminate_signal
+
+            @user_teriminate_signal.setter
+            def user_teriminate_signal(self, value):
+                self.user_terminate_signal = value
+
         class MyDriver(Driver):
-            def _declare_options(self):
-                # Deprecated option
-                self.options.declare('user_teriminate_signal', default=None, desc='Oops.',
-                                     deprecation="The option was misspelled and is deprecated.")
+            pass
+
+        @dmm.register(MyDriver)
+        class MyDriverModel(DriverModel):
+            options: MyDriverOptions = Field(default_factory=MyDriverOptions)
 
         prob = om.Problem(driver=MyDriver())
         prob.driver.add_recorder(om.SqliteRecorder(self.filename))
@@ -3114,7 +3136,7 @@ class TestFeatureSqliteRecorder(unittest.TestCase):
                                  'mda', 'mda.d1', 'mda.d2', 'obj_cmp']))
 
         self.assertEqual(sorted(options['mda.d1'].keys()),
-                         sorted(prob.model.mda.d1.options._dict.keys()))
+                         sorted(prob.model.mda.d1.options.keys()))
 
         self.assertEqual(options['root']['nl_maxiter'], 1)
 
@@ -3545,10 +3567,10 @@ class TestFeatureSqliteRecorder(unittest.TestCase):
         vec_size = 7
         prob = om.Problem(model=om.Group())
 
-        class _TestSys(om.Group):
+        class _TestSysOptions(GroupOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int)
+        class _TestSys(om.Group):
 
             def setup(self):
                 nn = self.options['vec_size']
@@ -3570,6 +3592,10 @@ class TestFeatureSqliteRecorder(unittest.TestCase):
 
                 self.add_design_var('x', lower=0, upper=100)
                 self.add_objective('z')
+
+        @dmm.register(_TestSys)
+        class _TestSysModel(GroupModel):
+            options: _TestSysOptions = Field(default_factory=_TestSysOptions)
 
         test_sys = prob.model.add_subsystem('test_sys', subsys=_TestSys(vec_size=vec_size))
 

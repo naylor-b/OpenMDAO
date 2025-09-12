@@ -7,8 +7,11 @@ from packaging.version import Version
 
 import numpy as np
 from scipy import __version__ as scipy_version
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.impl_comp_array import TestImplCompArray, TestImplCompArrayDense
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.sellar import SellarDis1withDerivatives, \
@@ -823,12 +826,10 @@ class TestGroupFiniteDifference(unittest.TestCase):
         # solve on its subsystems, which led to partials declared with 'val' corrupting the
         # results.
 
+        class DistParabOptions(ExplicitComponentOptions):
+            arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+
         class DistParab(om.ExplicitComponent):
-
-            def initialize(self):
-
-                self.options.declare('arr_size', types=int, default=10,
-                                     desc="Size of input and output vectors.")
 
             def setup(self):
                 arr_size = self.options['arr_size']
@@ -842,11 +843,14 @@ class TestGroupFiniteDifference(unittest.TestCase):
                 x = inputs['x']
                 outputs['f_xy'] = x**2
 
-        class NonDistComp(om.ExplicitComponent):
+        @dmm.register(DistParab)
+        class DistParabModel(ExplicitComponentModel):
+            options: DistParabOptions = Field(default_factory=DistParabOptions)
 
-            def initialize(self):
-                self.options.declare('arr_size', types=int, default=10,
-                                     desc="Size of input and output vectors.")
+        class NonDistCompOptions(ExplicitComponentOptions):
+            arr_size: int = Field(default=10, desc="Size of input and output vectors.")
+
+        class NonDistComp(om.ExplicitComponent):
 
             def setup(self):
                 arr_size = self.options['arr_size']
@@ -865,6 +869,10 @@ class TestGroupFiniteDifference(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['f_xy']
                 outputs['g'] = x * np.array([3.5, -1.0, 5.0])
+
+        @dmm.register(NonDistComp)
+        class NonDistCompModel(ExplicitComponentModel):
+            options: NonDistCompOptions = Field(default_factory=NonDistCompOptions)
 
         size = 3
 
@@ -2254,10 +2262,10 @@ class TestFDRelative(unittest.TestCase):
         # Due to the 20 spread in orders of magnitude, accurate derivatives are only possible with
         # rel_element calculation.
 
-        class FDComp(om.ExplicitComponent):
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
+        class FDComp(om.ExplicitComponent):
 
             def setup(self):
                 nn = self.options['vec_size']
@@ -2271,6 +2279,10 @@ class TestFDRelative(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['x']
                 outputs['y'] = 0.5 * x ** 2
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2641,11 +2653,11 @@ class CheckTotalsParallelGroup(unittest.TestCase):
     N_PROCS = 3
 
     def test_vois_in_parallelgroup(self):
-        class PassThruComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('time', default=3.0)
-                self.options.declare('size', default=1)
+        class PassThruCompOptions(ExplicitComponentOptions):
+            time: float = Field(default=3.0, desc='Time parameter')
+            size: int = Field(default=1, desc='Size parameter')
 
+        class PassThruComp(om.ExplicitComponent):
             def setup(self):
                 size = self.options['size']
                 self.add_input('x', shape=size)
@@ -2662,6 +2674,10 @@ class CheckTotalsParallelGroup(unittest.TestCase):
             def compute_partials(self, inputs, J):
                 size = self.options['size']
                 J['y', 'x'] = np.eye(size)
+
+        @dmm.register(PassThruComp)
+        class PassThruCompModel(ExplicitComponentModel):
+            options: PassThruCompOptions = Field(default_factory=PassThruCompOptions)
 
         model = om.Group()
         iv = om.IndepVarComp()

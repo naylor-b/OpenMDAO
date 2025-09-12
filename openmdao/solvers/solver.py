@@ -199,15 +199,7 @@ class Solver(object, metaclass=SolverMetaclass):
         self._filtered_vars_to_record = {}
         self._norm0 = 0.0
 
-        data_model = kwargs.pop('data_model', None)
-        if data_model is None:
-            self.init_data_model()
-        else:
-            self.data_model = data_model
-            self.update_from_data_model(data_model)
-
-        self._declare_options()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, kwargs)
 
         self._rec_mgr = RecordingManager()
 
@@ -308,16 +300,6 @@ class Solver(object, metaclass=SolverMetaclass):
             raise RuntimeError(
                 "Recording of Solvers when running parallel code is not supported yet")
         self._rec_mgr.append(recorder)
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        pass
-        # model = self.get_data_model()
-        # self.options = model.options
-        # self.recording_options = model.recording_options
-        # self.supports = model.supports
 
     def _setup_solvers(self, system, depth):
         """
@@ -1171,12 +1153,6 @@ class BlockLinearSolver(LinearSolver):
         """
         super().__init__(**kwargs)
         self._rhs_vec = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
         self.supports['assembled_jac'] = False
 
     def does_recursive_applies(self):

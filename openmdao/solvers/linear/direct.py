@@ -196,13 +196,6 @@ class DirectSolver(LinearSolver):
         """
         super().__init__(**kwargs)
         self._lin_rhs_checker = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
         self.options['assemble_jac'] = True
         self.supports['implicit_components'] = True
 

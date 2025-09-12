@@ -1,7 +1,10 @@
 import unittest
 import numpy as np
+from pydantic import Field
 
 from openmdao.api import ExplicitComponent, Problem, IndepVarComp, slicer
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.mpi import MPI
@@ -14,14 +17,14 @@ except ImportError:
 from openmdao.utils.assert_utils import assert_near_equal
 
 
+class DistributedAdderOptions(ExplicitComponentOptions):
+    local_size: int = Field(default=1, desc="Local size of input and output vectors.")
+
+
 class DistributedAdder(ExplicitComponent):
     """
     Distributes the work of adding 10 to every item in the param vector
     """
-
-    def initialize(self):
-        self.options.declare('local_size', types=int, default=1,
-                             desc="Local size of input and output vectors.")
 
     def setup(self):
         """
@@ -41,15 +44,15 @@ class DistributedAdder(ExplicitComponent):
         outputs['y'] = inputs['x'] + 10.
 
 
+class SummerOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
 class Summer(ExplicitComponent):
     """
     Aggregation component that collects all the values from the distributed
     vector addition and computes a total
     """
-
-    def initialize(self):
-        self.options.declare('size', types=int, default=1,
-                             desc="Size of input and output vectors.")
 
     def setup(self):
         # NOTE: this component depends on the full y array, so OpenMDAO
@@ -59,6 +62,16 @@ class Summer(ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['sum'] = np.sum(inputs['y'])
+
+
+@dmm.register(DistributedAdder)
+class DistributedAdderModel(ExplicitComponentModel):
+    options: DistributedAdderOptions = Field(default_factory=DistributedAdderOptions)
+
+
+@dmm.register(Summer)
+class SummerModel(ExplicitComponentModel):
+    options: SummerOptions = Field(default_factory=SummerOptions)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")

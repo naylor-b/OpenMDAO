@@ -1,10 +1,13 @@
 """Define the MultiFiMetaModel class."""
 from itertools import chain
+from pydantic import Field
 
 import numpy as np
 
-from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
+from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp, \
+    MetaModelUnStructuredCompOptions, MetaModelUnStructuredCompModel
 from openmdao.utils.array_utils import shape_to_len
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 def _get_name_fi(name, fi_index):
@@ -104,14 +107,6 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        super().initialize()
-
-        self.options.declare('nfi', types=int, default=1, lower=1,
-                             desc='Number of levels of fidelity.')
 
     def _setup_procs(self, pathname, comm, prob_meta):
         """
@@ -160,8 +155,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         for fi in range(self._nfi):
             if fi > 0:
                 train_name = 'train_' + _get_name_fi(name, fi)
-                self.options.declare(
-                    train_name, default=None, desc='Training data for %s' % train_name)
+                self.options.training_data[train_name] = None
                 if self._static_mode:
                     self._static_input_sizes[fi] += input_size
                 else:
@@ -187,8 +181,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         for fi in range(self._nfi):
             if fi > 0:
                 train_name = 'train_' + _get_name_fi(name, fi)
-                self.options.declare(
-                    train_name, default=None, desc='Training data for %s' % train_name)
+                self.options.training_data[train_name] = None
 
     def _train(self):
         """
@@ -203,7 +196,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         for name_root, _ in chain(self._surrogate_input_names, self._surrogate_output_names):
             for fi in range(self._nfi):
                 name = _get_name_fi(name_root, fi)
-                val = self.options['train_' + name]
+                val = self.options.training_data[name]
                 if num_sample[fi] is None:
                     num_sample[fi] = len(val)
                 elif len(val) != num_sample[fi]:
@@ -220,7 +213,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         for name_root, sz in self._surrogate_input_names:
             for fi in range(self._nfi):
                 name = _get_name_fi(name_root, fi)
-                val = self.options['train_' + name]
+                val = self.options.training_data[name]
                 if isinstance(val[0], float):
                     inputs[fi][:, idx[fi]] = val
                     idx[fi] += 1
@@ -237,7 +230,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
                 name_fi = _get_name_fi(name_root, fi)
                 outputs[fi] = np.zeros((num_sample[fi], output_size))
 
-                val = self.options['train_' + name_fi]
+                val = self.options.training_data[name_fi]
 
                 if isinstance(val[0], float):
                     outputs[fi][:, 0] = val
@@ -258,3 +251,12 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
 
         self._training_input = inputs
         self.train = False
+
+
+class MultiFiMetaModelUnStructuredCompOptions(MetaModelUnStructuredCompOptions):
+    nfi: int = Field(default=1, desc='Number of levels of fidelity.')
+
+
+@dmm.register(MultiFiMetaModelUnStructuredComp)
+class MultiFiMetaModelUnStructuredCompModel(MetaModelUnStructuredCompModel):
+    options: MultiFiMetaModelUnStructuredCompOptions = Field(default_factory=MultiFiMetaModelUnStructuredCompOptions)

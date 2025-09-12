@@ -1,10 +1,13 @@
 import unittest
 import numpy as np
 from openmdao.utils.mpi import MPI
+from pydantic import Field
 
 from openmdao.api import Problem
 from openmdao.api import ExplicitComponent
 from openmdao.api import NonlinearRunOnce, LinearRunOnce
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 try:
     from openmdao.vectors.petsc_vector import PETScVector
@@ -12,9 +15,11 @@ except ImportError:
     PETScVector = None
 
 
+class CompOptions(ExplicitComponentOptions):
+    node_size: int = Field(default=0, desc='Node size')
+
+
 class Comp(ExplicitComponent):
-    def initialize(self):
-        self.options.declare('node_size', 0)
 
     def setup(self):
         node_size = self.options['node_size']
@@ -24,6 +29,11 @@ class Comp(ExplicitComponent):
 
     def compute(self,inputs,outputs):
         outputs['y'] = inputs['x'] + 1.0
+
+
+@dmm.register(Comp)
+class CompModel(ExplicitComponentModel):
+    options: CompOptions = Field(default_factory=CompOptions)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")

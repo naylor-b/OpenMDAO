@@ -1,6 +1,9 @@
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.moment_comp import MomentOfInertiaComp
 from openmdao.test_suite.test_examples.beam_optimization.components.local_stiffness_matrix_comp import LocalStiffnessMatrixComp
@@ -11,12 +14,6 @@ from openmdao.test_suite.test_examples.beam_optimization.components.volume_comp 
 
 class BeamGroup(om.Group):
 
-    def initialize(self):
-        self.options.declare('E')
-        self.options.declare('L')
-        self.options.declare('b')
-        self.options.declare('volume')
-        self.options.declare('num_elements', int)
 
     def setup(self):
         E = self.options['E']
@@ -52,3 +49,18 @@ class BeamGroup(om.Group):
         self.add_design_var('h', lower=1e-2, upper=10.)
         self.add_objective('compliance_comp.compliance')
         self.add_constraint('volume_comp.volume', equals=volume)
+
+
+class BeamGroupOptions(GroupOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    E: float = Field(default=0.0, desc='Young\'s modulus of the beam material')
+    L: float = Field(default=0.0, desc='Length of the beam')
+    b: float = Field(default=0.0, desc='Width of the beam')
+    volume: float = Field(default=0.0, desc='Target volume of the beam')
+    num_elements: int = Field(default=0, desc='Number of beam elements')
+
+
+@dmm.register(BeamGroup)
+class BeamGroupModel(GroupModel):
+    options: BeamGroupOptions = Field(default_factory=BeamGroupOptions)

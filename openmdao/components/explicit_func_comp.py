@@ -108,15 +108,13 @@ class ExplicitFuncComp(ExplicitComponent):
         """
         Define out inputs and outputs.
         """
-        optignore = {'is_option'}
         use_jax = self.options['derivs_method'] == 'jax' and jax is not None
 
         for name, meta in self._compute.get_input_meta():
             _check_var_name(self, name)
             if 'is_option' in meta and meta['is_option']:
-                kwargs = _copy_with_ignore(meta, omf._allowed_declare_options_args,
-                                           ignore=optignore)
-                self.options.declare(name, **kwargs)
+                raise RuntimeError(f"{self.msginfo}: Dynamic options are no longer supported for "
+                                   "ExplicitFuncComp.")
             else:
                 kwargs = omf._filter_dict(meta, omf._allowed_add_input_args)
                 if use_jax:

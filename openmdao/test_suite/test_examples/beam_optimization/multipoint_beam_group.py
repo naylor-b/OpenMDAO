@@ -4,8 +4,11 @@ This is a multipoint implementation of the beam optimization problem.
 
 """
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.local_stiffness_matrix_comp import LocalStiffnessMatrixComp
 from openmdao.test_suite.test_examples.beam_optimization.components.moment_comp import MomentOfInertiaComp
@@ -48,15 +51,6 @@ def divide_cases(ncases, nprocs):
 
 
 class MultipointBeamGroup(om.Group):
-
-    def initialize(self):
-        self.options.declare('E')
-        self.options.declare('L')
-        self.options.declare('b')
-        self.options.declare('volume')
-        self.options.declare('num_elements', 5)
-        self.options.declare('num_cp', 50)
-        self.options.declare('num_load_cases', 1)
 
     def setup(self):
         E = self.options['E']
@@ -139,3 +133,20 @@ class MultipointBeamGroup(om.Group):
         self.add_design_var('interp.h_cp', lower=1e-2, upper=10.)
         self.add_constraint('volume_comp.volume', equals=volume)
         self.add_objective('obj_sum.obj')
+
+
+class MultiPointBeamGroupOptions(GroupOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
+    L: float = Field(default=1.0, desc='Length of the beam')
+    b: float = Field(default=0.1, desc='Width of the beam')
+    volume: float = Field(default=0.01, desc='Target volume of the beam')
+    num_elements: int = Field(default=5, desc='Number of beam elements')
+    num_cp: int = Field(default=50, desc='Number of control points for spline interpolation')
+    num_load_cases: int = Field(default=1, desc='Number of load cases to analyze')
+
+
+@dmm.register(MultipointBeamGroup)
+class MultiPointBeamGroupModel(GroupModel):
+    options: MultiPointBeamGroupOptions = Field(default_factory=MultiPointBeamGroupOptions)

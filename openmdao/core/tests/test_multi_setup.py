@@ -1,7 +1,10 @@
 
 import unittest
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DiscreteOut1(om.ExplicitComponent):
@@ -19,9 +22,11 @@ class DiscreteIn2(om.ExplicitComponent):
         self.add_discrete_input('x', val=0)
 
 
+class Group1Options(GroupOptions):
+    conn: int = Field(default=1, values=[1, 2], desc='Connection option')
+
+
 class Group1(om.Group):
-    def initialize(self):
-        self.options.declare('conn', default=1, values=[1, 2])
 
     def setup(self):
         self.add_subsystem('out1', DiscreteOut1())
@@ -31,6 +36,11 @@ class Group1(om.Group):
         else:
             self.add_subsystem('in2', DiscreteIn2())
             self.connect('out1.y', 'in2.x')
+
+
+@dmm.register(Group1)
+class Group1Model(GroupModel):
+    options: Group1Options = Field(default_factory=Group1Options)
 
 
 class MultiSetupTestCase(unittest.TestCase):

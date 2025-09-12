@@ -5,6 +5,7 @@ from copy import deepcopy
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 # Only import openmdao to test using standalone interp in a component with complex step.
 import openmdao.api as om
@@ -14,6 +15,8 @@ from openmdao.components.interp_util.interp_semi import InterpNDSemi
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.utils.assert_utils import assert_near_equal, assert_equal_arrays, assert_check_partials
 from openmdao.utils.testing_utils import force_check_partials
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 def rel_error(actual, computed):
     return np.linalg.norm(actual - computed) / np.linalg.norm(actual)
@@ -878,10 +881,10 @@ class TestInterpNDPython(unittest.TestCase):
         x[:, 0] = X1.ravel()
         x[:, 1] = X2.ravel()
 
-        class CompUsesInterp(om.ExplicitComponent):
+        class CompUsesInterpOptions(ExplicitComponentOptions):
+            interp: object = Field(default=None, desc='Interpolation method')
 
-            def initialize(self):
-                self.options.declare('interp', None)
+        class CompUsesInterp(om.ExplicitComponent):
 
             def setup(self):
                 self.options['interp']
@@ -910,6 +913,10 @@ class TestInterpNDPython(unittest.TestCase):
 
                 outputs['f'] = f
                 outputs['df'] = df_dx
+
+        @dmm.register(CompUsesInterp)
+        class CompUsesInterpModel(ExplicitComponentModel):
+            options: CompUsesInterpOptions = Field(default_factory=CompUsesInterpOptions)
 
 
         for method in self.interp_methods:

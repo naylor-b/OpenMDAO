@@ -2,13 +2,16 @@
 import os
 import sys
 import re
+from typing import List, Union, Dict, Any
+from pydantic import Field
 
 from shutil import which
 
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent
-from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, ImplicitComponentModel
 from openmdao.utils.shell_proc import STDOUT, DEV_NULL, ShellProc  # noqa: F401
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class ExternalCodeDelegate(object):
@@ -32,36 +35,6 @@ class ExternalCodeDelegate(object):
         """
         self._comp = comp
 
-    def declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        comp = self._comp
-
-        comp.options.declare('command', [], types=(list, str),
-                             desc="Command to be executed. If it is a string, then this is the "
-                                  "command line to execute and the 'shell' argument to "
-                                  "'subprocess.Popen()'  is set to True. "
-                                  "If it is a list; the first entry is the command to execute.")
-        comp.options.declare('env_vars', {}, desc='Environment variables required by the command.')
-        comp.options.declare('poll_delay', 0.0, lower=0.0,
-                             desc='Delay between polling for command completion. '
-                                  'A value of zero will use an internally computed default.')
-        comp.options.declare('timeout', 0.0, lower=0.0,
-                             desc='Maximum time to wait for command completion. '
-                                  'A value of zero implies an infinite wait.')
-        comp.options.declare('external_input_files', [],
-                             desc='List of input files that must exist before execution, '
-                                  'otherwise an Exception is raised.')
-        comp.options.declare('external_output_files', [],
-                             desc='List of output files that must exist after execution, '
-                                  'otherwise an Exception is raised.')
-        comp.options.declare('fail_hard', types=bool, default=True,
-                             desc="If True, external code errors raise a 'hard' exception "
-                                  "(RuntimeError), otherwise errors raise a 'soft' exception "
-                                  "(AnalysisError).")
-        comp.options.declare('allowed_return_codes', [0],
-                             desc="List of return codes that are considered successful.")
 
     def check_config(self, logger):
         """
@@ -270,16 +243,6 @@ class ExternalCodeComp(ExplicitComponent):
 
         self.return_code = 0
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-
-        Options are declared here because this class is intended to be subclassed by
-        the end user. The `initialize` method is left available for user-defined options.
-        """
-        super()._declare_options()
-        self._external_code_runner.declare_options()
-
     def check_config(self, logger):
         """
         Perform optional error checks.
@@ -347,22 +310,6 @@ class ExternalCodeImplicitComp(ImplicitComponent):
 
         self.return_code = 0
 
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-
-        Options are declared here because this class is intended to be subclassed by
-        the end user. The `initialize` method is left available for user-defined options.
-        """
-        super()._declare_options()
-        self._external_code_runner.declare_options()
-
-        # ImplicitComponent has two separate commands to run.
-        self.options.declare('command_apply', [],
-                             desc='command to be executed for apply_nonlinear')
-        self.options.declare('command_solve', [],
-                             desc='command to be executed for solve_nonlinear')
-        self.options.undeclare('command')
 
     def check_config(self, logger):
         """
@@ -408,3 +355,36 @@ class ExternalCodeImplicitComp(ImplicitComponent):
         command = self.options['command_solve']
         if command:
             self._external_code_runner.run_component(command=command)
+
+
+class ExternalCodeCompOptions(ExplicitComponentOptions):
+    command: Union[List[str], str] = Field(default_factory=list, desc="Command to be executed. If it is a string, then this is the command line to execute and the 'shell' argument to 'subprocess.Popen()' is set to True. If it is a list; the first entry is the command to execute.")
+    env_vars: Dict[str, Any] = Field(default_factory=dict, desc='Environment variables required by the command.')
+    poll_delay: float = Field(default=0.0, desc='Delay between polling for command completion. A value of zero will use an internally computed default.')
+    timeout: float = Field(default=0.0, desc='Maximum time to wait for command completion. A value of zero implies an infinite wait.')
+    external_input_files: List[str] = Field(default_factory=list, desc='List of input files that must exist before execution, otherwise an Exception is raised.')
+    external_output_files: List[str] = Field(default_factory=list, desc='List of output files that must exist after execution, otherwise an Exception is raised.')
+    fail_hard: bool = Field(default=True, desc="If True, external code errors raise a 'hard' exception (RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
+    allowed_return_codes: List[int] = Field(default_factory=lambda: list([0]), desc="List of return codes that are considered successful.")
+
+
+class ExternalCodeImplicitCompOptions(ImplicitComponentOptions):
+    command_apply: Union[List[str], str] = Field(default_factory=list, desc='Command to be executed for apply_nonlinear')
+    command_solve: Union[List[str], str] = Field(default_factory=list, desc='Command to be executed for solve_nonlinear')
+    env_vars: Dict[str, Any] = Field(default_factory=dict, desc='Environment variables required by the command.')
+    poll_delay: float = Field(default=0.0, desc='Delay between polling for command completion. A value of zero will use an internally computed default.')
+    timeout: float = Field(default=0.0, desc='Maximum time to wait for command completion. A value of zero implies an infinite wait.')
+    external_input_files: List[str] = Field(default_factory=list, desc='List of input files that must exist before execution, otherwise an Exception is raised.')
+    external_output_files: List[str] = Field(default_factory=list, desc='List of output files that must exist after execution, otherwise an Exception is raised.')
+    fail_hard: bool = Field(default=True, desc="If True, external code errors raise a 'hard' exception (RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
+    allowed_return_codes: List[int] = Field(default_factory=lambda: list([0]), desc="List of return codes that are considered successful.")
+
+
+@dmm.register(ExternalCodeComp)
+class ExternalCodeCompModel(ExplicitComponentModel):
+    options: ExternalCodeCompOptions = Field(default_factory=ExternalCodeCompOptions)
+
+
+@dmm.register(ExternalCodeImplicitComp)
+class ExternalCodeImplicitCompModel(ImplicitComponentModel):
+    options: ExternalCodeImplicitCompOptions = Field(default_factory=ExternalCodeImplicitCompOptions)

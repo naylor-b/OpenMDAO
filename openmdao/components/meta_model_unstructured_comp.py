@@ -1,15 +1,18 @@
 """MetaModel provides basic meta modeling capability."""
 from copy import deepcopy
 from itertools import chain
+from typing import Optional, Dict, Any
+from pydantic import Field, ConfigDict
 
 import numpy as np
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.surrogate_models.surrogate_model import SurrogateModel
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.name_maps import rel_key2abs_key
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning
 from openmdao.utils.array_utils import shape_to_len
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MetaModelUnStructuredComp(ExplicitComponent):
@@ -97,16 +100,6 @@ class MetaModelUnStructuredComp(ExplicitComponent):
 
         super()._setup_procs(pathname, comm, prob_meta)
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('default_surrogate', types=(SurrogateModel, type(None)), default=None,
-                             desc="Surrogate that will be used for all outputs that don't have a "
-                                  "specific surrogate assigned to them.")
-        self.options.declare('vec_size', types=int, default=1, lower=1,
-                             desc='Number of points that will be simultaneously predicted by '
-                                  'the surrogate.')
 
     def add_input(self, name, val=1.0, training_data=None, **kwargs):
         """
@@ -147,10 +140,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
             self._input_size += input_size
         surrogate_input_names.append((name, input_size))
 
-        train_name = f'train_{name}'
-        self.options.declare(train_name, default=None, desc='Training data for %s' % name)
-        if training_data is not None:
-            self.options[train_name] = training_data
+        self.options.training_data[name] = training_data
 
         return metadata
 
@@ -205,11 +195,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         else:
             metadata['default_surrogate'] = True
 
-        train_name = f'train_{name}'
-        self.options.declare(train_name, default=None, desc='Training data for %s' % name)
-
-        if training_data is not None:
-            self.options[train_name] = training_data
+        self.options.training_data[name] = training_data
 
         return metadata
 
@@ -543,10 +529,9 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         missing_training_data = []
         num_sample = None
         for name, _ in chain(self._surrogate_input_names, self._surrogate_output_names):
-            train_name = f'train_{name}'
-            val = self.options[train_name]
+            val = self.options.training_data[name]
             if val is None:
-                missing_training_data.append(train_name)
+                missing_training_data.append(name)
                 continue
 
             if num_sample is None:
@@ -558,7 +543,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
 
         if len(missing_training_data) > 0:
             raise RuntimeError(f"{self.msginfo}: The following training data sets must be "
-                               f"provided as options: {missing_training_data}")
+                               f"provided as options.training_data: {missing_training_data}")
 
         inputs = np.zeros((num_sample, self._input_size))
         self._training_input = inputs
@@ -566,7 +551,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         # Assemble input data.
         idx = 0
         for name, sz in self._surrogate_input_names:
-            val = self.options[f'train_{name}']
+            val = self.options.training_data[name]
             if isinstance(val[0], float):
                 inputs[:, idx] = val
                 idx += 1
@@ -583,7 +568,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
             outputs = np.zeros((num_sample, output_size))
             self._training_output[name] = outputs
 
-            val = self.options[f'train_{name}']
+            val = self.options.training_data[name]
 
             if isinstance(val[0], float):
                 outputs[:, 0] = val
@@ -603,3 +588,16 @@ class MetaModelUnStructuredComp(ExplicitComponent):
 
     def _metadata(self, name):
         return self._var_rel2meta[name]
+
+
+class MetaModelUnStructuredCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    default_surrogate: Optional[SurrogateModel] = Field(default=None, desc="Surrogate that will be used for all outputs that don't have a specific surrogate assigned to them.")
+    vec_size: int = Field(default=1, desc='Number of points that will be simultaneously predicted by the surrogate.')
+    training_data: Dict[str, Any] = Field(default_factory=dict, desc='Training data for each output.')
+
+
+@dmm.register(MetaModelUnStructuredComp)
+class MetaModelUnStructuredCompModel(ExplicitComponentModel):
+    options: MetaModelUnStructuredCompOptions = Field(default_factory=MetaModelUnStructuredCompOptions)

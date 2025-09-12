@@ -4,8 +4,12 @@ import unittest
 import itertools
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.distributed_components import DistribCompDerivs, SummerDerivs
 from openmdao.test_suite.components.paraboloid_distributed import DistParab, DistParabFeature, \
     DistParabDeprecated
@@ -1133,11 +1137,10 @@ class MPITests2(unittest.TestCase):
 
     def test_distrib_voi_multiple_con(self):
         # This test contains 2 distributed constraints and 2 global ones.
-        class NonDistComp(om.ExplicitComponent):
+        class NonDistCompOptions(ExplicitComponentOptions):
+            arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
-            def initialize(self):
-                self.options.declare('arr_size', types=int, default=10,
-                                     desc="Size of input and output vectors.")
+        class NonDistComp(om.ExplicitComponent):
 
             def setup(self):
                 arr_size = self.options['arr_size']
@@ -1153,6 +1156,10 @@ class MPITests2(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['f_xy']
                 outputs['g'] = x * self.mat
+
+        @dmm.register(NonDistComp)
+        class NonDistCompModel(ExplicitComponentModel):
+            options: NonDistCompOptions = Field(default_factory=NonDistCompOptions)
 
         size = 7
         size2 = 5
@@ -1412,11 +1419,11 @@ class DistribStateImplicit(om.ImplicitComponent):
                 d_i['a'] -= np.sum(d_r['states'])
 
 
-class DistParab2(om.ExplicitComponent):
+class DistParab2Options(ExplicitComponentOptions):
+    arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
-    def initialize(self):
-        self.options.declare('arr_size', types=int, default=10,
-                             desc="Size of input and output vectors.")
+
+class DistParab2(om.ExplicitComponent):
 
     def setup(self):
         arr_size = self.options['arr_size']
@@ -1449,6 +1456,11 @@ class DistParab2(om.ExplicitComponent):
 
         partials['f_xy', 'x'] = np.diag(2.0*x + 2.0 * a + y)
         partials['f_xy', 'y'] = np.diag(2.0*y + 2.0 * a + 8.0 + x)
+
+
+@dmm.register(DistParab2)
+class DistParab2Model(ExplicitComponentModel):
+    options: DistParab2Options = Field(default_factory=DistParab2Options)
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
@@ -1679,10 +1691,10 @@ class MPITestsBug(unittest.TestCase):
                     self.connect('states:{0}'.format(name),
                                   ['rhs_disc.{0}'.format(tgt) for tgt in options['targets']])
 
-        class vanderpol_ode_group(om.Group):
+        class vanderpol_ode_groupOptions(GroupOptions):
+            num_nodes: int = Field(default=1, desc='Number of nodes')
 
-            def initialize(self):
-                self.options.declare('num_nodes', types=int)
+        class vanderpol_ode_group(om.Group):
 
             def setup(self):
                 nn = self.options['num_nodes']
@@ -1708,10 +1720,14 @@ class MPITestsBug(unittest.TestCase):
                 self.connect('vanderpol_ode_delay.x0dot', 'vanderpol_ode_rate_collect.partx0dot',
                              src_indices=om.slicer[:])
 
-        class vanderpol_ode_delay(om.ExplicitComponent):
+        @dmm.register(vanderpol_ode_group)
+        class vanderpol_ode_groupModel(GroupModel):
+            options: vanderpol_ode_groupOptions = Field(default_factory=vanderpol_ode_groupOptions)
 
-            def initialize(self):
-                self.options.declare('num_nodes', types=int)
+        class vanderpol_ode_delayOptions(ExplicitComponentOptions):
+            num_nodes: int = Field(default=1, desc='Number of nodes')
+
+        class vanderpol_ode_delay(om.ExplicitComponent):
 
             def setup(self):
                 nn = self.options['num_nodes']
@@ -1735,10 +1751,14 @@ class MPITestsBug(unittest.TestCase):
                 x1 = inputs['x1']
                 jacobian['x0dot', 'x1'] = 10.0 * x1
 
-        class vanderpol_ode_rate_collect(om.ExplicitComponent):
+        @dmm.register(vanderpol_ode_delay)
+        class vanderpol_ode_delayModel(ExplicitComponentModel):
+            options: vanderpol_ode_delayOptions = Field(default_factory=vanderpol_ode_delayOptions)
 
-            def initialize(self):
-                self.options.declare('num_nodes', types=int)
+        class vanderpol_ode_rate_collectOptions(ExplicitComponentOptions):
+            num_nodes: int = Field(default=1, desc='Number of nodes')
+
+        class vanderpol_ode_rate_collect(om.ExplicitComponent):
 
             def setup(self):
                 nn = self.options['num_nodes']
@@ -1756,6 +1776,9 @@ class MPITestsBug(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['x0dot'] = inputs['partx0dot']
 
+        @dmm.register(vanderpol_ode_rate_collect)
+        class vanderpol_ode_rate_collectModel(ExplicitComponentModel):
+            options: vanderpol_ode_rate_collectOptions = Field(default_factory=vanderpol_ode_rate_collectOptions)
 
         p = om.Problem()
 
@@ -2060,10 +2083,11 @@ class ZeroLengthInputsOutputs(unittest.TestCase):
         assert(prob.check_partials(step_calc='rel_element', show_only_incorrect=True))
 
 
-class DistribCompDenseJac(om.ExplicitComponent):
+class DistribCompDenseJacOptions(ExplicitComponentOptions):
+    size: int = Field(default=7, desc='Size parameter')
 
-    def initialize(self):
-        self.options.declare('size', default=7)
+
+class DistribCompDenseJac(om.ExplicitComponent):
 
     def setup(self):
         N = self.options['size']
@@ -2090,6 +2114,11 @@ class DistribCompDenseJac(om.ExplicitComponent):
         sizes, offsets = evenly_distrib_idxs(self.comm.size, N)
         # Define jacobian element by element with variable size array
         J['y','x'] = -2.33 * np.ones((sizes[rank],))
+
+
+@dmm.register(DistribCompDenseJac)
+class DistribCompDenseJacModel(ExplicitComponentModel):
+    options: DistribCompDenseJacOptions = Field(default_factory=DistribCompDenseJacOptions)
 
 
 class DeclarePartialsWithoutRowCol(unittest.TestCase):
@@ -2602,10 +2631,12 @@ class TestDistribBugs(unittest.TestCase):
         assert_check_totals(prob.check_totals("ParallelSum.sum", "ivc.x"))
 
 
+class DummyCompOptions(ExplicitComponentOptions):
+    a: float = Field(default=0., desc='Parameter a')
+    b: float = Field(default=0., desc='Parameter b')
+
+
 class DummyComp(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare('a',default=0.)
-        self.options.declare('b',default=0.)
 
     def setup(self):
         self.add_input('x')
@@ -2623,6 +2654,12 @@ class DummyComp(om.ExplicitComponent):
             if 'y' in d_outputs:
                 if 'x' in d_inputs:
                     d_outputs['y'] += self.options['a'] * d_inputs['x']
+
+
+@dmm.register(DummyComp)
+class DummyCompModel(ExplicitComponentModel):
+    options: DummyCompOptions = Field(default_factory=DummyCompOptions)
+
 
 class DummyGroup(om.ParallelGroup):
     def setup(self):

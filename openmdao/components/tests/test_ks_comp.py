@@ -34,7 +34,8 @@ class TestKSFunction(unittest.TestCase):
     def test_bad_units(self):
         with self.assertRaises(ValueError) as ctx:
             om.KSComp(units='wtfu')
-        self.assertEqual(str(ctx.exception), "The units 'wtfu' are invalid.")
+        # Pydantic validation error message format
+        self.assertIn("The units 'wtfu' are invalid.", str(ctx.exception))
 
     def test_vectorized(self):
         prob = om.Problem()

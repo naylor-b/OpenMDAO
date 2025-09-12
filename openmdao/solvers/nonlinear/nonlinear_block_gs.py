@@ -56,31 +56,6 @@ class NonlinearBlockGS(NonlinearSolver):
             raise RuntimeError('{}: Nonlinear Gauss-Seidel cannot be used on a '
                                'parallel group.'.format(self.msginfo))
 
-    # def _declare_options(self):
-    #     """
-    #     Declare options before kwargs are processed in the init method.
-    #     """
-    #     super()._declare_options()
-
-    #     self.options.declare('use_aitken', types=bool, default=False,
-    #                          desc='set to True to use Aitken relaxation')
-    #     self.options.declare('aitken_min_factor', default=0.1,
-    #                          desc='lower limit for Aitken relaxation factor')
-    #     self.options.declare('aitken_max_factor', default=1.5,
-    #                          desc='upper limit for Aitken relaxation factor')
-    #     self.options.declare('aitken_initial_factor', default=1.0,
-    #                          desc='initial value for Aitken relaxation factor')
-    #     self.options.declare('cs_reconverge', types=bool, default=True,
-    #                          desc='When True, when this driver solves under a complex step, nudge '
-    #                          'the Solution vector by a small amount so that it reconverges.')
-    #     self.options.declare('use_apply_nonlinear', types=bool, default=False,
-    #                          desc="Set to True to always call apply_nonlinear on the solver's "
-    #                          "system after solve_nonlinear has been called.")
-    #     self.options.declare('reraise_child_analysiserror', types=bool, default=False,
-    #                          desc='When the option is true, a solver will reraise any '
-    #                          'AnalysisError that arises during subsolve; when false, it will '
-    #                          'continue solving.')
-
     def _iter_initialize(self):
         """
         Perform any necessary pre-processing operations.

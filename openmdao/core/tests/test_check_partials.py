@@ -7,8 +7,11 @@ from itertools import zip_longest
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.core.tests.test_impl_comp import QuadraticLinearize, QuadraticJacVec
@@ -123,10 +126,13 @@ class MyComp(om.ExplicitComponent):
         J['y', 'x1'] = np.array([4.0])
         J['y', 'x2'] = np.array([40])
 
-class DirectionalVectorizedComp(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare('n',default=1, desc='vector size')
+class DirectionalVectorizedCompOptions(ExplicitComponentOptions):
+    n: int = Field(default=1, desc='vector size')
 
+
+class DirectionalVectorizedComp(om.ExplicitComponent):
+    def __init__(self):
+        super().__init__()
         self.n_compute = 0
         self.n_fwd = 0
         self.n_rev = 0
@@ -147,10 +153,18 @@ class DirectionalVectorizedComp(om.ExplicitComponent):
         partials['out', 'in'] = np.diag(2.0 + np.arange(self.options['n']))
 
 
-class DirectionalVectorizedMatFreeComp(om.ExplicitComponent):
-    def initialize(self):
-        self.options.declare('n', default=1, desc='vector size')
+@dmm.register(DirectionalVectorizedComp)
+class DirectionalVectorizedCompModel(ExplicitComponentModel):
+    options: DirectionalVectorizedCompOptions = Field(default_factory=DirectionalVectorizedCompOptions)
 
+
+class DirectionalVectorizedMatFreeCompOptions(ExplicitComponentOptions):
+    n: int = Field(default=1, desc='vector size')
+
+
+class DirectionalVectorizedMatFreeComp(om.ExplicitComponent):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.n_compute = 0
         self.n_fwd = 0
         self.n_rev = 0
@@ -179,6 +193,11 @@ class DirectionalVectorizedMatFreeComp(om.ExplicitComponent):
                 if 'in' in d_inputs:
                     d_inputs['in'] = fac * d_outputs['out']
                     self.n_rev += 1
+
+
+@dmm.register(DirectionalVectorizedMatFreeComp)
+class DirectionalVectorizedMatFreeCompModel(ExplicitComponentModel):
+    options: DirectionalVectorizedMatFreeCompOptions = Field(default_factory=DirectionalVectorizedMatFreeCompOptions)
 
 
 @use_tempdirs
@@ -1686,10 +1705,10 @@ class TestProblemCheckPartials(unittest.TestCase):
 
     def test_directional_mimo(self):
 
-        class DirectionalComp(om.ExplicitComponent):
+        class DirectionalCompOptions(ExplicitComponentOptions):
+            n: int = Field(default=1, desc='vector size')
 
-            def initialize(self):
-                self.options.declare('n', default=1, desc='vector size')
+        class DirectionalComp(om.ExplicitComponent):
 
             def setup(self):
                 n = self.options['n']
@@ -1731,6 +1750,10 @@ class TestProblemCheckPartials(unittest.TestCase):
                             d_inputs['in'] += 999.0 * self.mat.transpose().dot(d_outputs['out2'])
                         if 'in2' in d_inputs:
                             d_inputs['in2'] += -1.0 * self.mat2.transpose().dot(d_outputs['out2'])
+
+        @dmm.register(DirectionalComp)
+        class DirectionalCompModel(ExplicitComponentModel):
+            options: DirectionalCompOptions = Field(default_factory=DirectionalCompOptions)
 
         prob = om.Problem()
         comp = DirectionalComp(n=2)
@@ -2629,10 +2652,10 @@ class TestCheckPartialsFeature(unittest.TestCase):
 
     def test_directional_sparse_deriv(self):
 
-        class FDComp(om.ExplicitComponent):
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
+        class FDComp(om.ExplicitComponent):
 
             def setup(self):
                 nn = self.options['vec_size']
@@ -2654,6 +2677,9 @@ class TestCheckPartialsFeature(unittest.TestCase):
                 x3 = inputs['x_element']
                 partials['y', 'x_element'] = x3
 
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model

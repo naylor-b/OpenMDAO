@@ -2,9 +2,12 @@
 KS Function Component.
 """
 import numpy as np
+from typing import Optional, Union
+from pydantic import Field, ConfigDict, field_validator
 
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.units import valid_units
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 CITATIONS = """
@@ -20,23 +23,6 @@ CITATIONS = """
 """
 
 
-def check_option(option, value):
-    """
-    Check option for validity.
-
-    Parameters
-    ----------
-    option : str
-        The name of the option.
-    value : any
-        The value of the option.
-
-    Raises
-    ------
-    ValueError
-    """
-    if option == 'units' and value is not None and not valid_units(value):
-        raise ValueError("The units '%s' are invalid." % value)
 
 
 class KSfunction(object):
@@ -152,42 +138,6 @@ class KSComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Declare options.
-        """
-        self.options.declare('width', types=int, default=1, desc='Width of constraint vector.')
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='The number of rows to independently aggregate.')
-        self.options.declare('minimum', types=bool, default=False,
-                             desc='Return the minimum instead of the maximum by multiplying both '
-                                  'the inputs and output by -1. It is not recommended to use both '
-                                  'this option and the lower_flag option (it will return the '
-                                  'negative of the aggregated max.)')
-        self.options.declare('lower_flag', types=bool, default=False,
-                             desc='Set to True to reverse sign of input constraints.')
-        self.options.declare('rho', 50.0, desc="Constraint Aggregation Factor.")
-        self.options.declare('upper', 0.0, desc="Upper bound for constraint, default is zero.")
-        self.options.declare('add_constraint', types=bool, default=False,
-                             desc='If True, add a constraint on the resulting output of the KSComp.'
-                                  ' If False, the user will be expected to add a constraint '
-                                  'explicitly.')
-        self.options.declare('units', types=str, allow_none=True, default=None,
-                             desc='Units to be assigned to all variables in this component. '
-                                  'Default is None, which means variables are unitless.',
-                             check_valid=check_option)
-        self.options.declare('scaler', types=(int, float), allow_none=True, default=None,
-                             desc="Scaler for constraint, if added, default is one.")
-        self.options.declare('adder', types=(int, float), allow_none=True, default=None,
-                             desc="Adder for constraint, if added, default is zero.")
-        self.options.declare('ref0', types=(int, float), allow_none=True, default=None,
-                             desc="Zero-reference for constraint, if added, default is zero.")
-        self.options.declare('ref', types=(int, float), allow_none=True, default=None,
-                             desc="Unit reference for constraint, if added, default is one.")
-        self.options.declare('parallel_deriv_color', types=str, allow_none=True, default=None,
-                             desc='If specified, this design var will be grouped for parallel '
-                                  'derivative calculations with other variables sharing the same '
-                                  'parallel_deriv_color.')
 
     def setup(self):
         """
@@ -269,3 +219,41 @@ class KSComp(ExplicitComponent):
             derivs = -derivs
 
         partials['KS', 'g'] = derivs.flatten()
+
+
+class KSCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    width: int = Field(default=1, desc='Width of constraint vector.')
+    vec_size: int = Field(default=1, desc='The number of rows to independently aggregate.')
+    minimum: bool = Field(default=False, desc='Return the minimum instead of the maximum by multiplying both '
+                                             'the inputs and output by -1. It is not recommended to use both '
+                                             'this option and the lower_flag option (it will return the '
+                                             'negative of the aggregated max.)')
+    lower_flag: bool = Field(default=False, desc='Set to True to reverse sign of input constraints.')
+    rho: float = Field(default=50.0, desc="Constraint Aggregation Factor.")
+    upper: float = Field(default=0.0, desc="Upper bound for constraint, default is zero.")
+    add_constraint: bool = Field(default=False, desc='If True, add a constraint on the resulting output of the KSComp.'
+                                                     ' If False, the user will be expected to add a constraint '
+                                                     'explicitly.')
+    units: Optional[str] = Field(default=None, desc='Units to be assigned to all variables in this component. '
+                                                    'Default is None, which means variables are unitless.')
+    scaler: Optional[Union[int, float]] = Field(default=None, desc="Scaler for constraint, if added, default is one.")
+    adder: Optional[Union[int, float]] = Field(default=None, desc="Adder for constraint, if added, default is zero.")
+    ref0: Optional[Union[int, float]] = Field(default=None, desc="Zero-reference for constraint, if added, default is zero.")
+    ref: Optional[Union[int, float]] = Field(default=None, desc="Unit reference for constraint, if added, default is one.")
+    parallel_deriv_color: Optional[str] = Field(default=None, desc='If specified, this design var will be grouped for parallel '
+                                                                   'derivative calculations with other variables sharing the same '
+                                                                   'parallel_deriv_color.')
+
+    @field_validator('units')
+    @classmethod
+    def validate_units(cls, v):
+        if v is not None and not valid_units(v):
+            raise ValueError(f"The units '{v}' are invalid.")
+        return v
+
+
+@dmm.register(KSComp)
+class KSCompModel(ExplicitComponentModel):
+    options: KSCompOptions = Field(default_factory=KSCompOptions)

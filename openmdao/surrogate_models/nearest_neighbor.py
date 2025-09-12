@@ -5,13 +5,17 @@ https://github.com/SMarone/NDInterp
 """
 
 from collections import OrderedDict
-from openmdao.surrogate_models.surrogate_model import SurrogateModel
+from pydantic import Field
+
+from openmdao.surrogate_models.surrogate_model import SurrogateModel, SurrogateModelModel, \
+    SurrogateModelOptions
 from openmdao.surrogate_models.nn_interpolators.linear_interpolator import \
     LinearInterpolator
 from openmdao.surrogate_models.nn_interpolators.weighted_interpolator import \
     WeightedInterpolator
 from openmdao.surrogate_models.nn_interpolators.rbf_interpolator import \
     RBFInterpolator
+from openmdao.utils.validation import DataModelManager as dmm
 
 _interpolators = OrderedDict([('linear', LinearInterpolator),
                               ('weighted', WeightedInterpolator),
@@ -52,14 +56,6 @@ class NearestNeighbor(SurrogateModel):
             self.options['interpolant_type'] = kwargs.pop('interpolant_type')
         self.interpolant_init_args = kwargs
         self.interpolant = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('interpolant_type', default='rbf',
-                             values=['linear', 'weighted', 'rbf'],
-                             desc="Type of interpolant, must be 'linear', 'weighted', or 'rbf'")
 
     def train(self, x, y):
         """
@@ -115,3 +111,12 @@ class NearestNeighbor(SurrogateModel):
         if jac.shape[0] == 1 and len(jac.shape) > 2:
             return jac[0, ...]
         return jac
+
+
+class NearestNeighborOptions(SurrogateModelOptions):
+    interpolant_type: str = Field(default='rbf', desc="Type of interpolant, must be 'linear', 'weighted', or 'rbf'")
+
+
+@dmm.register(NearestNeighbor)
+class NearestNeighborModel(SurrogateModelModel):
+    options: NearestNeighborOptions = Field(default_factory=NearestNeighborOptions)

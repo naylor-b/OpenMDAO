@@ -1,16 +1,15 @@
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import splu
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MultiStatesComp(om.ImplicitComponent):
 
-    def initialize(self):
-        self.options.declare('num_elements', types=int)
-        self.options.declare('force_vector', types=np.ndarray)
-        self.options.declare('num_rhs', types=int)
 
     def setup(self):
         num_elements = self.options['num_elements']
@@ -135,3 +134,16 @@ class MultiStatesComp(om.ImplicitComponent):
 
         n_K = 2 * num_nodes + 2
         return coo_matrix((data, (rows, cols)), shape=(n_K, n_K)).tocsc()
+
+
+class MultiStatesCompOptions(ImplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    num_elements: int = Field(default=0, desc='Number of beam elements')
+    force_vector: np.ndarray = Field(default=np.zeros(0),desc='Force vector')
+    num_rhs: int = Field(default=0, desc='Number of right-hand sides')
+
+
+@dmm.register(MultiStatesComp)
+class MultiStatesCompModel(ImplicitComponentModel):
+    options: MultiStatesCompOptions = Field(default_factory=MultiStatesCompOptions)

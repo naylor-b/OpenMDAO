@@ -3,6 +3,10 @@ import unittest
 import numpy as np
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
+from pydantic import Field
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 step = 1e-6
 size = 3
@@ -195,11 +199,12 @@ class TestSemiTotals(unittest.TestCase):
         assert_check_totals(data, atol=1e-6, rtol=1e-6)
 
 
-class FakeGeomComp(om.ExplicitComponent):
+class FakeGeomCompOptions(ExplicitComponentOptions):
+    n: int = Field(default=1, desc='Number of points')
+    declare_partials: bool = Field(default=True, desc='Whether to declare partials')
 
-    def initialize(self):
-        self.options.declare("n", types=int)
-        self.options.declare('declare_partials', types=(bool,), default=True)
+
+class FakeGeomComp(om.ExplicitComponent):
 
     def setup(self):
         n = self.options["n"]
@@ -220,11 +225,12 @@ class FakeGeomComp(om.ExplicitComponent):
         outputs["x"][:] = 3*np.sin(feather_rad + 0.2)*x0 + 3*feather_rad**2
 
 
-class FakeAeroComp(om.ExplicitComponent):
+class FakeAeroCompOptions(ExplicitComponentOptions):
+    n: int = Field(default=1, desc='Number of points')
+    declare_partials: bool = Field(default=True, desc='Whether to declare partials')
 
-    def initialize(self):
-        self.options.declare("n", types=int)
-        self.options.declare('declare_partials', types=(bool,), default=True)
+
+class FakeAeroComp(om.ExplicitComponent):
 
     def setup(self):
         n = self.options["n"]
@@ -249,13 +255,14 @@ class FakeAeroComp(om.ExplicitComponent):
         outputs["CP"][0] = 0.1*omega**3 + np.sum(x**2)
 
 
-class GeometryAndAero2(om.Group):
+class GeometryAndAero2Options(GroupOptions):
+    n: int = Field(default=1, desc='Number of points')
+    rho: float = Field(default=1.0, desc='Density')
+    vinf: float = Field(default=1.0, desc='Velocity')
+    declare_partials: bool = Field(default=True, desc='Whether to declare partials')
 
-    def initialize(self):
-        self.options.declare("n", types=int)
-        self.options.declare("rho", types=float)
-        self.options.declare("vinf", types=float)
-        self.options.declare('declare_partials', types=(bool,), default=True)
+
+class GeometryAndAero2(om.Group):
 
     def setup(self):
         n = self.options["n"]
@@ -357,6 +364,21 @@ class TestSemiTotalsNumCalls(unittest.TestCase):
             result = prob.run_driver()
 
             self.assertTrue(result.success)
+
+
+@dmm.register(FakeGeomComp)
+class FakeGeomCompModel(ExplicitComponentModel):
+    options: FakeGeomCompOptions = Field(default_factory=FakeGeomCompOptions)
+
+
+@dmm.register(FakeAeroComp)
+class FakeAeroCompModel(ExplicitComponentModel):
+    options: FakeAeroCompOptions = Field(default_factory=FakeAeroCompOptions)
+
+
+@dmm.register(GeometryAndAero2)
+class GeometryAndAero2Model(GroupModel):
+    options: GeometryAndAero2Options = Field(default_factory=GeometryAndAero2Options)
 
 
 if __name__ == '__main__':

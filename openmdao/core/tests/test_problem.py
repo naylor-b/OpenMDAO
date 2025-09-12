@@ -10,8 +10,12 @@ import tempfile
 from io import StringIO
 import numpy as np
 from scipy import __version__ as scipy_version
+from pydantic import Field
+from typing import Union, Literal
 
 import openmdao.api as om
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.core.problem import _default_prob_name
 from openmdao.core.driver import Driver
 from openmdao.test_suite.components.paraboloid import Paraboloid
@@ -1571,9 +1575,10 @@ class TestProblem(unittest.TestCase):
     def test_configure_add_indep_var(self):
         # add outputs to an IndepVarComp in Group configure
 
+        class ModelOptions(GroupOptions):
+            where_to_add: Union[Literal['setup'], Literal['configure']] = Field(default='setup', values=('setup', 'configure'), desc='Where to add')
+
         class Model(om.Group):
-            def initialize(self):
-                self.options.declare('where_to_add', values=('setup', 'configure'))
 
             def setup(self):
                 comp1 = self.add_subsystem('comp1', om.IndepVarComp())
@@ -1598,6 +1603,10 @@ class TestProblem(unittest.TestCase):
 
                     self.connect('comp1.a', 'comp3.a')
                     self.connect('comp2.b', 'comp3.b')
+
+        @dmm.register(Model)
+        class ModelModel(GroupModel):
+            options: ModelOptions = Field(default_factory=ModelOptions)
 
         for where in ('setup', 'configure'):
             p = om.Problem(Model(where_to_add=where))
@@ -1632,9 +1641,10 @@ class TestProblem(unittest.TestCase):
                 if 'b' in inputs:
                     outputs['b2'] = inputs['b'] * 2.
 
+        class ModelOptions2(GroupOptions):
+            add_b2: bool = Field(default=False, desc='Whether to add b2')
+
         class Model(om.Group):
-            def initialize(self):
-                self.options.declare('add_b2', default=False)
 
             def setup(self):
                 self.add_subsystem('indep', om.IndepVarComp(), promotes=['*'])
@@ -1654,6 +1664,10 @@ class TestProblem(unittest.TestCase):
 
                     self.sub.mcomp.add_input('b', val=0.)
                     self.sub.mcomp.add_output('b2', val=0.)
+
+        @dmm.register(Model)
+        class ModelModel2(GroupModel):
+            options: ModelOptions2 = Field(default_factory=ModelOptions2)
 
         # add inputs/outputs in setup only
         p = om.Problem(Model(add_b2=False))

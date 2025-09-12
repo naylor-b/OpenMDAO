@@ -1,14 +1,13 @@
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class LocalStiffnessMatrixComp(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('num_elements', types=int)
-        self.options.declare('E')
-        self.options.declare('L')
 
     def setup(self):
         num_elements = self.options['num_elements']
@@ -37,3 +36,14 @@ class LocalStiffnessMatrixComp(om.ExplicitComponent):
         outputs['K_local'] = 0
         for ind in range(self.options['num_elements']):
             outputs['K_local'][ind, :, :] = self.mtx[ind, :, :, ind] * inputs['I'][ind]
+
+
+class LocalStiffnessMatrixCompOptions(ExplicitComponentOptions):
+    num_elements: int = Field(default=5, desc='Number of beam elements')
+    E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
+    L: float = Field(default=1.0, desc='Length of the beam')
+
+
+@dmm.register(LocalStiffnessMatrixComp)
+class LocalStiffnessMatrixCompModel(ExplicitComponentModel):
+    options: LocalStiffnessMatrixCompOptions = Field(default_factory=LocalStiffnessMatrixCompOptions)

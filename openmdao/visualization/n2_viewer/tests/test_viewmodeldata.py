@@ -9,8 +9,11 @@ import base64
 import zlib
 
 import numpy as np
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.components.sellar import SellarStateConnection
 from openmdao.visualization.n2_viewer.n2_viewer import _get_viewer_data, n2
@@ -376,10 +379,10 @@ class TestViewerData(unittest.TestCase):
         self.assertEqual(str(cm.exception), msg)
 
     def test_handle_ndarray_system_option(self):
-        class SystemWithNdArrayOption(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('arr', types=(np.ndarray,))
+        class SystemWithNdArrayOptionOptions(ExplicitComponentOptions):
+            arr: np.ndarray = Field(default=np.zeros(0), desc='Array option')
 
+        class SystemWithNdArrayOption(om.ExplicitComponent):
             def setup(self):
                 self.add_input('x', val=0.0)
                 self.add_output('f_x', val=0.0)
@@ -387,6 +390,10 @@ class TestViewerData(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['x']
                 outputs['f_x'] = (x - 3.0) ** 2
+
+        @dmm.register(SystemWithNdArrayOption)
+        class SystemWithNdArrayOptionModel(ExplicitComponentModel):
+            options: SystemWithNdArrayOptionOptions = Field(default_factory=SystemWithNdArrayOptionOptions)
 
         prob = om.Problem()
         prob.model.add_subsystem('comp', SystemWithNdArrayOption(arr=np.ones(2)))
@@ -398,10 +405,11 @@ class TestViewerData(unittest.TestCase):
                                 np.ones(2))
 
     def test_system_option_too_large(self):
-        class SystemWithLargeOption(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('large_option', types=(np.ndarray,))
+        class SystemWithLargeOptionOptions(ExplicitComponentOptions):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            large_option: np.ndarray = Field(default=np.zeros(1000), desc='Large array option')
 
+        class SystemWithLargeOption(om.ExplicitComponent):
             def setup(self):
                 self.add_input('x', val=0.0)
                 self.add_output('f_x', val=0.0)
@@ -409,6 +417,10 @@ class TestViewerData(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['x']
                 outputs['f_x'] = (x - 3.0) ** 2
+
+        @dmm.register(SystemWithLargeOption)
+        class SystemWithLargeOptionModel(ExplicitComponentModel):
+            options: SystemWithLargeOptionOptions = Field(default_factory=SystemWithLargeOptionOptions)
 
         prob = om.Problem()
         comp = prob.model.add_subsystem('comp', SystemWithLargeOption())
@@ -678,16 +690,20 @@ class TestUnderMPI(unittest.TestCase):
     def test_non_recordable(self):
         dummyModule = types.ModuleType('dummyModule', 'The dummyModule module')
 
-        class myComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('foo', recordable=False)
+        class myCompOptions(ExplicitComponentOptions):
+            foo: object = Field(recordable=False, desc='Foo option')
 
+        class myComp(om.ExplicitComponent):
             def setup(self):
                 self.add_input('x2', distributed=True)
                 self.add_output('x3', distributed=True)
 
             def compute(self, inputs, outputs):
                 outputs['x3'] = inputs['x2'] + 1
+
+        @dmm.register(myComp)
+        class myCompModel(ExplicitComponentModel):
+            options: myCompOptions = Field(default_factory=myCompOptions)
 
         p = om.Problem()
         ivc = p.model.add_subsystem('ivc', om.IndepVarComp())

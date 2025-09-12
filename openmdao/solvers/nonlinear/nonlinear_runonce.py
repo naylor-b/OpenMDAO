@@ -53,10 +53,10 @@ class NonlinearRunOnce(NonlinearSolver):
             rec.rel = 0.0
 
 
-class _NonlinearRunOnceOptions(_NonIterSolverOptions):
+class NonlinearRunOnceOptions(_NonIterSolverOptions):
     pass
 
 
 @dmm.register(NonlinearRunOnce)
 class NonlinearRunOnceModel(NonlinearSolverModel):
-    options: _NonlinearRunOnceOptions = Field(default_factory=_NonlinearRunOnceOptions)
+    options: NonlinearRunOnceOptions = Field(default_factory=NonlinearRunOnceOptions)

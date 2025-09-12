@@ -201,13 +201,6 @@ class PETScKrylov(LinearSolver):
         self._ksp = None
         self.precon = None
         self._lin_rhs_checker = None
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        super()._declare_options()
-
         self.options['maxiter'] = 100
         self.supports['implicit_components'] = True
 

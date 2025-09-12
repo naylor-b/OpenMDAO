@@ -1,9 +1,10 @@
 """Define the SubmodelComp class for evaluating OpenMDAO systems within components."""
 
 from itertools import chain
+from pydantic import Field, ConfigDict
 
 from openmdao.core.constants import _SetupStatus
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.general_utils import pattern_filter
 from openmdao.utils.reports_system import clear_reports
@@ -11,6 +12,7 @@ from openmdao.utils.mpi import MPI, FakeComm
 from openmdao.utils.coloring import compute_total_coloring, ColoringMeta
 from openmdao.utils.indexer import ranges2indexer
 from openmdao.utils.relevance import get_relevance
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 def _is_glob(name):
@@ -123,14 +125,6 @@ class SubmodelComp(ExplicitComponent):
         self._static_submodel_outputs = {
             name: (outer_name, {}) for name, outer_name in _io_namecheck_iter(outputs, 'output')
         }
-
-    def _declare_options(self):
-        """
-        Declare options.
-        """
-        super()._declare_options()
-        self.options.declare('do_coloring', types=bool, default=False,
-                             desc='If True, attempt to compute a total coloring for the submodel.')
 
     def _add_static_input(self, inner_prom_name_or_pattern, outer_name=None, **kwargs):
         self._static_submodel_inputs[inner_prom_name_or_pattern] = (outer_name, kwargs)
@@ -602,3 +596,14 @@ class SubmodelComp(ExplicitComponent):
 
         self._outs_idxs = ranges2indexer(out_ranges, src_shape=(len(self._outputs),))
         self._sub_outs_idxs = ranges2indexer(sub_out_ranges, src_shape=(len(submod._outputs),))
+
+
+class SubmodelCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    do_coloring: bool = Field(default=False, desc='If True, attempt to compute a total coloring for the submodel.')
+
+
+@dmm.register(SubmodelComp)
+class SubmodelCompModel(ExplicitComponentModel):
+    options: SubmodelCompOptions = Field(default_factory=SubmodelCompOptions)

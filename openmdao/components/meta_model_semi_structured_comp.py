@@ -2,11 +2,13 @@
 import inspect
 
 import numpy as np
+from pydantic import Field, ConfigDict
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
-from openmdao.components.interp_util.interp_semi import InterpNDSemi, TABLE_METHODS
+from openmdao.components.interp_util.interp_semi import InterpNDSemi
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class MetaModelSemiStructuredComp(ExplicitComponent):
@@ -55,20 +57,6 @@ class MetaModelSemiStructuredComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-    def initialize(self):
-        """
-        Initialize the component.
-        """
-        self.options.declare('extrapolate', types=bool, default=True,
-                             desc='Sets whether extrapolation should be performed '
-                                  'when an input is out of bounds.')
-        self.options.declare('training_data_gradients', types=bool, default=False,
-                             desc='When True, compute gradients with respect to training data '
-                             'values.')
-        self.options.declare('vec_size', types=int, default=1,
-                             desc='Number of points to evaluate at once.')
-        self.options.declare('method', values=TABLE_METHODS, default='slinear',
-                             desc='Spline interpolation method to use for all outputs.')
 
     def add_input(self, name, training_data, val=1.0, **kwargs):
         """
@@ -251,3 +239,17 @@ class MetaModelSemiStructuredComp(ExplicitComponent):
                 train_name = f"{out_name}_train"
                 d_dvalues = interp._d_dvalues
                 partials[out_name, train_name] = d_dvalues
+
+
+class MetaModelSemiStructuredCompOptions(ExplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    extrapolate: bool = Field(default=True, desc='Sets whether extrapolation should be performed when an input is out of bounds.')
+    training_data_gradients: bool = Field(default=False, desc='Sets whether gradients with respect to output training data should be computed.')
+    vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
+    method: str = Field(default='slinear', desc='Spline interpolation method to use for all outputs.')
+
+
+@dmm.register(MetaModelSemiStructuredComp)
+class MetaModelSemiStructuredCompModel(ExplicitComponentModel):
+    options: MetaModelSemiStructuredCompOptions = Field(default_factory=MetaModelSemiStructuredCompOptions)

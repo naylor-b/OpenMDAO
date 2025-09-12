@@ -3,12 +3,13 @@ Component to demonstrate using an ImplicitComponent to perform a polynomial curv
 """
 import openmdao.api as om
 import numpy as np
+from pydantic import Field, ConfigDict
+
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 class PolynomialFit(om.ImplicitComponent):
 
-    def initialize(self):
-        self.options.declare('N_cp', types=int)
-        self.options.declare('N_predict', types=int)
 
     def setup(self):
 
@@ -62,3 +63,15 @@ class PolynomialFit(om.ImplicitComponent):
         X = inputs['x']
         Y = a0 + a1*X + a2*X**2 + a3*X**3 + a4*X**4 + a5*X**5
         residuals['y'] = Y - outputs['y']
+
+
+class PolynomialFitOptions(ImplicitComponentOptions):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    N_cp: int = Field(default=1, desc='Number of control points')
+    N_predict: int = Field(default=1, desc='Number of prediction points')
+
+
+@dmm.register(PolynomialFit)
+class PolynomialFitModel(ImplicitComponentModel):
+    options: PolynomialFitOptions = Field(default_factory=PolynomialFitOptions)

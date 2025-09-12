@@ -15,6 +15,8 @@ John Wiley & Sons, Ltd.
 """
 import os
 import copy
+from typing import Dict, Any
+from pydantic import Field
 
 import numpy as np
 
@@ -24,10 +26,11 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class DifferentialEvolutionDriver(Driver):
@@ -100,35 +103,6 @@ class DifferentialEvolutionDriver(Driver):
         # Support for Parallel models.
         self._concurrent_pop_size = 0
         self._concurrent_color = 0
-
-    def _declare_options(self):
-        """
-        Declare options before kwargs are processed in the init method.
-        """
-        self.options.declare('max_gen', default=100,
-                             desc='Number of generations before termination.')
-        self.options.declare('pop_size', default=0,
-                             desc='Number of points in the GA. Set to 0 and it will be computed '
-                             'as 20 times the total number of inputs.')
-        self.options.declare('run_parallel', types=bool, default=False,
-                             desc='Set to True to execute the points in a generation in parallel.')
-        self.options.declare('procs_per_model', default=1, lower=1,
-                             desc='Number of processors to give each model under MPI.')
-        self.options.declare('penalty_parameter', default=10., lower=0.,
-                             desc='Penalty function parameter.')
-        self.options.declare('penalty_exponent', default=1.,
-                             desc='Penalty function exponent.')
-        self.options.declare('Pc', default=0.9, lower=0., upper=1.,
-                             desc='Crossover probability.')
-        self.options.declare('F', default=0.9, lower=0., upper=1., allow_none=True,
-                             desc='Differential rate.')
-        self.options.declare('multi_obj_weights', default={}, types=(dict),
-                             desc='Weights of objectives for multi-objective optimization.'
-                             'Weights are specified as a dictionary with the absolute names'
-                             'of the objectives. The same weights for all objectives are assumed, '
-                             'if not given.')
-        self.options.declare('multi_obj_exponent', default=1., lower=0.,
-                             desc='Multi-objective weighting exponent.')
 
     def _setup_driver(self, problem):
         """
@@ -682,3 +656,21 @@ class DifferentialEvolution(object):
                 population[ii][r] = mutant[r]  # always replace at least one with mutant's
 
         return xopt, fopt, nfit
+
+
+class DifferentialEvolutionDriverOptions(DriverOptions):
+    max_gen: int = Field(default=100, desc='Number of generations before termination.')
+    pop_size: int = Field(default=0, desc='Number of points in the GA. Set to 0 and it will be computed as 20 times the total number of inputs.')
+    run_parallel: bool = Field(default=False, desc='Set to True to execute the points in a generation in parallel.')
+    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+    penalty_parameter: float = Field(default=10.0, desc='Penalty function parameter.')
+    penalty_exponent: float = Field(default=1.0, desc='Penalty function exponent.')
+    Pc: float = Field(default=0.9, desc='Crossover probability.')
+    F: float = Field(default=0.9, desc='Differential rate.')
+    multi_obj_weights: Dict[str, Any] = Field(default_factory=dict, desc='Weights of objectives for multi-objective optimization. Weights are specified as a dictionary with the absolute names of the objectives. The same weights for all objectives are assumed, if not given.')
+    multi_obj_exponent: float = Field(default=1.0, desc='Multi-objective weighting exponent.')
+
+
+@dmm.register(DifferentialEvolutionDriver)
+class DifferentialEvolutionDriverModel(DriverModel):
+    options: DifferentialEvolutionDriverOptions = Field(default_factory=DifferentialEvolutionDriverOptions)
