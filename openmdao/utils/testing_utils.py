@@ -581,3 +581,79 @@ def rel_num_diff(n1, n2):
         return 0. if n2 == 0. else 1.0
     else:
         return abs(n2 - n1) / abs(n1)
+
+
+def sort_indented_lines(lines, starting_depth=0):
+    """
+    Sort particular lines of the hierarchical output based on their indentation level.
+
+    For example for a starting_depth of 1,
+
+    C1
+        foo
+        bar
+    C2
+        baz
+        qux
+
+    would sort the lines as:
+
+    C1
+        bar
+        foo
+    C2
+        baz
+        qux
+
+    Parameters
+    ----------
+    lines : list of str
+        The lines of hierarchical output.
+    starting_depth : int
+        The level to start sorting from.  For example, a value of 1 will sort levels 1 and
+        deeper.  The top level is 0.  Default is 0.
+
+    Returns
+    -------
+    list of str
+        The sorted lines.
+    """
+    if not lines:
+        return lines
+
+    # Build hierarchical structure
+    dct = {}
+    istack = [[-1, dct]]
+    old_indent = -1
+
+    for i, line in enumerate(lines):
+        ind = max(0, len(line) - len(line.lstrip()))
+        children = {}
+
+        if ind > old_indent:  # indenting deeper
+            parent_dct = istack[-1][-1]
+        elif ind <= old_indent:  # dedenting
+            while ind <= istack[-1][0]:
+                istack.pop()
+
+            parent_dct = istack[-1][-1]
+        else:  # same level indentation as previous line
+            istack.pop()
+            parent_dct = istack[-1][-1]
+
+        istack.append([ind, children])
+
+        # add i to the key to preserve lines if we have duplicate lines
+        parent_dct[(line, i)] = children
+
+        old_indent = ind
+
+    def get_dict_lines(dct, current_depth=0):
+        items = dct.items()
+        if current_depth >= starting_depth:
+            items = sorted(items, key=lambda x: x[0][0])
+        for data, children in items:
+            yield data[0]  # data is (line, line_number)
+            yield from get_dict_lines(children, current_depth + 1)
+
+    return list(get_dict_lines(dct))

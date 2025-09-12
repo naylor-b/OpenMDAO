@@ -251,12 +251,12 @@ class OptionsBaseModel(ValidateOnAssignModel):
         except (KeyError, AttributeError):
             return False
 
-    def sorted_model_dump(self):
-        """
-        Return a sorted dictionary of the options.
-        """
-        dump = self.model_dump()
-        return {key: dump[key] for key in sorted(dump)}
+    # def sorted_model_dump(self):
+    #     """
+    #     Return a sorted dictionary of the options.
+    #     """
+    #     dump = self.model_dump()
+    #     return {key: dump[key] for key in sorted(dump)}
 
 
 class DataModelManager:

@@ -2657,7 +2657,7 @@ class ProblemRecordingOptions(OptionsBaseModel):
                                    desc="Set to True to record objectives at the problem level.")
     record_constraints: bool = Field(default=True,
                                    desc="Set to True to record constraints at the problem level.")
-    includes: list[str] = Field(default_factory=list,
+    includes: list[str] = Field(default=('*',),
                                 desc="Patterns for variables to include in recording. "
                                 "Uses fnmatch wildcards.")
     excludes: list[str] = Field(default_factory=list,
@@ -2677,22 +2677,12 @@ class ProblemRecordingOptions(OptionsBaseModel):
                                   desc="Set to True to record outputs at the problem level")
     record_residuals: bool = Field(default=False,
                                    desc="Set to True to record residuals at the problem level")
-    record_derivatives: bool = Field(default=False,
-                                    desc="Set to True to record derivatives at the problem level")
     record_abs_error: bool = Field(default=True,
                                    desc='Set to True to record absolute error at the problem level')
     record_rel_error: bool = Field(default=True,
                                    desc='Set to True to record relative error at the problem level')
     record_solver_residuals: bool = \
         Field(default=False, desc='Set to True to record residuals at the problem level')
-    includes: list[str] = Field(default_factory=list,
-                                desc='Patterns for variables to include in recording. '
-                                     'Uses fnmatch wildcards')
-    excludes: list[str] = Field(default_factory=list,
-                                desc='Patterns for vars to exclude in recording '
-                                     '(processed post-includes). Uses fnmatch wildcards')
-    options_excludes: list[str] = Field(default_factory=list,
-                                        desc='User-defined metadata to exclude in recording')
 
 
 @dmm.register(Problem)

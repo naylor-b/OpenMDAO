@@ -182,13 +182,13 @@ class CaseRecorder(object):
 
         if excludes:
             user_options = {}
-            for key in sorted(system.options):
+            for key in system.options:
                 if check_path(key, None, excludes, True):
                     user_options[key] = getattr(system.options, key)
 
             return scaling_vecs, user_options
         else:
-            return scaling_vecs, system.options.sorted_model_dump()
+            return scaling_vecs, system.options.model_dump()
 
     def record_metadata_system(self, system, run_number=None):
         """
