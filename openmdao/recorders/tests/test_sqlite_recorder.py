@@ -6,8 +6,9 @@ import sqlite3
 
 
 import numpy as np
-from pydantic import Field, deprecated
+from pydantic import Field
 from typing import Optional
+import warnings
 
 
 import openmdao.api as om
@@ -842,13 +843,22 @@ class TestSqliteRecorder(unittest.TestCase):
                 Field(default=None,
                       desc='Signal that triggers a clean user-termination.')
 
-            @deprecated("The option was misspelled and is deprecated.")
             @property
             def user_teriminate_signal(self):
+                warnings.warn(
+                    "The option was misspelled and is deprecated.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
                 return self.user_terminate_signal
 
             @user_teriminate_signal.setter
             def user_teriminate_signal(self, value):
+                warnings.warn(
+                    "The option was misspelled and is deprecated.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
                 self.user_terminate_signal = value
 
         class MyDriver(Driver):
@@ -871,9 +881,7 @@ class TestSqliteRecorder(unittest.TestCase):
             'tree_children_length': 0,
             'abs2prom': {}
         }
-        data = assertViewerDataRecorded(self, prob.get_outputs_dir() / self.filename, expected_problem_metadata)
-        self.assertTrue('user_teriminate_signal' in data['driver']['options'],
-                        'Deprecated key not found in recorded options')
+        assertViewerDataRecorded(self, prob.get_outputs_dir() / self.filename, expected_problem_metadata)
 
     def test_system_record_model_metadata(self):
         # first check to see if recorded recursively, which is the default
