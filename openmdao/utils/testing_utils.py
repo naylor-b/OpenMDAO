@@ -589,19 +589,19 @@ def sort_indented_lines(lines, starting_depth=0):
 
     For example for a starting_depth of 1,
 
-    C1
+    C2
         foo
         bar
-    C2
+    C1
         baz
         qux
 
     would sort the lines as:
 
-    C1
+    C2
         bar
         foo
-    C2
+    C1
         baz
         qux
 
@@ -621,39 +621,37 @@ def sort_indented_lines(lines, starting_depth=0):
     if not lines:
         return lines
 
-    # Build hierarchical structure
     dct = {}
-    istack = [[-1, dct]]
+    stack = [[-1, dct]]
     old_indent = -1
 
     for i, line in enumerate(lines):
-        ind = max(0, len(line) - len(line.lstrip()))
+        indent_lvl = max(0, len(line) - len(line.lstrip()))
         children = {}
 
-        if ind > old_indent:  # indenting deeper
-            parent_dct = istack[-1][-1]
-        elif ind <= old_indent:  # dedenting
-            while ind <= istack[-1][0]:
-                istack.pop()
-
-            parent_dct = istack[-1][-1]
-        else:  # same level indentation as previous line
-            istack.pop()
-            parent_dct = istack[-1][-1]
-
-        istack.append([ind, children])
+        if indent_lvl <= old_indent:  # dedenting
+            while indent_lvl <= stack[-1][0]:
+                stack.pop()
+        elif indent_lvl == old_indent:  # same level indentation as previous line
+            stack.pop()
 
         # add i to the key to preserve lines if we have duplicate lines
+        parent_dct = stack[-1][-1]
+
+        children = {}  # use same dict as subdict and in stack
+        stack.append([indent_lvl, children])
         parent_dct[(line, i)] = children
 
-        old_indent = ind
+        old_indent = indent_lvl
 
     def get_dict_lines(dct, current_depth=0):
-        items = dct.items()
         if current_depth >= starting_depth:
-            items = sorted(items, key=lambda x: x[0][0])
-        for data, children in items:
-            yield data[0]  # data is (line, line_number)
+            items = sorted(dct.items(), key=lambda x: x[0][0])
+        else:
+            items = dct.items()
+
+        for key, children in items:
+            yield key[0]  # key is (line, line_number)
             yield from get_dict_lines(children, current_depth + 1)
 
     return list(get_dict_lines(dct))
