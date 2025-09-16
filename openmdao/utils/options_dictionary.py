@@ -1,6 +1,5 @@
 """Define the OptionsDictionary class."""
 import contextlib
-from pydantic import BaseModel
 
 from openmdao.utils.om_warnings import warn_deprecation
 from openmdao.utils.notebook_utils import notebook
@@ -28,26 +27,36 @@ def check_valid(name, value):
     raise ValueError(f"Option '{name}' with value {value} is not valid.")
 
 
-class OptionsBase(object):
+class OptionsDictionary:
     """
-    Base class for options.
+    Dictionary with pre-declaration of keys for value-checking and default values.
 
     Parameters
     ----------
-    msginfo : str, optional
+    msginfo : str
         String to prepend to error messages.
+    read_only : bool
+        If True, setting (via __setitem__ or update) is not permitted.
 
     Attributes
     ----------
-    msginfo : str
-        String to prepend to error messages.
+    _dict : dict of dict
+        Dictionary of entries. Each entry is a dictionary consisting of value, values,
+        types, desc, lower, and upper.
+    _read_only : bool
+        If True, no options can be set after declaration.
+    _all_recordable : bool
+        Flag to determine if all options in UserOptions are recordable.
     """
 
-    def __init__(self, msginfo=None):
+    def __init__(self, msginfo=None, read_only=False):
         """
         Initialize all attributes.
         """
         self.msginfo = msginfo
+        self._dict = {}
+        self._read_only = read_only
+        self._all_recordable = True
 
     def _update_msg(self, msg):
         """
@@ -113,56 +122,6 @@ class OptionsBase(object):
             self[option] = context_cache[option].pop()
             if len(context_cache[option]) == 0:
                 context_cache.pop(option)
-
-
-def get_required_fields(model_class: type[BaseModel]) -> set[str]:
-    """
-    Get the required fields for a Pydantic model.
-
-    Parameters
-    ----------
-    model_class : type[BaseModel]
-        The Pydantic model class to get the required fields for.
-
-    Returns
-    -------
-    set[str]
-        The required fields for the Pydantic model.
-    """
-    return {name for name, info in model_class.model_fields.items() if info.is_required()}
-
-
-
-class OptionsDictionary(OptionsBase):
-    """
-    Dictionary with pre-declaration of keys for value-checking and default values.
-
-    Parameters
-    ----------
-    msginfo : str
-        String to prepend to error messages.
-    read_only : bool
-        If True, setting (via __setitem__ or update) is not permitted.
-
-    Attributes
-    ----------
-    _dict : dict of dict
-        Dictionary of entries. Each entry is a dictionary consisting of value, values,
-        types, desc, lower, and upper.
-    _read_only : bool
-        If True, no options can be set after declaration.
-    _all_recordable : bool
-        Flag to determine if all options in UserOptions are recordable.
-    """
-
-    def __init__(self, msginfo=None, read_only=False):
-        """
-        Initialize all attributes.
-        """
-        super().__init__(msginfo)
-        self._dict = {}
-        self._read_only = read_only
-        self._all_recordable = True
 
     def __getstate__(self):
         """

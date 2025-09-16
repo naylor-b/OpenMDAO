@@ -136,13 +136,11 @@ class TestDirectSolver(LinearSolverTests.LinearSolverTestCase):
         # Test that using options that should not exist in class cause an error
         solver = om.DirectSolver()
 
-        msg = "\"DirectSolver: Option '%s' cannot be set because it has not been declared.\""
-
         for option in ['atol', 'rtol', 'maxiter', 'err_on_non_converge']:
-            with self.assertRaises(KeyError) as context:
+            with self.assertRaises(Exception) as context:
                 solver.options[option] = 1
 
-            self.assertEqual(str(context.exception), msg % option)
+            self.assertTrue("Object has no attribute '%s'" % option in str(context.exception))
 
     def test_solve_on_subsystem(self):
         """solve an implicit system with DirectSolver attached to a subsystem"""
@@ -378,7 +376,7 @@ class TestDirectSolver(LinearSolverTests.LinearSolverTestCase):
         comp.add_output('accel_target', val=2.0)
         model.add_subsystem('des_vars', comp, promotes=['*'])
 
-        teg = model.add_subsystem('thrust_equilibrium_group', subsys=om.Group())
+        teg = model.add_subsystem('thrust_equilibrium_group', subsys=om.Group(assembled_jac_type='dense'))
         teg.add_subsystem('dynamics', om.ExecComp('z = 2.0*thrust'), promotes=['*'])
 
         thrust_bal = om.BalanceComp()

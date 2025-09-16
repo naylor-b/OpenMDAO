@@ -8,8 +8,10 @@ from pydantic import Field
 from shutil import which
 
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, \
+    ImplicitComponentModel
 from openmdao.utils.shell_proc import STDOUT, DEV_NULL, ShellProc  # noqa: F401
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -34,7 +36,6 @@ class ExternalCodeDelegate(object):
         Initialize.
         """
         self._comp = comp
-
 
     def check_config(self, logger):
         """
@@ -310,7 +311,6 @@ class ExternalCodeImplicitComp(ImplicitComponent):
 
         self.return_code = 0
 
-
     def check_config(self, logger):
         """
         Perform optional error checks.
@@ -358,26 +358,73 @@ class ExternalCodeImplicitComp(ImplicitComponent):
 
 
 class ExternalCodeCompOptions(ExplicitComponentOptions):
-    command: Union[List[str], str] = Field(default_factory=list, desc="Command to be executed. If it is a string, then this is the command line to execute and the 'shell' argument to 'subprocess.Popen()' is set to True. If it is a list; the first entry is the command to execute.")
-    env_vars: Dict[str, Any] = Field(default_factory=dict, desc='Environment variables required by the command.')
-    poll_delay: float = Field(default=0.0, desc='Delay between polling for command completion. A value of zero will use an internally computed default.')
-    timeout: float = Field(default=0.0, desc='Maximum time to wait for command completion. A value of zero implies an infinite wait.')
-    external_input_files: List[str] = Field(default_factory=list, desc='List of input files that must exist before execution, otherwise an Exception is raised.')
-    external_output_files: List[str] = Field(default_factory=list, desc='List of output files that must exist after execution, otherwise an Exception is raised.')
-    fail_hard: bool = Field(default=True, desc="If True, external code errors raise a 'hard' exception (RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
-    allowed_return_codes: List[int] = Field(default_factory=lambda: list([0]), desc="List of return codes that are considered successful.")
+    command: Union[List[str], str] = \
+        Field(default_factory=list,
+              desc="Command to be executed. If it is a string, then this is the command line to "
+              "execute and the 'shell' argument to 'subprocess.Popen()' is set to True. If it is a "
+              "list; the first entry is the command to execute.")
+    env_vars: Dict[str, Any] = \
+        Field(default_factory=dict, desc='Environment variables required by the command.')
+    poll_delay: float = \
+        Field(default=0.0,
+              desc="Delay between polling for command completion. A value of zero will use an "
+              "internally computed default.")
+    timeout: float = \
+        Field(default=0.0,
+              desc="Maximum time to wait for command completion. A value of zero implies an "
+              "infinite wait.")
+    external_input_files: List[str] = \
+        Field(default_factory=list,
+              desc="List of input files that must exist before execution, otherwise an Exception is"
+              " raised.")
+    external_output_files: List[str] = \
+        Field(default_factory=list,
+              desc="List of output files that must exist after execution, otherwise an Exception is"
+              " raised.")
+    fail_hard: bool = \
+        Field(default=True, desc="If True, external code errors raise a 'hard' exception "
+              "(RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
+    allowed_return_codes: List[int] = \
+        Field(default_factory=lambda: list([0]),
+              desc="List of return codes that are considered successful.")
 
 
 class ExternalCodeImplicitCompOptions(ImplicitComponentOptions):
-    command_apply: Union[List[str], str] = Field(default_factory=list, desc='Command to be executed for apply_nonlinear')
-    command_solve: Union[List[str], str] = Field(default_factory=list, desc='Command to be executed for solve_nonlinear')
-    env_vars: Dict[str, Any] = Field(default_factory=dict, desc='Environment variables required by the command.')
-    poll_delay: float = Field(default=0.0, desc='Delay between polling for command completion. A value of zero will use an internally computed default.')
-    timeout: float = Field(default=0.0, desc='Maximum time to wait for command completion. A value of zero implies an infinite wait.')
-    external_input_files: List[str] = Field(default_factory=list, desc='List of input files that must exist before execution, otherwise an Exception is raised.')
-    external_output_files: List[str] = Field(default_factory=list, desc='List of output files that must exist after execution, otherwise an Exception is raised.')
-    fail_hard: bool = Field(default=True, desc="If True, external code errors raise a 'hard' exception (RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
-    allowed_return_codes: List[int] = Field(default_factory=lambda: list([0]), desc="List of return codes that are considered successful.")
+    command_apply: Union[List[str], str] = Field(default_factory=list,
+                                                 desc='Command to be executed for apply_nonlinear')
+    command_solve: Union[List[str], str] = \
+        Field(default_factory=list,
+              desc='Command to be executed for solve_nonlinear')
+    env_vars: Dict[str, Any] = \
+        Field(default_factory=dict,
+              desc='Environment variables required by the command.')
+    command_solve: Union[List[str], str] = Field(default_factory=list,
+                                                 desc='Command to be executed for solve_nonlinear')
+    env_vars: Dict[str, Any] = Field(default_factory=dict,
+                                     desc='Environment variables required by the command.')
+    poll_delay: float = \
+        Field(default=0.0,
+              desc='Delay between polling for command completion. A value of zero will use an '
+              'internally computed default.')
+    timeout: float = \
+        Field(default=0.0,
+              desc='Maximum time to wait for command completion. A value of zero implies an '
+              'infinite wait.')
+    external_input_files: List[str] = \
+        Field(default_factory=list,
+              desc='List of input files that must exist before execution, otherwise an Exception is'
+              ' raised.')
+    external_output_files: List[str] = \
+        Field(default_factory=list,
+              desc='List of output files that must exist after execution, otherwise an Exception is'
+              ' raised.')
+    fail_hard: bool = \
+        Field(default=True,
+              desc="If True, external code errors raise a 'hard' exception "
+              "(RuntimeError), otherwise errors raise a 'soft' exception (AnalysisError).")
+    allowed_return_codes: List[int] = \
+        Field(default_factory=lambda: list([0]),
+              desc="List of return codes that are considered successful.")
 
 
 @dmm.register(ExternalCodeComp)
@@ -387,4 +434,5 @@ class ExternalCodeCompModel(ExplicitComponentModel):
 
 @dmm.register(ExternalCodeImplicitComp)
 class ExternalCodeImplicitCompModel(ImplicitComponentModel):
-    options: ExternalCodeImplicitCompOptions = Field(default_factory=ExternalCodeImplicitCompOptions)
+    options: ExternalCodeImplicitCompOptions = \
+        Field(default_factory=ExternalCodeImplicitCompOptions)

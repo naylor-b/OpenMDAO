@@ -1,10 +1,11 @@
 """Define the SubmodelComp class for evaluating OpenMDAO systems within components."""
 
 from itertools import chain
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
 from openmdao.core.constants import _SetupStatus
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.general_utils import pattern_filter
 from openmdao.utils.reports_system import clear_reports
@@ -599,9 +600,8 @@ class SubmodelComp(ExplicitComponent):
 
 
 class SubmodelCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    do_coloring: bool = Field(default=False, desc='If True, attempt to compute a total coloring for the submodel.')
+    do_coloring: bool = \
+        Field(default=False, desc='If True, attempt to compute a total coloring for the submodel.')
 
 
 @dmm.register(SubmodelComp)

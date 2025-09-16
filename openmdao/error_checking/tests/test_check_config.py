@@ -3,17 +3,18 @@ from tempfile import TemporaryFile
 import io
 
 import numpy as np
-from pydantic import Field, validator, ConfigDict
+from pydantic import Field, ConfigDict, field_validator
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2, SellarDerivativesGrouped
 from openmdao.error_checking.check_config import get_sccs_topo, _all_non_redundant_checks
 from openmdao.utils.assert_utils import assert_warning, assert_no_warning
 from openmdao.utils.logger_utils import TestLogger
 from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.solvers.nonlinear.newton import _NewtonSolverOptions
-from openmdao.solvers.linesearch.backtracking import _LinesearchSolverOptions
-from openmdao.solvers.linear.scipy_iter_solver import _ScipyKrylovOptions
+from openmdao.solvers.nonlinear.newton import _NewtonSolverOptions, NewtonSolverModel
+from openmdao.solvers.linesearch.backtracking import _LinesearchSolverOptions, LinesearchSolverModel
+from openmdao.solvers.linear.scipy_iter_solver import _ScipyKrylovOptions, ScipyKrylovModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -486,10 +487,6 @@ class TestCheckConfig(unittest.TestCase):
         # Makes sure we get a warning if an option is not picklable.
 
         class TestComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('file1')
-                self.options.declare('file2', recordable=False)
-
             def setup(self):
                 self.options['file1'] = TemporaryFile()
                 self.options['file2'] = TemporaryFile()
@@ -500,52 +497,84 @@ class TestCheckConfig(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['y'] = inputs['x']
 
+        class TestCompOptions(ExplicitComponentOptions):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+
+            file1: io.BufferedIOBase = Field(default=None, desc='File 1')
+            file2: io.BufferedIOBase = Field(default=None, exclude=True, desc='File 2')
+
+            @field_validator('file1')
+            @classmethod
+            def validate_file(cls, v):
+                if v is not None and (not hasattr(v, 'read') or not hasattr(v, 'seek')):
+                    raise ValueError('Attribute must be a file-like object')
+                return v
+
+            @field_validator('file2')
+            @classmethod
+            def validate_file2(cls, v):
+                if v is not None and (not hasattr(v, 'read') or not hasattr(v, 'seek')):
+                    raise ValueError('Attribute must be a file-like object')
+                return v
+
+        @dmm.register(TestComp)
+        class TestCompModel(ExplicitComponentModel):
+            options: TestCompOptions = Field(default_factory=TestCompOptions)
+
         class TestNewton(om.NewtonSolver):
             pass
 
-
-        @dmm.register(TestNewton)
         class TestNewtonOptions(_NewtonSolverOptions):
-            file3: io.BufferedIOBase = Field(default=None)
-
             model_config = ConfigDict(arbitrary_types_allowed=True)
 
-            @validator('file3', pre=True)
+            file3: io.BufferedIOBase = Field(default=None)
+
+            @field_validator('file3')
             def validate_file(cls, v):
                 if not hasattr(v, 'read') or not hasattr(v, 'seek'):
                     raise ValueError('Attribute must be a file-like object')
                 return v
+
+        @dmm.register(TestNewton)
+        class TestNewtonModel(NewtonSolverModel):
+            options: TestNewtonOptions = Field(default_factory=TestNewtonOptions)
 
         class TestLinesearch(om.BoundsEnforceLS):
             pass
 
-        @dmm.register(TestLinesearch)
         class TestLinesearchOptions(_LinesearchSolverOptions):
-            file4: io.BufferedIOBase = Field(default=None, exclude=True)
-
             model_config = ConfigDict(arbitrary_types_allowed=True)
 
-            @validator('file4', pre=True)
+            file4: io.BufferedIOBase = Field(default=None, exclude=True)
+
+            @field_validator('file4')
             def validate_file(cls, v):
                 if not hasattr(v, 'read') or not hasattr(v, 'seek'):
                     raise ValueError('Attribute must be a file-like object')
                 return v
+
+        @dmm.register(TestLinesearch)
+        class TestLinesearchModel(LinesearchSolverModel):
+            options: TestLinesearchOptions = Field(default_factory=TestLinesearchOptions)
 
         class TestKrylov(om.ScipyKrylov):
             pass
 
 
-        @dmm.register(TestKrylov)
         class TestKrylovOptions(_ScipyKrylovOptions):
-            file5: io.BufferedIOBase = Field(default=None)
-
             model_config = ConfigDict(arbitrary_types_allowed=True)
 
-            @validator('file5', pre=True)
+            file5: io.BufferedIOBase = Field(default=None)
+
+            @field_validator('file5')
             def validate_file(cls, v):
                 if not hasattr(v, 'read') or not hasattr(v, 'seek'):
                     raise ValueError('Attribute must be a file-like object')
                 return v
+
+        @dmm.register(TestKrylov)
+        class TestKrylovModel(ScipyKrylovModel):
+            options: TestKrylovOptions = Field(default_factory=TestKrylovOptions)
 
         prob = om.Problem()
         prob.model.add_subsystem('comp', TestComp())

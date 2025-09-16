@@ -650,7 +650,7 @@ class TestConstrainedDifferentialEvolution(unittest.TestCase):
         # setup the optimization
         prob.driver = om.DifferentialEvolutionDriver()
 
-        with self.assertRaises(KeyError) as raises_msg:
+        with self.assertRaises(Exception) as raises_msg:
             prob.driver.supports['equality_constraints'] = False
 
         exception = raises_msg.exception

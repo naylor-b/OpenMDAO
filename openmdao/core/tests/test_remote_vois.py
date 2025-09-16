@@ -1,11 +1,13 @@
 
 import unittest
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
-
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.mpi import MPI
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
+from openmdao.utils.validation import DataModelManager as dmm
 
 if MPI:
     from openmdao.api import PETScVector
@@ -75,10 +77,6 @@ class RemoteVOITestCase(unittest.TestCase):
         # check_totals was hanging in some cases when all variables of interest didn't exist on
         # all procs. (Issue #2884)
         class DummyComp(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('a',default=0.)
-                self.options.declare('b',default=0.)
-
             def setup(self):
                 self.add_input('x')
                 self.add_output('y', 0.)
@@ -91,6 +89,14 @@ class RemoteVOITestCase(unittest.TestCase):
                     if 'y' in d_outputs:
                         if 'x' in d_inputs:
                             d_inputs['x'] += self.options['a'] * d_outputs['y']
+
+        class DummyCompOptions(ExplicitComponentOptions):
+            a: float = Field(default=0., desc='Parameter a')
+            b: float = Field(default=0., desc='Parameter b')
+
+        @dmm.register(DummyComp)
+        class DummyCompModel(ExplicitComponentModel):
+            options: DummyCompOptions = Field(default_factory=DummyCompOptions)
 
         class DummyGroup(om.ParallelGroup):
             def setup(self):

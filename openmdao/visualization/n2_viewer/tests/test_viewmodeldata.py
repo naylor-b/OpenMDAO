@@ -380,6 +380,7 @@ class TestViewerData(unittest.TestCase):
 
     def test_handle_ndarray_system_option(self):
         class SystemWithNdArrayOptionOptions(ExplicitComponentOptions):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
             arr: np.ndarray = Field(default=np.zeros(0), desc='Array option')
 
         class SystemWithNdArrayOption(om.ExplicitComponent):
@@ -691,7 +692,7 @@ class TestUnderMPI(unittest.TestCase):
         dummyModule = types.ModuleType('dummyModule', 'The dummyModule module')
 
         class myCompOptions(ExplicitComponentOptions):
-            foo: object = Field(recordable=False, desc='Foo option')
+            foo: object = Field(default=None, recordable=False, desc='Foo option')
 
         class myComp(om.ExplicitComponent):
             def setup(self):

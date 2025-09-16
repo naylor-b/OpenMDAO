@@ -8,7 +8,8 @@ import scipy.sparse.linalg
 from scipy.sparse import csc_matrix
 from pydantic import Field
 
-from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, LinearSolverModel
+from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, LinearSolverModel, \
+    _LinearSolverSupports
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.utils.array_utils import identity_column_iter
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
@@ -197,7 +198,6 @@ class DirectSolver(LinearSolver):
         super().__init__(**kwargs)
         self._lin_rhs_checker = None
         self.options['assemble_jac'] = True
-        self.supports['implicit_components'] = True
 
     def check_config(self, logger):
         """
@@ -517,18 +517,24 @@ class DirectSolver(LinearSolver):
         """
         return 'csc'
 
+
 class _DirectSolverOptions(_NonIterLinearSolverOptions):
     err_on_singular: bool = Field(True,
-                                  description="Raise an error if LU decomposition is singular.")
+                                  desc="Raise an error if LU decomposition is singular.")
 
     rhs_checking: bool = Field(False,
-                               description="If True, check RHS vs. cache and/or zero to avoid "
+                               desc="If True, check RHS vs. cache and/or zero to avoid "
                                "some solves. Can also be set to a dict of options for the "
                                "LinearRHSChecker to allow finer control over it. Allowed "
                                "options are: "
                                f"{LinearRHSChecker.options}")
 
 
+class DirectSolverSupports(_LinearSolverSupports):
+    implicit_components: bool = Field(default=True, frozen=True)
+
+
 @dmm.register(DirectSolver)
 class DirectSolverModel(LinearSolverModel):
     options: _DirectSolverOptions = Field(default_factory=_DirectSolverOptions)
+    supports: DirectSolverSupports = Field(default_factory=DirectSolverSupports)

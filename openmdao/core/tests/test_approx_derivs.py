@@ -2308,9 +2308,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2324,6 +2321,13 @@ class TestFDRelative(unittest.TestCase):
             def compute(self, inputs, outputs):
                 x = inputs['x']
                 outputs['y'] = 0.5 * x ** 2
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2348,9 +2352,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2369,6 +2370,13 @@ class TestFDRelative(unittest.TestCase):
                 x2 = inputs['x_avg']
                 x3 = inputs['x_element']
                 outputs['y'] = 0.5 * x1 ** 2 + 0.5 * x2 ** 2 + 0.5 * x3 ** 2
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2394,9 +2402,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2415,6 +2420,13 @@ class TestFDRelative(unittest.TestCase):
                 x2 = inputs['x_avg']
                 x3 = inputs['x_element']
                 outputs['y'] = 0.5 * x1 ** 2 + 0.5 * x2 ** 2 + 0.5 * x3 ** 2
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2439,9 +2451,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2450,6 +2459,13 @@ class TestFDRelative(unittest.TestCase):
 
             def setup_partials(self):
                 self.declare_partials('y', 'x', method='fd', step_calc='junk')
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2468,9 +2484,6 @@ class TestFDRelative(unittest.TestCase):
     def test_directional_and_rel_element(self):
         # Directional currently not supported with rel_element.
         class FDComp(om.ExplicitComponent):
-
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
 
             def setup(self):
                 nn = self.options['vec_size']
@@ -2497,6 +2510,13 @@ class TestFDRelative(unittest.TestCase):
                         if 'x_element' in d_inputs:
                             d_inputs['x_element'] += x3 * d_outputs['y']
 
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
+
         prob = om.Problem()
         model = prob.model
 
@@ -2517,9 +2537,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2539,6 +2556,13 @@ class TestFDRelative(unittest.TestCase):
             def compute_partials(self, inputs, partials):
                 x3 = inputs['x_element']
                 partials['y', 'x_element'] = x3
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model
@@ -2562,9 +2586,6 @@ class TestFDRelative(unittest.TestCase):
 
         class FDComp(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('vec_size', types=int, default=1)
-
             def setup(self):
                 nn = self.options['vec_size']
 
@@ -2582,6 +2603,13 @@ class TestFDRelative(unittest.TestCase):
             def compute_partials(self, inputs, partials):
                 x3 = inputs['x_element']
                 partials['y', 'x_element'] = x3
+
+        class FDCompOptions(ExplicitComponentOptions):
+            vec_size: int = Field(default=1, desc='Vector size')
+
+        @dmm.register(FDComp)
+        class FDCompModel(ExplicitComponentModel):
+            options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
         model = prob.model

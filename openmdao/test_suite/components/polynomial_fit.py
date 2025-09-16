@@ -66,8 +66,6 @@ class PolynomialFit(om.ImplicitComponent):
 
 
 class PolynomialFitOptions(ImplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     N_cp: int = Field(default=1, desc='Number of control points')
     N_predict: int = Field(default=1, desc='Number of prediction points')
 

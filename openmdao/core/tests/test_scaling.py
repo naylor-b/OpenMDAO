@@ -3,9 +3,13 @@ import unittest
 from copy import deepcopy
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.core.driver import Driver
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.components.expl_comp_array import TestExplCompArrayDense
 from openmdao.test_suite.components.impl_comp_array import TestImplCompArrayDense
@@ -136,11 +140,6 @@ class ScalingTestComp(om.ImplicitComponent):
     This component computes one row of the above system.
     """
 
-    def initialize(self):
-        self.options.declare('row', values=[1, 2])
-        self.options.declare('coeffs')
-        self.options.declare('use_scal', types=bool)
-
     def setup(self):
 
         r1, r2, c1, c2 = self.options['coeffs']
@@ -189,6 +188,16 @@ class ScalingTestComp(om.ImplicitComponent):
         if self.options['row'] == 2:
             jacobian['y', 'y'] = 10. * r2 * c2
             jacobian['y', 'x'] = r2 * c1
+
+
+class ScalingTestCompOptions(ImplicitComponentOptions):
+    row: int = Field(default=1, values=[1, 2], desc='Row number')
+    coeffs: list = Field(default_factory=list, desc='Coefficients')
+    use_scal: bool = Field(default=True, desc='Use scaling')
+
+@dmm.register(ScalingTestComp)
+class ScalingTestCompModel(ImplicitComponentModel):
+    options: ScalingTestCompOptions = Field(default_factory=ScalingTestCompOptions)
 
 
 def _winfix(s):
@@ -345,12 +354,6 @@ class TestScaling(unittest.TestCase):
 
         class Simple(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('ref', default=1.0)
-                self.options.declare('ref0', default=0.0)
-                self.options.declare('res_ref', default=None)
-                self.options.declare('res_ref0', default=None)
-
             def setup(self):
 
                 ref = self.options['ref']
@@ -370,6 +373,16 @@ class TestScaling(unittest.TestCase):
                 Jacobian for Sellar discipline 1.
                 """
                 partials['y', 'x'] = 2.0
+
+        class SimpleOptions(ExplicitComponentOptions):
+            ref: float = Field(default=1.0, desc='Reference value')
+            ref0: float = Field(default=0.0, desc='Reference zero value')
+            res_ref: float = Field(default=None, desc='Residual reference value')
+            res_ref0: float = Field(default=None, desc='Residual reference zero value')
+
+        @dmm.register(Simple)
+        class SimpleModel(ExplicitComponentModel):
+            options: SimpleOptions = Field(default_factory=SimpleOptions)
 
 
         # Baseline - all should be equal.
@@ -1020,9 +1033,6 @@ class TestScaling(unittest.TestCase):
 
         class Comp1(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('units', None)
-
             def setup(self):
                 self.add_input('a1')
                 self.add_input('a2')
@@ -1041,11 +1051,14 @@ class TestScaling(unittest.TestCase):
                 partials['b', 'a1'] = 2*a2
                 partials['b', 'a2'] = 2*a1
 
+        class Comp1Options(ExplicitComponentOptions):
+            units: str = Field(default=None, desc='Units')
+
+        @dmm.register(Comp1)
+        class Comp1Model(ExplicitComponentModel):
+            options: Comp1Options = Field(default_factory=Comp1Options)
 
         class Comp2(om.ExplicitComponent):
-
-            def initialize(self):
-                self.options.declare('units', None)
 
             def setup(self):
                 self.add_input('b', units=self.options['units'])
@@ -1059,6 +1072,13 @@ class TestScaling(unittest.TestCase):
 
             def compute_partials(self, inputs, partials):
                 partials['c', 'b'] = 2
+
+        class Comp2Options(ExplicitComponentOptions):
+            units: str = Field(default=None, desc='Units')
+
+        @dmm.register(Comp2)
+        class Comp2Model(ExplicitComponentModel):
+            options: Comp2Options = Field(default_factory=Comp2Options)
 
         model = om.Group()
         model.add_subsystem('comp_1', Comp1(), promotes = ['*'])
@@ -1121,9 +1141,6 @@ class TestScaling(unittest.TestCase):
 
         class Comp1(om.ExplicitComponent):
 
-            def initialize(self):
-                self.options.declare('units', None)
-
             def setup(self):
                 self.add_input('a1', units='inch')
                 self.add_input('a2')
@@ -1142,10 +1159,14 @@ class TestScaling(unittest.TestCase):
                 partials['b', 'a1'] = 2*a2
                 partials['b', 'a2'] = 2*a1
 
-        class Comp2(om.ExplicitComponent):
+        class Comp1Options(ExplicitComponentOptions):
+            units: str = Field(default=None, desc='Units')
 
-            def initialize(self):
-                self.options.declare('units', None)
+        @dmm.register(Comp1)
+        class Comp1Model(ExplicitComponentModel):
+            options: Comp1Options = Field(default_factory=Comp1Options)
+
+        class Comp2(om.ExplicitComponent):
 
             def setup(self):
                 self.add_input('b', units=self.options['units'])
@@ -1160,10 +1181,14 @@ class TestScaling(unittest.TestCase):
             def compute_partials(self, inputs, partials):
                 partials['c', 'b'] = 2
 
-        class Comp3(om.ExplicitComponent):
+        class Comp2Options(ExplicitComponentOptions):
+            units: str = Field(default=None, desc='Units')
 
-            def initialize(self):
-                self.options.declare('units', None)
+        @dmm.register(Comp2)
+        class Comp2Model(ExplicitComponentModel):
+            options: Comp2Options = Field(default_factory=Comp2Options)
+
+        class Comp3(om.ExplicitComponent):
 
             def setup(self):
                 self.add_input('a1', units='inch')
@@ -1182,6 +1207,13 @@ class TestScaling(unittest.TestCase):
                 a2 = inputs['a2']
                 partials['b', 'a1'] = 2*a2
                 partials['b', 'a2'] = 2*a1
+
+        class Comp3Options(ExplicitComponentOptions):
+            units: str = Field(default=None, desc='Units')
+
+        @dmm.register(Comp3)
+        class Comp3Model(ExplicitComponentModel):
+            options: Comp3Options = Field(default_factory=Comp3Options)
 
         model = om.Group()
         model.add_subsystem('comp_1', Comp1(units='ft'), promotes = ['*'])
@@ -1581,9 +1613,6 @@ class TestResidualScaling(unittest.TestCase):
         class Resistor(om.ExplicitComponent):
             """Computes current across a resistor using Ohm's law."""
 
-            def initialize(self):
-                self.options.declare("R", default=1.0, desc="Resistance in Ohms")
-
             def setup(self):
                 self.add_input("V_in", units="V")
                 self.add_input("V_out", units="V")
@@ -1598,12 +1627,15 @@ class TestResidualScaling(unittest.TestCase):
                 deltaV = inputs["V_in"] - inputs["V_out"]
                 outputs["I"] = deltaV / self.options["R"]
 
+        class ResistorOptions(ExplicitComponentOptions):
+            R: float = Field(default=1.0, desc="Resistance in Ohms")
+
+        @dmm.register(Resistor)
+        class ResistorModel(ExplicitComponentModel):
+            options: ResistorOptions = Field(default_factory=ResistorOptions)
+
         class Diode(om.ExplicitComponent):
             """Computes current across a diode using the Shockley diode equation."""
-
-            def initialize(self):
-                self.options.declare("Is", default=1e-15, desc="Saturation current in Amps")
-                self.options.declare("Vt", default=0.025875, desc="Thermal voltage in Volts")
 
             def setup(self):
                 self.add_input("V_in", units="V")
@@ -1629,12 +1661,16 @@ class TestResidualScaling(unittest.TestCase):
                 J["I", "V_in"] = I / Vt
                 J["I", "V_out"] = -I / Vt
 
+        class DiodeOptions(ExplicitComponentOptions):
+            Is: float = Field(default=1e-15, desc="Saturation current in Amps")
+            Vt: float = Field(default=0.025875, desc="Thermal voltage in Volts")
+
+        @dmm.register(Diode)
+        class DiodeModel(ExplicitComponentModel):
+            options: DiodeOptions = Field(default_factory=DiodeOptions)
+
         class Node(om.ImplicitComponent):
             """Computes voltage residual across a node based on incoming and outgoing current."""
-
-            def initialize(self):
-                self.options.declare("n_in", default=1, types=int, desc="number of connections with + assumed in")
-                self.options.declare("n_out", default=1, types=int, desc="number of current connections + assumed out")
 
             def setup(self):
                 self.add_output("V", val=5.0, units="V", res_ref=1e-3)
@@ -1669,6 +1705,14 @@ class TestResidualScaling(unittest.TestCase):
                         d_inputs["I_in:{}".format(i_conn)] += d_residuals["V"]
                     for i_conn in range(self.options["n_out"]):
                         d_inputs["I_out:{}".format(i_conn)] -= d_residuals["V"]
+
+        class NodeOptions(ImplicitComponentOptions):
+            n_in: int = Field(default=1, desc="number of connections with + assumed in")
+            n_out: int = Field(default=1, desc="number of current connections + assumed out")
+
+        @dmm.register(Node)
+        class NodeModel(ImplicitComponentModel):
+            options: NodeOptions = Field(default_factory=NodeOptions)
 
         class Circuit(om.Group):
 

@@ -126,13 +126,9 @@ class MyComp(om.ExplicitComponent):
         J['y', 'x1'] = np.array([4.0])
         J['y', 'x2'] = np.array([40])
 
-class DirectionalVectorizedCompOptions(ExplicitComponentOptions):
-    n: int = Field(default=1, desc='vector size')
-
-
 class DirectionalVectorizedComp(om.ExplicitComponent):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.n_compute = 0
         self.n_fwd = 0
         self.n_rev = 0
@@ -151,6 +147,10 @@ class DirectionalVectorizedComp(om.ExplicitComponent):
 
     def compute_partials(self, inputs, partials):
         partials['out', 'in'] = np.diag(2.0 + np.arange(self.options['n']))
+
+
+class DirectionalVectorizedCompOptions(ExplicitComponentOptions):
+    n: int = Field(default=1, desc='vector size')
 
 
 @dmm.register(DirectionalVectorizedComp)

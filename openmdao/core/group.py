@@ -5625,7 +5625,8 @@ class Group(System):
             # Create the subsystem instance using its own from_data_model method
             sub_instance = dmm.from_data_model(sub_model)
             if sub_model.name in self._static_subsystems_allprocs:
-                self._static_subsystems_allprocs[sub_model.name].system.update_from_data_model(sub_model)
+                self._static_subsystems_allprocs[sub_model.name].system.update_from_data_model(
+                    sub_model)
             elif sub_model.name in self._subsystems_allprocs:
                 self._subsystems_allprocs[sub_model.name].system.update_from_data_model(sub_model)
             else:
@@ -5650,8 +5651,7 @@ class Group(System):
         self.data_model.connections = \
             [ConnectionData(src=src, tgt=tgt, src_indices=src_indices,
                             flat_src_indices=flat_src_indices)
-                            for tgt, (src, src_indices, flat_src_indices) in
-                            self._manual_connections.items()]
+             for tgt, (src, src_indices, flat_src_indices) in self._manual_connections.items()]
 
         if self._group_inputs:
             ginputs = self._group_inputs

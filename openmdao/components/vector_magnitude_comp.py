@@ -3,9 +3,10 @@
 
 import numpy as np
 from typing import Optional
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -43,7 +44,6 @@ class VectorMagnitudeComp(ExplicitComponent):
                            vec_size=opt['vec_size'], length=opt['length'])
 
         self._no_check_partials = True
-
 
     def add_magnitude(self, mag_name, in_name, units=None, vec_size=1, length=3):
         """
@@ -150,9 +150,8 @@ class VectorMagnitudeComp(ExplicitComponent):
 
 
 class VectorMagnitudeCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    vec_size: int = Field(default=1, desc='The number of points at which the vector magnitude is computed')
+    vec_size: int = \
+        Field(default=1, desc='The number of points at which the vector magnitude is computed')
     length: int = Field(default=3, desc='The length of the input vector at each point')
     in_name: str = Field(default='a', desc='The variable name for input vector.')
     units: Optional[str] = Field(default=None, desc='The units of the input vector.')

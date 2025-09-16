@@ -2250,12 +2250,12 @@ class System(object, metaclass=SystemMetaclass):
             for pattern in excl:
                 if not has_match(pattern, match_names):
                     issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
-                                "recording_options['excludes'].")
+                                  "recording_options['excludes'].")
             if not record_all:
                 for pattern in incl:
                     if not has_match(pattern, match_names):
                         issue_warning(f"{self.msginfo}: No matches for pattern '{pattern}' in "
-                                    "recording_options['includes'].")
+                                      "recording_options['includes'].")
 
             self._filtered_vars_to_record = {
                 'input': myinputs,
@@ -2278,8 +2278,6 @@ class System(object, metaclass=SystemMetaclass):
         self._full_comm = None
         self._approx_subjac_keys = None
 
-        #self.options.msginfo = self.msginfo
-        #self.recording_options.msginfo = self.msginfo
         self._design_vars = {}
         self._responses = {}
         self._design_vars.update(self._static_design_vars)
@@ -7237,7 +7235,7 @@ class ImplicitSystemOptions(SystemOptions):
 
 class SystemRecordingOptions(OptionsBaseModel):
     record_inputs: bool = Field(default=True,
-                               desc='Set to True to record inputs at the system level')
+                                desc='Set to True to record inputs at the system level')
     record_outputs: bool = Field(default=True,
                                  desc='Set to True to record outputs at the system level')
     record_residuals: bool = Field(default=True,
@@ -7250,6 +7248,7 @@ class SystemRecordingOptions(OptionsBaseModel):
                                      '(processed post-includes). Uses fnmatch wildcards')
     options_excludes: list[str] = Field(default=None,
                                         desc='User-defined metadata to exclude in recording')
+
 
 class ObjectiveData(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -7315,12 +7314,12 @@ class SystemModel(TypeBaseModel):
     name: str = Field(default='', desc='The name of the system.')
     options: SystemOptions = Field(default_factory=SystemOptions)
     recording_options: SystemRecordingOptions = Field(default_factory=SystemRecordingOptions)
-    promotes: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted variables.')
-    promotes_inputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted input variables.')
-    promotes_outputs: List[Union[str, Tuple[str, str]]] = Field(default_factory=list,
-                                                        desc='List of promoted output variables.')
+    promotes: List[Union[str, Tuple[str, str]]] = \
+        Field(default_factory=list, desc='List of promoted variables.')
+    promotes_inputs: List[Union[str, Tuple[str, str]]] = \
+        Field(default_factory=list, desc='List of promoted input variables.')
+    promotes_outputs: List[Union[str, Tuple[str, str]]] = \
+        Field(default_factory=list, desc='List of promoted output variables.')
     design_variables: List[DesignVariableModel] = Field(default_factory=list,
                                                         desc='List of design variables.')
     responses: List[ResponseModel] = Field(default_factory=list, desc='List of responses.')

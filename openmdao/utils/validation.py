@@ -4,6 +4,9 @@ from typing import List, Dict, Optional, Type, Any, Iterator, Tuple
 import importlib
 import enum
 
+from openmdao.core.constants import _UNDEFINED
+from openmdao.visualization.tables.table_builder import generate_table
+
 
 def make_enum(name: str, **kwargs):
     """
@@ -23,10 +26,11 @@ def _class_to_type(cls):
     prefix = '' if cls.__module__ == '__main__' else f"{cls.__module__}."
     return f"{prefix}{cls.__qualname__}"
 
+
 class TypeBaseModel(BaseModel):
     # This will catch typos. Otherwise, by default extra fields are silently ignored.
     # This behavior can be overridden in subclasses.
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
+    model_config = ConfigDict(extra="forbid")
 
     type: str = Field(default=None, desc='The class path of the type to be instantiated.')
     args: Optional[List[Any]] = Field(default_factory=list,
@@ -57,7 +61,8 @@ class PolymorphicModel:
     """A pydantic-compatible type that auto-dispatches to registered models."""
 
     @classmethod
-    def __get_pydantic_core_schema__(cls, _source_type: Any, _handler: Any) -> core_schema.CoreSchema:
+    def __get_pydantic_core_schema__(cls, _source_type: Any,
+                                     _handler: Any) -> core_schema.CoreSchema:
         return core_schema.no_info_after_validator_function(
             _poly_validate,
             core_schema.any_schema(),
@@ -89,7 +94,7 @@ class VOIModel(ValidateOnAssignModel):
     parallel_deriv_color: str = Field(default=None,
                                       desc="Parallel derivative color.")
     cache_linear_solution: bool = Field(default=None,
-                                       desc="Cache linear solution.")
+                                        desc="Cache linear solution.")
     flat_indices: bool = Field(default=None, desc="Assume indices into a flat source array.")
 
 
@@ -147,7 +152,7 @@ class OptionsBaseModel(ValidateOnAssignModel):
         """
         Check if the option is in the model.
         """
-        return name in self.model_fields
+        return name in self.__class__.model_fields
 
     def __iter__(self) -> Iterator[str]:
         """
@@ -251,12 +256,92 @@ class OptionsBaseModel(ValidateOnAssignModel):
         except (KeyError, AttributeError):
             return False
 
-    # def sorted_model_dump(self):
-    #     """
-    #     Return a sorted dictionary of the options.
-    #     """
-    #     dump = self.model_dump()
-    #     return {key: dump[key] for key in sorted(dump)}
+    def to_table(self, fmt='github', missingval='N/A', max_width=None, display=True):
+        """
+        Get a table representation of this OptionsDictionary as a table in the requested format.
+
+        Parameters
+        ----------
+        fmt : str
+            The formatting of the requested table.  Options are
+            ['github', 'rst', 'text', 'html', 'tabulator'] and several 'grid' and 'outline'
+            formats that mimic those found in the python 'tabulate' library.
+            Default value of 'github' produces a table in GitHub-flavored markdown.
+            'html' and 'tabulator' produce output viewable in a browser.
+        missingval : str
+            The value to be displayed in place of None.
+        max_width : int or None
+            If not None, try to limit the total width of the table to this value.
+        display : bool
+            If True, display the table, typically by writing it to stdout or opening a
+            browser.
+
+        Returns
+        -------
+        str
+            A string representation of the table in the requested format.
+        """
+        hdrs = ['Option', 'Default', 'Acceptable Values', 'Acceptable Types', 'Description']
+        rows = []
+
+        # deprecations = False
+        # for meta in self._dict.values():
+        #     if meta['deprecation'] is not None:
+        #         deprecations = True
+        #         hdrs.append('Deprecation')
+        #         break
+
+        for key in sorted(self.model_fields.keys()):
+            option = getattr(self, key)
+            default = option if option is not _UNDEFINED else '**Required**'
+            default_str = str(default)
+
+            # if the default is an object instance, replace with the (unqualified) object type
+            idx = default_str.find(' object at ')
+            if idx >= 0 and default_str[0] == '<':
+                parts = default_str[:idx].split('.')
+                default = parts[-1]
+
+            # acceptable_values = option['values']
+            # if acceptable_values is not None:
+            #     if not isinstance(acceptable_values, (set, tuple, list)):
+            #         acceptable_values = (acceptable_values,)
+            #     acceptable_values = [value for value in acceptable_values]
+
+            # acceptable_types = option['types']
+            # if acceptable_types is not None:
+            #     if not isinstance(acceptable_types, (set, tuple, list)):
+            #         acceptable_types = (acceptable_types,)
+            #     acceptable_types = [type_.__name__ for type_ in acceptable_types]
+
+            desc = option['desc']
+
+            # deprecation = option['deprecation']
+            # if deprecation is not None:
+            #     deprecation = deprecation[0]
+
+            # if deprecations:
+            #     rows.append([key, default, acceptable_values, acceptable_types, desc,
+            #                  deprecation])
+            # else:
+            rows.append([key, default, desc])  # acceptable_values, acceptable_types, desc])
+
+        kwargs = {
+            'tablefmt': fmt,
+            'headers': hdrs,
+            'missing_val': missingval,
+            'max_width': max_width,
+        }
+        if fmt == 'tabulator':
+            kwargs['filter'] = False
+            kwargs['sort'] = False
+
+        tab = generate_table(rows, **kwargs)
+
+        if display:
+            tab.display()
+
+        return str(tab)
 
 
 class DataModelManager:
@@ -414,5 +499,5 @@ class DataModelManager:
             inst.data_model = data_model
             inst.update_from_data_model(data_model)
 
-        if 'options' in data_model.model_fields:
+        if 'options' in data_model.__class__.model_fields:
             inst.data_model.options.update(kwargs)

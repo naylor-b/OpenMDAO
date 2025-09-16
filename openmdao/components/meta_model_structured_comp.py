@@ -2,12 +2,13 @@
 
 import numpy as np
 import inspect
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.components.interp_util.interp import InterpND
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -58,7 +59,6 @@ class MetaModelStructuredComp(ExplicitComponent):
         self.grad_shape = ()
 
         self._no_check_partials = True
-
 
     def add_input(self, name, val=1.0, training_data=None, **kwargs):
         """
@@ -249,14 +249,19 @@ class MetaModelStructuredComp(ExplicitComponent):
 
 
 class MetaModelStructuredCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    extrapolate: bool = Field(default=False, desc='Sets whether extrapolation should be performed when an input is out of bounds.')
-    training_data_gradients: bool = Field(default=False, desc='Sets whether gradients with respect to output training data should be computed.')
+    extrapolate: bool = \
+        Field(default=False,
+              desc='Sets whether extrapolation should be performed when an input is out of bounds.')
+    training_data_gradients: bool = \
+        Field(default=False,
+              desc='Sets whether gradients with respect to output training data should be '
+              'computed.')
     vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
-    method: str = Field(default='scipy_cubic', desc='Spline interpolation method to use for all outputs.')
+    method: str = Field(default='scipy_cubic',
+                        desc='Spline interpolation method to use for all outputs.')
 
 
 @dmm.register(MetaModelStructuredComp)
 class MetaModelStructuredCompModel(ExplicitComponentModel):
-    options: MetaModelStructuredCompOptions = Field(default_factory=MetaModelStructuredCompOptions)
+    options: MetaModelStructuredCompOptions = \
+        Field(default_factory=MetaModelStructuredCompOptions)

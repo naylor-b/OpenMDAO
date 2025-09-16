@@ -1,7 +1,8 @@
 import unittest
+from typing import Union
 
 import numpy as np
-from pydantic import Field
+from pydantic import Field, ConfigDict
 
 import openmdao.api as om
 import openmdao.utils.coloring as coloring_mod
@@ -11,37 +12,27 @@ from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
 from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.utils.validation import DataModelManager as dmm
+from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
 
 
 # check that pyoptsparse is installed
 OPT, OPTIMIZER = set_pyoptsparse_opt('SLSQP')
 
 
-class TrajDesignParameterOptionsDictionary(om.OptionsDictionary):
-
-    def __init__(self, read_only=False):
-        super().__init__(read_only)
-
-        self.declare(name='name')
-        self.declare(name='val', default=np.zeros(1))
-        self.declare(name='targets', types=dict, default=None, allow_none=True)
-        self.declare(name='shape', default=(1,))
+class TrajDesignParameterOptions(OptionsBaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # name: str = Field(default='', desc='Name of the design parameter')
+    val: Union[np.ndarray, float] = Field(default=np.zeros(1), desc='Value of the design parameter')
+    targets: dict = Field(default=None, desc='Targets of the design parameter')
+    shape: tuple = Field(default=(1,), desc='Shape of the design parameter')
 
 
-class StateOptionsDictionary(om.OptionsDictionary):
-
-    def __init__(self, read_only=False):
-        super().__init__(read_only)
-
-        self.declare(name='name')
-        self.declare(name='val', default=0.0)
-        self.declare(name='shape', default=(1,))
-        self.declare(name='rate_source')
-
-
-class CollocationCompOptions(ExplicitComponentOptions):
-    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+class StateOptions(OptionsBaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    name: str = Field(default='', desc='Name of the state')
+    val: Union[np.ndarray, float] = Field(default=np.zeros(1), desc='Value of the state')
+    shape: tuple = Field(default=(1,), desc='Shape of the state')
+    rate_source: str = Field(default='', desc='Rate source of the state')
 
 
 class CollocationComp(om.ExplicitComponent):
@@ -118,13 +109,13 @@ class CollocationComp(om.ExplicitComponent):
             partials[var_names['defect'], var_names['f_computed']] = -k
 
 
+class CollocationCompOptions(ExplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
 @dmm.register(CollocationComp)
 class CollocationCompModel(ExplicitComponentModel):
     options: CollocationCompOptions = Field(default_factory=CollocationCompOptions)
-
-
-class StateInterpCompOptions(ExplicitComponentOptions):
-    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
 
 
 class StateInterpComp(om.ExplicitComponent):
@@ -257,13 +248,13 @@ class StateInterpComp(om.ExplicitComponent):
             partials[xdotc_name, xd_name] = (self.jacs['Ad'][name])[r_nz, c_nz]
 
 
+class StateInterpCompOptions(ExplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
 @dmm.register(StateInterpComp)
 class StateInterpCompModel(ExplicitComponentModel):
     options: StateInterpCompOptions = Field(default_factory=StateInterpCompOptions)
-
-
-class StateIndependentsCompOptions(ImplicitComponentOptions):
-    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
 
 
 class StateIndependentsComp(om.ImplicitComponent):
@@ -297,6 +288,10 @@ class StateIndependentsComp(om.ImplicitComponent):
                                   rows=row_col, cols=row_col, val=-1.0)
 
 
+class StateIndependentsCompOptions(ImplicitComponentOptions):
+    state_options: dict = Field(default_factory=dict, desc='State options dictionary')
+
+
 @dmm.register(StateIndependentsComp)
 class StateIndependentsCompModel(ImplicitComponentModel):
     options: StateIndependentsCompOptions = Field(default_factory=StateIndependentsCompOptions)
@@ -316,11 +311,10 @@ class Trajectory(om.Group):
 
     def add_design_parameter(self, name, val, targets):
         if name not in self.design_parameter_options:
-            self.design_parameter_options[name] = TrajDesignParameterOptionsDictionary()
-
-        self.design_parameter_options[name]['val'] = val
-        self.design_parameter_options[name]['targets'] = targets
-
+            self.design_parameter_options[name] = TrajDesignParameterOptions(val=val, targets=targets)
+        else:
+            self.design_parameter_options[name].val = val
+            self.design_parameter_options[name].targets = targets
 
     def _setup_design_parameters(self):
         if self.design_parameter_options:
@@ -362,13 +356,10 @@ class Phase(om.Group):
 
     def add_state(self, name, rate_source):
         if name not in self.state_options:
-            self.state_options[name] = StateOptionsDictionary()
-            self.state_options[name]['name'] = name
-
-        self.set_state_options(name=name, rate_source=rate_source)
-
-    def set_state_options(self, name, rate_source):
-        self.state_options[name]['rate_source'] = rate_source
+            self.state_options[name] = StateOptions(name=name, rate_source=rate_source)
+        else:
+            self.state_options[name].name = name
+            self.state_options[name].rate_source = rate_source
 
     def add_objective(self, name, loc='final', index=None, shape=(1,)):
         obj_dict = {'loc': loc,

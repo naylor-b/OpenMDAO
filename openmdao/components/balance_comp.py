@@ -137,7 +137,7 @@ class BalanceComp(ImplicitComponent):
             prob.run_model()
         """
         # get data model class and remove its fields from kwargs
-        fields = dmm.class_to_data_model(self.__class__).model_fields.keys()
+        fields = BalanceCompOptions.model_fields.keys()
         super().__init__(**{k: v for k, v in kwargs.items() if k in fields})
 
         self._state_vars = {}
@@ -407,9 +407,9 @@ class BalanceComp(ImplicitComponent):
 class BalanceCompOptions(ImplicitComponentOptions):
     guess_func: Callable = Field(default=None,
                                  desc='A callable function in the form '
-                                 'f(inputs, outputs, residuals) that can provide an initial "guess" '
-                                 'value of the state variable(s) based on the inputs, outputs and '
-                                 'residuals.')
+                                 'f(inputs, outputs, residuals) that can provide an initial '
+                                 '"guess" value of the state variable(s) based on the inputs, '
+                                 'outputs and residuals.')
 
 
 @dmm.register(BalanceComp)

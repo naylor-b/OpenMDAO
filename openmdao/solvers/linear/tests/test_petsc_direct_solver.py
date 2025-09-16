@@ -6,6 +6,7 @@ from scipy import sparse
 import openmdao.api as om
 
 from openmdao.solvers.linear.tests.linear_test_base import LinearSolverTests
+from openmdao.solvers.linear.petsc_direct_solver import  _PETScDirectSolverOptions
 from openmdao.test_suite.components.double_sellar import DoubleSellar
 from openmdao.test_suite.components.expl_comp_simple import TestExplCompSimpleJacVec
 from openmdao.test_suite.components.sellar import SellarDerivatives
@@ -279,23 +280,20 @@ class TestPETScDirectSolver(LinearSolverTests.LinearSolverTestCase):
         # Test that using options that should not exist in class cause an error
         solver = om.PETScDirectSolver()
 
-        msg = "\"PETScDirectSolver: Option '%s' cannot be set because it has not been declared.\""
+        msg = "Object has no attribute '%s'"
 
         for option in ['atol', 'rtol', 'maxiter', 'err_on_non_converge']:
-            with self.assertRaises(KeyError) as context:
+            with self.assertRaises(Exception) as context:
                 solver.options[option] = 1
 
-            self.assertEqual(str(context.exception), msg % option)
+            self.assertTrue(msg % option in str(context.exception))
 
     def test_err_on_singular_option(self):
         # Test that "err_on_singular" option will raise an error if not True
-        msg = '\n'.join(["PETScDirectSolver: 1 validation error for _PETScDirectSolverOptions",
-                        "err_on_singular",
-                        "  Value error, The PETScDirectSolver must always have its 'err_on_singular' option set to True. This option is only maintained for compatibility with parent solver methods. [type=value_error, input_value=False, input_type=bool]",
-                        "    For further information visit https://errors.pydantic.dev/2.11/v/value_error"])
+        msg = "The PETScDirectSolver must always have its 'err_on_singular' option set to True. This option is only maintained for compatibility with parent solver methods."
         with self.assertRaises(ValueError) as context:
             om.PETScDirectSolver(err_on_singular=False)
-        self.assertEqual(str(context.exception), msg)
+        self.assertTrue(msg in str(context.exception))
 
     def test_solve_on_subsystem(self):
         """solve an implicit system with PETScDirectSolver attached to a subsystem"""
@@ -437,21 +435,18 @@ class TestPETScDirectSolver(LinearSolverTests.LinearSolverTestCase):
         prob = om.Problem()
         model = prob.model
 
-        class _TestSolverOptions(om.PETScDirectSolver.options):
+        class _TestSolverOptions(_PETScDirectSolverOptions):
             sparse_solver_name: str
 
         class TestSolver(om.PETScDirectSolver):
             options = _TestSolverOptions
 
         model.add_subsystem('comp', om.ExecComp('y = x * 2.'))
-        model.linear_solver = TestSolver(sparse_solver_name='hello')
-        prob.setup()
+        with self.assertRaises(Exception) as cm:
+            model.linear_solver = TestSolver(sparse_solver_name='hello')
 
-        with self.assertRaises(RuntimeError) as cm:
-            prob.compute_totals('comp.y', 'comp.x')
-
-        expected_msg = "Specified PETSc sparse solver, 'hello', is not installed."
-        self.assertEqual(expected_msg, str(cm.exception))
+        expected_msg = "Input should be 'superlu', 'klu', 'umfpack', 'petsc', 'mumps' or 'superlu_dist'"
+        self.assertTrue(expected_msg in str(cm.exception))
 
     def test_raise_error_on_dup_partials(self):
         prob = om.Problem()

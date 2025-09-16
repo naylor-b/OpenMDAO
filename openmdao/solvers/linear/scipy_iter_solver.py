@@ -10,7 +10,7 @@ from typing import Union, Dict
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
     _IterSolverOptions
-from openmdao.solvers.solver import LinearSolverModel
+from openmdao.solvers.solver import LinearSolverModel, _LinearSolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -52,8 +52,6 @@ class ScipyKrylov(LinearSolver):
         self._lin_rhs_checker = None
         self.options['maxiter'] = 1000
         self.options['atol'] = 1.0e-12
-
-        self.supports['implicit_components'] = True
 
     def _assembled_jac_solver_iter(self):
         """
@@ -335,19 +333,24 @@ class ScipyKrylov(LinearSolver):
 
 class _ScipyKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
 
-    solver: str = Field(default='gmres', description='function handle for actual solver')
+    solver: str = Field(default='gmres', desc='function handle for actual solver')
     restart: int = Field(default=20,
-                         description='Number of iterations between restarts. Larger values '
+                         desc='Number of iterations between restarts. Larger values '
                          'increase iteration cost, but may be necessary for convergence. '
                          'This option applies only to gmres.')
     rhs_checking: Union[bool, Dict] = Field(default=False,
-                                            description="If True, check RHS vs. cache and/or "
+                                            desc="If True, check RHS vs. cache and/or "
                                             "zero to avoid some solves. Can also be set to a "
                                             "dict of options for the LinearRHSChecker to allow "
                                             "finer control over it. Allowed options are: "
                                             f"{LinearRHSChecker.options}")
 
 
+class ScipyKrylovSupports(_LinearSolverSupports):
+    implicit_components: bool = Field(default=True, frozen=True)
+
+
 @dmm.register(ScipyKrylov)
 class ScipyKrylovModel(LinearSolverModel):
     options: _ScipyKrylovOptions = Field(default_factory=_ScipyKrylovOptions)
+    supports: ScipyKrylovSupports = Field(default_factory=ScipyKrylovSupports)

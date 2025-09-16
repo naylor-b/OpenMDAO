@@ -7,7 +7,8 @@ import itertools
 import traceback
 from pydantic import Field
 
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
+    DriverSupports
 from openmdao.core.analysis_error import AnalysisError
 
 from openmdao.drivers.analysis_generator import AnalysisGenerator, SequenceGenerator
@@ -68,14 +69,6 @@ class AnalysisDriver(Driver):
                              f'or derived from AnalysisGenerator but got {type(samples)}')
 
         super().__init__(**kwargs)
-
-        # What we support
-        self.supports['integer_design_vars'] = True
-
-        # What we don't support
-        self.supports['distributed_design_vars'] = False
-        self.supports['optimization'] = False
-        self.supports._read_only = True
 
         self._name = 'AnalysisDriver'
         self._problem_comm = None
@@ -428,10 +421,22 @@ class AnalysisDriver(Driver):
 
 class AnalysisDriverOptions(DriverOptions):
     run_parallel: bool = Field(default=False, desc='Set to True to execute samples in parallel.')
-    batch_size: int = Field(default=1000, desc='Number of samples to distribute among the processors at a time when run_parallel is True. This should be limited when the memory required to store the batch size of samples grows too large.')
-    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+    batch_size: int = \
+        Field(default=1000,
+              desc='Number of samples to distribute among the processors at a time when '
+              'run_parallel is True. This should be limited when the memory required to store the '
+              'batch size of samples grows too large.')
+    procs_per_model: int = Field(default=1,
+                                 desc='Number of processors to give each model under MPI.')
+
+
+class AnalysisDriverSupports(DriverSupports):
+    integer_design_vars: bool = Field(default=True, frozen=True)
+    distributed_design_vars: bool = Field(default=False, frozen=True)
+    optimization: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(AnalysisDriver)
 class AnalysisDriverModel(DriverModel):
     options: AnalysisDriverOptions = Field(default_factory=AnalysisDriverOptions)
+    supports: AnalysisDriverSupports = Field(default_factory=AnalysisDriverSupports)

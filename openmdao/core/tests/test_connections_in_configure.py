@@ -1,10 +1,15 @@
+
 """
 A contrived example for issuing connections during configure rather than setup.
 """
 import itertools
 import unittest
+from pydantic import Field
+
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class Squarer(om.ExplicitComponent):
@@ -37,11 +42,10 @@ class Squarer(om.ExplicitComponent):
 
 
 class Cuber(om.ExplicitComponent):
-
-    def initialize(self):
-        self.options.declare('vec_size', types=(int,))
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self._vars = {}
-
+        
     def add_var(self, name, units='m'):
         """
         Add a variable to be squared by the component.
@@ -74,6 +78,13 @@ class Cuber(om.ExplicitComponent):
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         for var in self._vars:
             outputs['{0}_cubed'.format(var)] = inputs[var] ** 3
+
+class CuberOptions(ExplicitComponentOptions):
+    vec_size: int = Field(default=0, desc='Vector size')
+
+@dmm.register(Cuber)
+class CuberModel(ExplicitComponentModel):
+    options: CuberOptions = Field(default_factory=CuberOptions)
 
 
 class HostConnectInSetup(om.Group):

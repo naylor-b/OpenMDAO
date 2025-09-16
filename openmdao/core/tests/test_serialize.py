@@ -1,18 +1,24 @@
 import unittest
+from pydantic import Field
 
 import openmdao.api as om
-
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class BadOptionComp(om.ExplicitComponent):
 
-    def initialize(self):
-        self.options.declare('bad', recordable=False)
-
     def setup(self):
         self.add_input('x')
         self.add_output('y')
+
+class BadOptionCompOptions(ExplicitComponentOptions):
+    bad: object = Field(exclude=True, desc='Bad option')
+
+@dmm.register(BadOptionComp)
+class BadOptionCompModel(ExplicitComponentModel):
+    options: BadOptionCompOptions = Field(default_factory=BadOptionCompOptions)
 
 
 @use_tempdirs

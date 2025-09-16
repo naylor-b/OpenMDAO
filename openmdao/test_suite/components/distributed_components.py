@@ -36,6 +36,14 @@ class DistribComp(om.ExplicitComponent):
         else:
             outputs['outvec'] = inputs['invec'] * -3.0
 
+class DistribCompOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
+@dmm.register(DistribComp)
+class DistribCompModel(ExplicitComponentModel):
+    options: DistribCompOptions = Field(default_factory=DistribCompOptions)
+
 
 class Summer(om.ExplicitComponent):
     """Sums an input array."""
@@ -52,7 +60,6 @@ class Summer(om.ExplicitComponent):
 
 class DistribCompDerivs(om.ExplicitComponent):
     """Simple Distributed Component with Derivatives."""
-
 
     def setup(self):
         comm = self.comm
@@ -90,6 +97,14 @@ class DistribCompDerivs(om.ExplicitComponent):
         else:
             J['outvec', 'invec'] = np.ones((mysize,)) * -3.0
 
+class DistribCompDerivsOptions(ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+
+@dmm.register(DistribCompDerivs)
+class DistribCompDerivsModel(ExplicitComponentModel):
+    options: DistribCompDerivsOptions = Field(default_factory=DistribCompDerivsOptions)
+
 
 class SummerDerivs(om.ExplicitComponent):
     """Sums an input array."""
@@ -108,22 +123,13 @@ class SummerDerivs(om.ExplicitComponent):
         outputs['sum'] = np.sum(inputs['invec'])
 
 
-# Pydantic Models for Distributed Components
-
-class DistribCompOptions(ExplicitComponentOptions):
+class SummerDerivsOptions(ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
-
-class SummerOptions(ExplicitComponentOptions):
-    size: int = Field(default=1, desc="Size of input and output vectors.")
-
-
-# Register the models
-@dmm.register(DistribComp)
-class DistribCompModel(ExplicitComponentModel):
-    options: DistribCompOptions = Field(default_factory=DistribCompOptions)
+@dmm.register(SummerDerivs)
+class SummerDerivsModel(ExplicitComponentModel):
+    options: SummerDerivsOptions = Field(default_factory=SummerDerivsOptions)
 
 
-@dmm.register(Summer)
-class SummerModel(ExplicitComponentModel):
-    options: SummerOptions = Field(default_factory=SummerOptions)
+if __name__ == "__main__":
+    s = SummerDerivs(size=10)

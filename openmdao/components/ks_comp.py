@@ -3,9 +3,10 @@ KS Function Component.
 """
 import numpy as np
 from typing import Optional, Union
-from pydantic import Field, ConfigDict, field_validator
+from pydantic import Field, field_validator
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.units import valid_units
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -21,8 +22,6 @@ CITATIONS = """
         author = {Joaquim R. R. A. Martins and Nicholas M. K. Poon}
 }
 """
-
-
 
 
 class KSfunction(object):
@@ -138,7 +137,6 @@ class KSComp(ExplicitComponent):
 
         self._no_check_partials = True
 
-
     def setup(self):
         """
         Declare inputs, outputs, and derivatives for the KS component.
@@ -222,29 +220,37 @@ class KSComp(ExplicitComponent):
 
 
 class KSCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     width: int = Field(default=1, desc='Width of constraint vector.')
     vec_size: int = Field(default=1, desc='The number of rows to independently aggregate.')
-    minimum: bool = Field(default=False, desc='Return the minimum instead of the maximum by multiplying both '
-                                             'the inputs and output by -1. It is not recommended to use both '
-                                             'this option and the lower_flag option (it will return the '
-                                             'negative of the aggregated max.)')
-    lower_flag: bool = Field(default=False, desc='Set to True to reverse sign of input constraints.')
+    minimum: bool = \
+        Field(default=False,
+              desc='Return the minimum instead of the maximum by multiplying both the inputs and '
+              'output by -1. It is not recommended to use both this option and the lower_flag '
+              'option (it will return the negative of the aggregated max.)')
+    lower_flag: bool = Field(default=False,
+                             desc='Set to True to reverse sign of input constraints.')
     rho: float = Field(default=50.0, desc="Constraint Aggregation Factor.")
     upper: float = Field(default=0.0, desc="Upper bound for constraint, default is zero.")
-    add_constraint: bool = Field(default=False, desc='If True, add a constraint on the resulting output of the KSComp.'
-                                                     ' If False, the user will be expected to add a constraint '
-                                                     'explicitly.')
-    units: Optional[str] = Field(default=None, desc='Units to be assigned to all variables in this component. '
-                                                    'Default is None, which means variables are unitless.')
-    scaler: Optional[Union[int, float]] = Field(default=None, desc="Scaler for constraint, if added, default is one.")
-    adder: Optional[Union[int, float]] = Field(default=None, desc="Adder for constraint, if added, default is zero.")
-    ref0: Optional[Union[int, float]] = Field(default=None, desc="Zero-reference for constraint, if added, default is zero.")
-    ref: Optional[Union[int, float]] = Field(default=None, desc="Unit reference for constraint, if added, default is one.")
-    parallel_deriv_color: Optional[str] = Field(default=None, desc='If specified, this design var will be grouped for parallel '
-                                                                   'derivative calculations with other variables sharing the same '
-                                                                   'parallel_deriv_color.')
+    add_constraint: bool = \
+        Field(default=False,
+              desc='If True, add a constraint on the resulting output of the KSComp. If False, '
+              'the user will be expected to add a constraint explicitly.')
+    units: Optional[str] = \
+        Field(default=None,
+              desc='Units to be assigned to all variables in this component. Default is None, '
+              'which means variables are unitless.')
+    scaler: Optional[Union[int, float]] = \
+        Field(default=None, desc="Scaler for constraint, if added, default is one.")
+    adder: Optional[Union[int, float]] = \
+        Field(default=None, desc="Adder for constraint, if added, default is zero.")
+    ref0: Optional[Union[int, float]] = \
+        Field(default=None, desc="Zero-reference for constraint, if added, default is zero.")
+    ref: Optional[Union[int, float]] = \
+        Field(default=None, desc="Unit reference for constraint, if added, default is one.")
+    parallel_deriv_color: Optional[str] = \
+        Field(default=None,
+              desc='If specified, this design var will be grouped for parallel '
+              'derivative calculations with other variables sharing the same parallel_deriv_color.')
 
     @field_validator('units')
     @classmethod

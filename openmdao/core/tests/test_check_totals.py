@@ -6,7 +6,7 @@ from io import StringIO
 import unittest
 
 import numpy as np
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
 import openmdao.api as om
 from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
@@ -1550,7 +1550,6 @@ class TestProblemCheckTotals(unittest.TestCase):
 
     def test_directional_dymosish(self):
         class CollocationCompOptions(ExplicitComponentOptions):
-            model_config = ConfigDict(arbitrary_types_allowed=True)
             state_options: dict = Field(default_factory=dict, desc='Dictionary of state names/options for the phase')
 
         class CollocationComp(om.ExplicitComponent):
@@ -1623,7 +1622,6 @@ class TestProblemCheckTotals(unittest.TestCase):
             options: CollocationCompOptions = Field(default_factory=CollocationCompOptions)
 
         class StateInterpCompOptions(ExplicitComponentOptions):
-            model_config = ConfigDict(arbitrary_types_allowed=True)
             state_options: dict = Field(default_factory=dict, desc='Dictionary of state names/options for the phase')
 
         class StateInterpComp(om.ExplicitComponent):

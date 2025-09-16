@@ -5,11 +5,14 @@ import unittest
 
 import numpy as np
 from scipy.sparse import coo_matrix, csr_matrix
+from pydantic import Field
 
 from openmdao.api import IndepVarComp, Group, Problem, \
                          ExplicitComponent, ImplicitComponent, ExecComp, \
                          NewtonSolver, ScipyKrylov, \
                          LinearBlockGS, DirectSolver
+from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_check_totals
 from openmdao.utils.array_utils import rand_sparsity
 from openmdao.test_suite.components.paraboloid import Paraboloid
@@ -1184,10 +1187,6 @@ class OverlappingPartialsTestCase(unittest.TestCase):
 
 class CCBladeResidualComp(ImplicitComponent):
 
-    def initialize(self):
-        self.options.declare('num_nodes', types=int)
-        self.options.declare('num_radial', types=int)
-
     def setup(self):
         num_nodes = self.options['num_nodes']
         num_radial = self.options['num_radial']
@@ -1216,6 +1215,16 @@ class CCBladeResidualComp(ImplicitComponent):
 
         partials['Tp', 'chord'] = np.array([9., 10, 11, 12])
         partials['Tp', 'phi'] = np.array([13., 14, 15, 16])
+
+
+class CCBladeResidualCompOptions(ImplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+    num_radial: int = Field(default=1, desc='Number of radial points')
+
+
+@dmm.register(CCBladeResidualComp)
+class CCBladeResidualCompModel(ImplicitComponentModel):
+    options: CCBladeResidualCompOptions = Field(default_factory=CCBladeResidualCompOptions)
 
 
 class MaskingTestCase(unittest.TestCase):

@@ -76,7 +76,6 @@ class JaxImplicitComponent(ImplicitComponent):
                           f"'{fallback_derivs_method}' will be used for derivatives.")
             self.options['derivs_method'] = fallback_derivs_method
 
-
     def _setup_check(self):
         """
         Check if inputs and outputs have been added, and if not, determine them from compute_primal.

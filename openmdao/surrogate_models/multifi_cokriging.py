@@ -899,7 +899,6 @@ class MultiFiCoKrigingSurrogate(MultiFiSurrogateModel):
         super().__init__(**kwargs)
         self.model = None
 
-
     def predict(self, new_x):
         """
         Calculate a predicted value of the response based on the current trained model.
@@ -982,17 +981,59 @@ class MultiFiCoKrigingSurrogate(MultiFiSurrogateModel):
 
 
 class MultiFiCoKrigingSurrogateOptions(SurrogateModelOptions):
-    normalize: bool = Field(default=True, desc="When true, normalize X and Y so that the mean is at zero.")
-    regr: Any = Field(default='constant', desc="A regression function returning an array of outputs of the linear regression functional basis for Universal Kriging purpose. regr is assumed to be the same for all levels of code. Default assumes a simple constant regression trend. Available built-in regression models can be accessed by setting this option to the strings 'constant' or 'linear'")
-    rho_regr: Any = Field(default='constant', desc="A regression function returning an array of outputs of the linear regression functional basis. Defines the regression function for the autoregressive parameter rho.. regr is assumed to be the same for all levels of code. Default assumes a simple constant regression trend. Available built-in regression models can be accessed by setting this option to the strings 'constant' or 'linear'")
-    theta: Optional[Any] = Field(default=None, desc="Value of correlation parameters. If they are known, then no optimization is run. Default is None, so that optimization is run. if double, then value is replicated for all features and all levels. if array_like, then an array with shape (n_features, ) for isotropic calculation. It is replicated for all levels. if list, then a list of nlevel arrays specifying value for each level")
-    theta0: Optional[Any] = Field(default=None, desc="Starting point for the maximum likelihood estimation of the best set of parameters. Default is None and meaning use of the default 0.5*np.ones(n_features) if double: value is replicated for all features and all levels. if array_like: an array with shape (n_features, ) for isotropic calculation. It is replicated for all levels. if list: a list of nlevel arrays specifying value for each level")
-    thetaL: Optional[Any] = Field(default=None, desc="Lower bound on the autocorrelation parameters for maximum likelihood estimation. Default is None meaning use of the default 1e-5*np.ones(n_features). if double: value is replicated for all features and all levels. if array_like: An array with shape matching theta0s. It is replicate for all levels of code. if list: a list of nlevel arrays specifying value for each level")
-    thetaU: Optional[Any] = Field(default=None, desc="Upper bound on the autocorrelation parameters for maximum likelihood estimation. Default is None meaning use of default value 50*np.ones(n_features). if double: value is replicated for all features and all levels. if array_like: An array with shape matching theta0's. It is replicated for all levels of code. if list: a list of nlevel arrays specifying value for each level")
-    tolerance: float = Field(default=TOLERANCE_DEFAULT, desc='Optimizer terminates when the tolerance tol is reached.')
-    initial_range: float = Field(default=INITIAL_RANGE_DEFAULT, desc='Initial range for the optimizer.')
+    normalize: bool = \
+        Field(default=True, desc="When true, normalize X and Y so that the mean is at zero.")
+    regr: Any = \
+        Field(default='constant',
+              desc="A regression function returning an array of outputs of the linear regression "
+              "functional basis for Universal Kriging purpose. regr is assumed to be "
+              "the same for all levels of code. Default assumes a simple constant regression trend."
+              " Available built-in regression models can be accessed by setting this option to the "
+              "strings 'constant' or 'linear'")
+    rho_regr: Any = \
+        Field(default='constant',
+              desc="A regression function returning an array of outputs of the linear regression "
+              "functional basis. Defines the regression function for the autoregressive parameter "
+              "rho. regr is assumed to be the same for all levels of code. Default assumes a "
+              "simple constant regression trend. Available built-in regression models can be "
+              "accessed by setting this option to the strings 'constant' or 'linear'")
+    theta: Optional[Any] = \
+        Field(default=None,
+              desc="Value of correlation parameters. If they are known, then no optimization is "
+              "run. Default is None, so that optimization is run. if double, then value is "
+              "replicated for all features and all levels. if array_like, then an array with "
+              "shape (n_features, ) for isotropic calculation. It is replicated for all levels. "
+              "If list, then a list of nlevel arrays specifying value for each level")
+    theta0: Optional[Any] = \
+        Field(default=None,
+              desc="Starting point for the maximum likelihood estimation of the best set of "
+              "parameters. Default is None and meaning use of the default 0.5*np.ones(n_features) "
+              "If double: value is replicated for all features and all levels. If array_like: an "
+              "array with shape (n_features, ) for isotropic calculation. It is replicated for "
+              "all levels. If list: a list of nlevel arrays specifying value for each level")
+    thetaL: Optional[Any] = \
+        Field(default=None,
+              desc="Lower bound on the autocorrelation parameters for maximum likelihood "
+              "estimation. Default is None meaning use of the default 1e-5*np.ones(n_features). "
+              "If double: value is replicated for all features and all levels. If array_like: An "
+              "array with shape matching theta0s. It is replicate for all levels of code. If "
+              "list: a list of nlevel arrays specifying value for each level")
+    thetaU: Optional[Any] = \
+        Field(default=None,
+              desc="Upper bound on the autocorrelation parameters for maximum likelihood "
+              "estimation. Default is None meaning use of default value 50*np.ones(n_features). "
+              "If double: value is replicated for all features and all levels. If array_like: An "
+              "value is replicated for all features and all levels. If array_like: An array with "
+              "shape matching theta0's. It is replicated for all levels of code. If list: a list of"
+              " nlevel arrays specifying value for each level")
+    tolerance: float = \
+        Field(default=TOLERANCE_DEFAULT,
+              desc='Optimizer terminates when the tolerance tol is reached.')
+    initial_range: float = \
+        Field(default=INITIAL_RANGE_DEFAULT, desc='Initial range for the optimizer.')
 
 
 @dmm.register(MultiFiCoKrigingSurrogate)
 class MultiFiCoKrigingSurrogateModel(SurrogateModelModel):
-    options: MultiFiCoKrigingSurrogateOptions = Field(default_factory=MultiFiCoKrigingSurrogateOptions)
+    options: MultiFiCoKrigingSurrogateOptions = \
+        Field(default_factory=MultiFiCoKrigingSurrogateOptions)

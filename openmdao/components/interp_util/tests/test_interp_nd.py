@@ -349,11 +349,11 @@ class TestInterpNDSemiPython(unittest.TestCase):
         msg = ('The points in dimension 0 must be strictly ascending.')
         self.assertEqual(cm.exception.args[0], msg)
 
-        with self.assertRaises(KeyError) as cm:
+        with self.assertRaises(Exception) as cm:
             InterpNDSemi(grid, values, method='slinear', bad_arg=1)
 
-        msg = ("Option 'bad_arg' cannot be set because it has not been declared.")
-        self.assertTrue(cm.exception.args[0].endswith(msg))
+        msg = ("Object has no attribute 'bad_arg'")
+        self.assertTrue(msg in str(cm.exception))
 
 
 class TestInterpNDPython(unittest.TestCase):
@@ -820,11 +820,10 @@ class TestInterpNDPython(unittest.TestCase):
 
         InterpND(method='slinear', points=points, values=values.tolist())
 
-        with self.assertRaises(KeyError) as cm:
+        with self.assertRaises(Exception) as cm:
             InterpND(method='slinear', points=points, values=values.tolist(), bad_arg=1)
 
-        msg = ("\"InterpLinear: Option 'bad_arg' cannot be set because it has not been declared.")
-        self.assertTrue(str(cm.exception).startswith(msg))
+        self.assertTrue("Object has no attribute 'bad_arg'" in str(cm.exception))
 
         # Bspline not supported for tables.
         points, values, func, df = self. _get_sample_2d()

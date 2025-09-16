@@ -7,7 +7,7 @@ import sys
 import time
 import os
 import weakref
-from pydantic import Field
+from pydantic import Field, field_validator
 
 import numpy as np
 import scipy.sparse as sp
@@ -193,7 +193,8 @@ class DriverResult():
         return _track_time
 
 
-default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
+def _get_default_desvar_behavior():
+    return os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
 
 
 class Driver(object, metaclass=DriverMetaclass):
@@ -2390,13 +2391,27 @@ class Driver(object, metaclass=DriverMetaclass):
         return self
 
 
+_allowed_debug_print_options = {'desvars', 'nl_cons', 'ln_cons', 'objs', 'totals'}
+
+
 class DriverOptions(OptionsBaseModel):
     debug_print: list[str] = \
         Field(default_factory=list,
               desc="List of what type of Driver variables to print at each iteration.")
     invalid_desvar_behavior: str = \
-        Field(default=default_desvar_behavior,
+        Field(default_factory=lambda: _get_default_desvar_behavior(),
               desc="Behavior of driver if initial value of a design variable exceeds its bounds.")
+
+    @field_validator('debug_print')
+    @classmethod
+    def validate_debug_print(cls, v):
+        if v is not None and not isinstance(v, list):
+            raise ValueError("debug_print must be a list.")
+        for item in v:
+            if item not in _allowed_debug_print_options:
+                raise ValueError("debug_print must be one of "
+                                 f"{sorted(_allowed_debug_print_options)}.")
+        return v
 
 
 class DriverRecordingOptions(OptionsBaseModel):
@@ -2422,25 +2437,25 @@ class DriverRecordingOptions(OptionsBaseModel):
     record_inputs: bool = Field(default=True,
                                 desc="Set to True to record inputs at the driver level.")
     record_outputs: bool = Field(default=True,
-                                  desc="Set True to record outputs at the driver level.")
+                                 desc="Set True to record outputs at the driver level.")
     record_residuals: bool = Field(default=False,
                                    desc="Set True to record residuals at the driver level.")
 
 
 class DriverSupports(OptionsBaseModel):
-    optimization: bool = False
-    inequality_constraints: bool = False
-    equality_constraints: bool = False
-    linear_constraints: bool = False
-    linear_only_designvars: bool = False
-    two_sided_constraints: bool = False
-    multiple_objectives: bool = False
-    integer_design_vars: bool = True
-    gradients: bool = False
-    active_set: bool = False
-    simultaneous_derivatives: bool = False
-    total_jac_sparsity: bool = False
-    distributed_design_vars: bool = False
+    optimization: bool = Field(default=False, frozen=True)
+    inequality_constraints: bool = Field(default=False, frozen=True)
+    equality_constraints: bool = Field(default=False, frozen=True)
+    linear_constraints: bool = Field(default=False, frozen=True)
+    linear_only_designvars: bool = Field(default=False, frozen=True)
+    two_sided_constraints: bool = Field(default=False, frozen=True)
+    multiple_objectives: bool = Field(default=False, frozen=True)
+    integer_design_vars: bool = Field(default=True, frozen=True)
+    gradients: bool = Field(default=False, frozen=True)
+    active_set: bool = Field(default=False, frozen=True)
+    simultaneous_derivatives: bool = Field(default=False, frozen=True)
+    total_jac_sparsity: bool = Field(default=False, frozen=True)
+    distributed_design_vars: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(Driver)

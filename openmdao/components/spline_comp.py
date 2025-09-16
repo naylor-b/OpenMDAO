@@ -185,18 +185,20 @@ class SplineCompOptions(ExplicitComponentOptions):
 
     vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
     method: str = Field(default='akima', desc='Spline interpolation method to use for all outputs.')
-    x_interp_val: Union[List[float], np.ndarray] = Field(default_factory=list, desc='List/array of x interpolated point values.')
-    x_cp_val: Optional[Union[List[float], np.ndarray]] = Field(default=None,
-                                                               desc='List/array of x control point values, must be monotonically '
-                                                                    'increasing. Optional alternative to num_cp. Not applicable for '
-                                                                    'bsplines.')
-    num_cp: Optional[int] = Field(default=None,
-                                  desc='Number of spline control points. Optional alternative to '
-                                       'x_cp_val. Required for bsplines. If None, num_cp will be a linspace '
-                                       'from 0 to 1.')
-    interp_options: Dict[str, Any] = Field(default_factory=dict,
-                                           desc='Dict contains the name and value of options specific to the '
-                                                'chosen interpolation method.')
+    x_interp_val: Union[List[float], np.ndarray] = \
+        Field(default_factory=list, desc='List/array of x interpolated point values.')
+    x_cp_val: Optional[Union[List[float], np.ndarray]] = \
+        Field(default=None,
+              desc='List/array of x control point values, must be monotonically increasing. '
+              'Optional alternative to num_cp. Not applicable for bsplines.')
+    num_cp: Optional[int] = \
+        Field(default=None,
+              desc='Number of spline control points. Optional alternative to x_cp_val. Required '
+              'for bsplines. If None, num_cp will be a linspace from 0 to 1.')
+    interp_options: Dict[str, Any] = \
+        Field(default_factory=dict,
+              desc='Dict contains the name and value of options specific to the chosen '
+              'interpolation method.')
 
     @field_validator('method')
     @classmethod

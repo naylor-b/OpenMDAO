@@ -1,9 +1,12 @@
 import unittest
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.group import GroupOptions, GroupModel
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.utils.validation import DataModelManager as dmm
 
 class Inner(om.Group):
     def setup(self):
@@ -219,9 +222,6 @@ class SrcIndicesTestCase(unittest.TestCase):
 
         class RHS(om.Group):
 
-            def initialize(self):
-                self.options.declare('size', 1)
-
             def setup(self):
                 size = self.options['size']
                 self.add_subsystem('comp1', om.ExecComp(['y1=x*2'], y1=np.ones(size), x=np.ones(size)),
@@ -230,6 +230,13 @@ class SrcIndicesTestCase(unittest.TestCase):
                 # test with second absolute path for 'x'
                 self.add_subsystem('comp2', om.ExecComp(['y2=x*3'], y2=np.ones(size), x=np.ones(size)),
                                 promotes_inputs=['*'], promotes_outputs=['*'])
+
+        class RHSOptions(GroupOptions):
+            size: int = Field(default=1, desc='Size')
+
+        @dmm.register(RHS)
+        class RHSModel(GroupModel):
+            options: RHSOptions = Field(default_factory=RHSOptions)
 
 
         class Phase(om.Group):
@@ -593,8 +600,6 @@ class TestNestedInputDefaults(unittest.TestCase):
                 # self.set_input_defaults("x", 0.85)
 
         class Vec(om.Group):
-            def initialize(self):
-                self.options.declare("num", default=1)
             def setup(self):
                 n = self.options["num"]
 
@@ -604,6 +609,13 @@ class TestNestedInputDefaults(unittest.TestCase):
                     name = f"comp_{node}"
                     self.add_subsystem(name, Grp())
                     self.promotes(name, inputs=["x"], src_indices=[node])
+
+        class VecOptions(GroupOptions):
+            num: int = Field(default=1, desc='Number')
+
+        @dmm.register(Vec)
+        class VecModel(GroupModel):
+            options: VecOptions = Field(default_factory=VecOptions)
 
         # This one seems to require that set_input_defaults (on line 8) is NOT called in Comp.setup()
         n = 3

@@ -7,7 +7,7 @@ from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
     _IterSolverOptions
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.utils.mpi import check_mpi_env
-from openmdao.solvers.solver import LinearSolverModel
+from openmdao.solvers.solver import LinearSolverModel, _LinearSolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 use_mpi = check_mpi_env()
@@ -202,7 +202,6 @@ class PETScKrylov(LinearSolver):
         self.precon = None
         self._lin_rhs_checker = None
         self.options['maxiter'] = 100
-        self.supports['implicit_components'] = True
 
     def _assembled_jac_solver_iter(self):
         """
@@ -520,7 +519,7 @@ class PETScKrylov(LinearSolver):
 
 class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
     ksp_type: str = Field(default='fgmres', values=KSP_TYPES,
-                          description='KSP algorithm to use. Default is \'fgmres\'.')
+                          desc='KSP algorithm to use. Default is \'fgmres\'.')
     restart: int = Field(default=1000, types=int,
                          desc='Number of iterations between restarts. Larger values increase '
                          'iteration cost, but may be necessary for convergence')
@@ -531,6 +530,11 @@ class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
                                "solves.")
 
 
+class PETScKrylovSupports(_LinearSolverSupports):
+    implicit_components: bool = Field(default=True, frozen=True)
+
+
 @dmm.register(PETScKrylov)
 class PETScKrylovModel(LinearSolverModel):
     options: _PETScKrylovOptions = Field(default_factory=_PETScKrylovOptions)
+    supports: PETScKrylovSupports = Field(default_factory=PETScKrylovSupports)

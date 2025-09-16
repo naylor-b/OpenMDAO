@@ -2,9 +2,10 @@
 
 import numpy as np
 from scipy import linalg
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, \
+    ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -35,7 +36,6 @@ class LinearSystemComp(ImplicitComponent):
         self._lup = None
 
         self._no_check_partials = True
-
 
     def setup(self):
         """
@@ -196,8 +196,6 @@ class LinearSystemComp(ImplicitComponent):
 
 
 class LinearSystemCompOptions(ImplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     size: int = Field(default=1, desc='The size of the linear system.')
     vec_size: int = Field(default=1, desc='Number of linear systems to solve.')
     vectorize_A: bool = Field(default=False, desc='Set to True to vectorize the A matrix.')

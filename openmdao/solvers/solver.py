@@ -102,15 +102,15 @@ class SolverInfo(object):
 
 
 class _NonIterSolverOptions(OptionsBaseModel):
-    iprint: int = Field(default=1, description='whether to print output')
+    iprint: int = Field(default=1, desc='whether to print output')
 
 
 class _IterSolverOptions(OptionsBaseModel):
-    maxiter: int = Field(default=10, description='maximum number of iterations')
-    atol: float = Field(default=1e-10, description='absolute error tolerance')
-    rtol: float = Field(default=1e-10, description='relative error tolerance')
+    maxiter: int = Field(default=10, desc='maximum number of iterations')
+    atol: float = Field(default=1e-10, desc='absolute error tolerance')
+    rtol: float = Field(default=1e-10, desc='relative error tolerance')
     err_on_non_converge: bool = Field(default=False,
-                                      description="When True, AnalysisError will be raised if we "
+                                      desc="When True, AnalysisError will be raised if we "
                                       "don't converge.")
 
 
@@ -135,9 +135,12 @@ class _SolverRecordingOptions(OptionsBaseModel):
 
 
 class _SolverSupports(OptionsBaseModel):
-    gradients: bool = Field(False, desc='Whether the solver supports gradients')
-    implicit_components: bool = Field(False, desc='Whether the solver supports implicit components')
-    linesearch: bool = Field(False, desc='Whether the solver supports linesearch')
+    gradients: bool = Field(default=False, frozen=True,
+                            desc='Whether the solver supports gradients')
+    implicit_components: bool = Field(default=False, frozen=True,
+                                      desc='Whether the solver supports implicit components')
+    linesearch: bool = Field(default=False, frozen=True,
+                             desc='Whether the solver supports linesearch')
 
 
 class Solver(object, metaclass=SolverMetaclass):
@@ -329,10 +332,6 @@ class Solver(object, metaclass=SolverMetaclass):
 
         self._depth = depth
         self._problem_meta = system._problem_meta
-
-        #self.options.msginfo = self.msginfo
-        #self.recording_options.msginfo = self.msginfo
-        #self.supports.msginfo = self.msginfo
 
         if isinstance(self, LinearSolver) and not system._use_derivatives:
             return
@@ -615,17 +614,16 @@ class SolverModel(TypeBaseModel):
     supports: _SolverSupports = Field(default_factory=_SolverSupports)
 
 
-
 class _NonIterNonlinearSolverOptions(_NonIterSolverOptions):
-    debug_print: bool = Field(False, description='whether to print debug output')
+    debug_print: bool = Field(False, desc='whether to print debug output')
 
 
 class _IterNonlinearSolverOptions(_IterSolverOptions):
-    stall_limit: float = Field(0., description='stall limit')
-    stall_tol: float = Field(1e-12, description='stall tolerance')
-    stall_tol_type: str = Field('rel', description='type of stall tolerance')
+    stall_limit: float = Field(0., desc='stall limit')
+    stall_tol: float = Field(1e-12, desc='stall tolerance')
+    stall_tol_type: str = Field('rel', desc='type of stall tolerance')
     restart_from_successful: bool = Field(False,
-                                          description='whether to restart from a successful run')
+                                          desc='whether to restart from a successful run')
 
 
 class NonlinearSolver(Solver):
@@ -978,11 +976,13 @@ class NonlinearSolverModel(SolverModel):
 
 
 class _NonIterLinearSolverOptions(_NonIterSolverOptions):
-    assemble_jac: bool = Field(False, description='whether to assemble the jacobian')
+    assemble_jac: bool = Field(False, desc='whether to assemble the jacobian')
 
 
 class _LinearSolverSupports(_SolverSupports):
-    assembled_jac: bool = Field(True, description='whether the solver supports assembled jacobian')
+    assembled_jac: bool = Field(True, frozen=True,
+                                desc='whether the solver supports assembled jacobian')
+
 
 class LinearSolver(Solver):
     """
@@ -1188,7 +1188,6 @@ class BlockLinearSolver(LinearSolver):
         """
         super().__init__(**kwargs)
         self._rhs_vec = None
-        self.supports['assembled_jac'] = False
 
     def does_recursive_applies(self):
         """

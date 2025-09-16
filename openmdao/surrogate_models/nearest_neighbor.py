@@ -114,7 +114,8 @@ class NearestNeighbor(SurrogateModel):
 
 
 class NearestNeighborOptions(SurrogateModelOptions):
-    interpolant_type: str = Field(default='rbf', desc="Type of interpolant, must be 'linear', 'weighted', or 'rbf'")
+    interpolant_type: str = \
+        Field(default='rbf', desc="Type of interpolant, must be 'linear', 'weighted', or 'rbf'")
 
 
 @dmm.register(NearestNeighbor)

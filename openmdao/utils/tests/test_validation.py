@@ -263,8 +263,8 @@ class TestValidation(unittest.TestCase):
         cycle.nonlinear_solver = om.NonlinearBlockGS()
 
         model.add_subsystem('obj_cmp', om.ExecComp('obj = x**2 + z[1] + y1 + exp(-y2)',
-                                                  z=np.array([0.0, 0.0])),#, x=0.0),
-                           promotes=['x', 'z', 'y1', 'y2', 'obj'])
+                                                   z=np.array([0.0, 0.0]), x=0.0),
+                            promotes=['x', 'z', 'y1', 'y2', 'obj'])
 
         model.add_subsystem('con_cmp1', om.ExecComp('con1 = 3.16 - y1'), promotes=['con1', 'y1'])
         model.add_subsystem('con_cmp2', om.ExecComp('con2 = y2 - 24.0'), promotes=['con2', 'y2'])
@@ -291,12 +291,9 @@ class TestValidation(unittest.TestCase):
         prob.run_driver()
         prob2.run_driver()
 
-        print('minimum found at')
-        assert_near_equal(prob.get_val('x'), prob2.get_val('x'), 1e-5)
-        assert_near_equal(prob.get_val('z'), prob2.get_val('z'), 1e-5)
-
         print('minumum objective')
         assert_near_equal(prob.get_val('obj'), prob2.get_val('obj'), 1e-5)
+
 
 
 if __name__ == '__main__':

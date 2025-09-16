@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from openmdao.utils.validation import OptionsBaseModel, DataModelManager as dmm
 
+
 class SurrogateModel(object):
     """
     Base class for surrogate models.
@@ -95,7 +96,6 @@ class SurrogateModelOptions(OptionsBaseModel):
 @dmm.register(SurrogateModel)
 class SurrogateModelModel(BaseModel):
     options: SurrogateModelOptions = Field(default_factory=SurrogateModelOptions)
-
 
 
 class MultiFiSurrogateModel(SurrogateModel):

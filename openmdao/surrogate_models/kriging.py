@@ -81,7 +81,6 @@ class KrigingSurrogate(SurrogateModel):
         self.Y_mean = np.zeros(0)
         self.Y_std = np.zeros(0)
 
-
     def train(self, x, y):
         """
         Train the surrogate model with the given set of inputs and outputs.
@@ -349,10 +348,24 @@ class KrigingSurrogate(SurrogateModel):
 class KrigingSurrogateOptions(OptionsBaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    eval_rmse: bool = Field(default=False, desc="Flag indicating whether the Root Mean Squared Error (RMSE) should be computed. Set to False by default.")
-    nugget: Union[float, np.ndarray] = Field(default=10. * MACHINE_EPSILON, desc="Nugget smoothing parameter for smoothing noisy data. Represents the variance of the input values. If nugget is an ndarray, it must be of the same length as the number of training points. Default: 10. * Machine Epsilon")
-    lapack_driver: str = Field(default='gesvd', desc="Which lapack driver should be used for scipy's linalg.svd. Options are 'gesdd' which is faster but not as robust, or 'gesvd' which is slower but more reliable. 'gesvd' is the default.")
-    training_cache: Optional[str] = Field(default=None, desc="Cache the trained model to avoid repeating training and write it to the given file. If the specified file exists, it will be used to load the weights")
+    eval_rmse: bool = \
+        Field(default=False,
+              desc="Flag indicating whether the Root Mean Squared Error (RMSE) should be computed. "
+              "Set to False by default.")
+    nugget: Union[float, np.ndarray] = \
+        Field(default=10. * MACHINE_EPSILON,
+              desc="Nugget smoothing parameter for smoothing noisy data. Represents the variance "
+              "of the input values. If nugget is an ndarray, it must be of the same length as the "
+              "number of training points. Default: 10. * Machine Epsilon")
+    lapack_driver: str = \
+        Field(default='gesvd',
+              desc="Which lapack driver should be used for scipy's linalg.svd. Options are "
+              "'gesdd' which is faster but not as robust, or 'gesvd' which is slower but more "
+              "reliable. 'gesvd' is the default.")
+    training_cache: Optional[str] = \
+        Field(default=None,
+              desc="Cache the trained model to avoid repeating training and write it to the "
+              "given file. If the specified file exists, it will be used to load the weights")
 
 
 @dmm.register(KrigingSurrogate)

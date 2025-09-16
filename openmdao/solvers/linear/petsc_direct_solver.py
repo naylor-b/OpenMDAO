@@ -250,13 +250,13 @@ class PETScLU:
 
 class _PETScDirectSolverOptions(_DirectSolverOptions):
     sparse_solver_name: _SolverType = Field(default=_SolverType.superlu,
-                                            description="Direct solver algorithm from PETSc that "
+                                            desc="Direct solver algorithm from PETSc that "
                                             "will be used for the LU factorization and solve if "
                                             "the matrix is sparse. For a dense matrix, this "
                                             "option will be ignored and LAPACK will be "
                                             "automatically used.")
     err_on_singular: bool = Field(default=True,
-                                  description="Raise an error if LU decomposition is "
+                                  desc="Raise an error if LU decomposition is "
                                   "singular. Must always be 'True' for the "
                                   "PETScDirectSolver. This option is only maintained "
                                   "for compatibility with parent solver methods.")

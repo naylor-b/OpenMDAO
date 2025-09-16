@@ -48,10 +48,10 @@ class ManyVarComp(ExplicitComponent):
 
 
 class ManyVarCompOptions(ExplicitComponentOptions):
-    ndiscrete_ins: int = Field(desc='Number of discrete inputs')
-    ndiscrete_outs: int = Field(desc='Number of discrete outputs')
-    nins: int = Field(desc='Number of continuous inputs')
-    nouts: int = Field(desc='Number of continuous outputs')
+    ndiscrete_ins: int = Field(default=0, desc='Number of discrete inputs')
+    ndiscrete_outs: int = Field(default=0, desc='Number of discrete outputs')
+    nins: int = Field(default=0, desc='Number of continuous inputs')
+    nouts: int = Field(default=0, desc='Number of continuous outputs')
 
 
 @dmm.register(ManyVarComp)

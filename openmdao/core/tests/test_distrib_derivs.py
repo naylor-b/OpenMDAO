@@ -9,7 +9,7 @@ from pydantic import Field
 import openmdao.api as om
 from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
 from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.utils.validation import DataModelManager as dmm
+from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
 from openmdao.test_suite.components.distributed_components import DistribCompDerivs, SummerDerivs
 from openmdao.test_suite.components.paraboloid_distributed import DistParab, DistParabFeature, \
     DistParabDeprecated
@@ -1647,6 +1647,11 @@ class MPITests3(unittest.TestCase):
                           1e-11)
 
 
+class StateOptions(OptionsBaseModel):
+    name: str = Field(default='', desc='Name of the state')
+    shape: tuple = Field(default=(1,), desc='Shape of the state')
+    targets: tuple = Field(default=None, desc='Targets of the state')
+
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
 @use_tempdirs
 class MPITestsBug(unittest.TestCase):
@@ -1658,17 +1663,14 @@ class MPITestsBug(unittest.TestCase):
         # lock up.
 
         class Phase(om.Group):
-
-            def initialize(self):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
                 self.state_options = {}
-                self.options.declare('ode_class', default=None)
 
             def add_state(self, name, targets=None):
                 if name not in self.state_options:
-                    self.state_options[name] = {}
-                    self.state_options[name]['name'] = name
-                    self.state_options[name]['shape'] = (1, )
-                    self.state_options[name]['targets'] = (targets, )
+                    self.state_options[name] = \
+                        StateOptions(name=name, shape=(1, ), targets=(targets, ))
 
             def setup(self):
                 indep = om.IndepVarComp()
@@ -1690,6 +1692,13 @@ class MPITestsBug(unittest.TestCase):
                 for name, options in self.state_options.items():
                     self.connect('states:{0}'.format(name),
                                   ['rhs_disc.{0}'.format(tgt) for tgt in options['targets']])
+
+        class PhaseOptions(GroupOptions):
+            ode_class: type = Field(default=None, desc='ODE class')
+
+        @dmm.register(Phase)
+        class PhaseModel(GroupModel):
+            options: PhaseOptions = Field(default_factory=PhaseOptions)
 
         class vanderpol_ode_groupOptions(GroupOptions):
             num_nodes: int = Field(default=1, desc='Number of nodes')

@@ -11,8 +11,8 @@ from numpy import ndarray, imag
 
 from openmdao.core.system import _DEFAULT_COLORING_META
 from openmdao.utils.coloring import _ColSparsityJac, _compute_coloring
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, \
+    NonDistributedExplicitComponentOptions, ExplicitComponentModel
 from openmdao.utils.units import valid_units
 from openmdao.utils import cs_safe
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, SetupWarning
@@ -1117,7 +1117,7 @@ class ExecComp(ExplicitComponent):
         return self
 
 
-class ExecCompOptions(ExplicitComponentOptions):
+class ExecCompOptions(NonDistributedExplicitComponentOptions):
     has_diag_partials: bool = Field(default=False,
                                     desc="If True, treat all array/array partials as diagonal if "
                                     "both arrays have size > 1. All arrays with size > 1 must have "

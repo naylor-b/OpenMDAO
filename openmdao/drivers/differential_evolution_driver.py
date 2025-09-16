@@ -26,7 +26,8 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
+    DriverSupports
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
@@ -74,21 +75,6 @@ class DifferentialEvolutionDriver(Driver):
                                "    pip install pyDOE3")
 
         super().__init__(**kwargs)
-
-        # What we support
-        self.supports['optimization'] = True
-        self.supports['inequality_constraints'] = True
-        self.supports['equality_constraints'] = True
-        self.supports['multiple_objectives'] = True
-
-        # What we don't support yet
-        self.supports['integer_design_vars'] = False
-        self.supports['two_sided_constraints'] = False
-        self.supports['linear_constraints'] = False
-        self.supports['simultaneous_derivatives'] = False
-        self.supports['active_set'] = False
-        self.supports['distributed_design_vars'] = False
-        self.supports._read_only = True
 
         self._desvar_idx = {}
         self._ga = None
@@ -660,17 +646,42 @@ class DifferentialEvolution(object):
 
 class DifferentialEvolutionDriverOptions(DriverOptions):
     max_gen: int = Field(default=100, desc='Number of generations before termination.')
-    pop_size: int = Field(default=0, desc='Number of points in the GA. Set to 0 and it will be computed as 20 times the total number of inputs.')
-    run_parallel: bool = Field(default=False, desc='Set to True to execute the points in a generation in parallel.')
-    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+    pop_size: int = \
+        Field(default=0,
+              desc='Number of points in the GA. Set to 0 and it will be computed as 20 times the '
+              'total number of inputs.')
+    run_parallel: bool = \
+        Field(default=False, desc='Set to True to execute the points in a generation in parallel.')
+    procs_per_model: int = Field(default=1,
+                                 desc='Number of processors to give each model under MPI.')
     penalty_parameter: float = Field(default=10.0, desc='Penalty function parameter.')
     penalty_exponent: float = Field(default=1.0, desc='Penalty function exponent.')
     Pc: float = Field(default=0.9, desc='Crossover probability.')
     F: float = Field(default=0.9, desc='Differential rate.')
-    multi_obj_weights: Dict[str, Any] = Field(default_factory=dict, desc='Weights of objectives for multi-objective optimization. Weights are specified as a dictionary with the absolute names of the objectives. The same weights for all objectives are assumed, if not given.')
+    multi_obj_weights: Dict[str, Any] = \
+        Field(default_factory=dict,
+              desc='Weights of objectives for multi-objective optimization. Weights are specified '
+              'as a dictionary with the absolute names of the objectives. The same weights for all '
+              'objectives are assumed, if not given.')
     multi_obj_exponent: float = Field(default=1.0, desc='Multi-objective weighting exponent.')
+
+
+class DifferentialEvolutionDriverSupports(DriverSupports):
+    optimization: bool = Field(default=True, frozen=True)
+    inequality_constraints: bool = Field(default=True, frozen=True)
+    equality_constraints: bool = Field(default=True, frozen=True)
+    multiple_objectives: bool = Field(default=True, frozen=True)
+    integer_design_vars: bool = Field(default=False, frozen=True)
+    two_sided_constraints: bool = Field(default=False, frozen=True)
+    linear_constraints: bool = Field(default=False, frozen=True)
+    simultaneous_derivatives: bool = Field(default=False, frozen=True)
+    active_set: bool = Field(default=False, frozen=True)
+    distributed_design_vars: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(DifferentialEvolutionDriver)
 class DifferentialEvolutionDriverModel(DriverModel):
-    options: DifferentialEvolutionDriverOptions = Field(default_factory=DifferentialEvolutionDriverOptions)
+    options: DifferentialEvolutionDriverOptions = \
+        Field(default_factory=DifferentialEvolutionDriverOptions)
+    supports: DifferentialEvolutionDriverSupports = \
+        Field(default_factory=DifferentialEvolutionDriverSupports)

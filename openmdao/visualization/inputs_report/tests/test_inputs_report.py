@@ -1,8 +1,11 @@
 """Test the inputs report. """
 import unittest
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.double_sellar import DoubleSellar
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.testing_utils import use_tempdirs
@@ -101,15 +104,19 @@ class TestInputReportsMPI(unittest.TestCase):
     def test_multidim(self):
         # this test would error out before the fix
         class Adder(om.ExplicitComponent):
-            def initialize(self):
-                self.options.declare('n0')
-
             def setup(self):
                 self.add_input('x', shape_by_conn=True, distributed=True)
                 self.add_output('x_sum', shape=1)
 
             def compute(self, inputs, outputs):
                 outputs['x_sum'] = self.comm.allreduce(np.sum(inputs['x']))
+
+        class AdderOptions(ExplicitComponentOptions):
+            n0: tuple = Field(default=(), desc='Shape tuple')
+
+        @dmm.register(Adder)
+        class AdderModel(ExplicitComponentModel):
+            options: AdderOptions = Field(default_factory=AdderOptions)
 
 
         p = om.Problem()

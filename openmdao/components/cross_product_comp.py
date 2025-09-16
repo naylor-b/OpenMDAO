@@ -2,9 +2,10 @@
 
 import numpy as np
 from typing import Optional
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -201,9 +202,8 @@ class CrossProductComp(ExplicitComponent):
 
 
 class CrossProductCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    vec_size: int = Field(default=1, desc='The number of points at which the cross product is computed')
+    vec_size: int = Field(default=1,
+                          desc='The number of points at which the cross product is computed')
     a_name: str = Field(default='a', desc='The variable name for vector a.')
     b_name: str = Field(default='b', desc='The variable name for vector b.')
     c_name: str = Field(default='c', desc='The variable name for vector c.')

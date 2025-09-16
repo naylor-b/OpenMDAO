@@ -47,7 +47,7 @@ def _print_violations(outputs, lower, upper):
 
 class _LinesearchSolverOptions(_NonIterNonlinearSolverOptions):
     bound_enforcement: str = Field('scalar',
-                                   description="If this is set to 'vector', the entire vector is "
+                                   desc="If this is set to 'vector', the entire vector is "
                                    "backtracked together when a bound is violated. If this is "
                                    "set to 'scalar', only the violating entries are set to the "
                                    "bound and then the backtracking occurs on the vector as a "
@@ -56,7 +56,7 @@ class _LinesearchSolverOptions(_NonIterNonlinearSolverOptions):
                                    "wall - i.e., the violating entries do not change during the "
                                    "line search.")
     print_bound_enforce: bool = Field(False,
-                                      description="Set to True to print out names and values of "
+                                      desc="Set to True to print out names and values of "
                                       "variables that are pulled back to their bounds.")
 
 
@@ -236,16 +236,16 @@ class BoundsEnforceLS(LinesearchSolver):
 
 class _ArmijoGoldsteinLSOptions(_LinesearchSolverOptions):
     c: float = Field(0.1,
-                     description="Slope parameter for line of sufficient decrease. The larger the "
+                     desc="Slope parameter for line of sufficient decrease. The larger the "
                      "step, the more decrease is required to terminate the line search.")
-    rho: float = Field(0.5, description="Contraction factor.")
-    alpha: float = Field(1.0, description="Initial line search step.")
+    rho: float = Field(0.5, desc="Contraction factor.")
+    alpha: float = Field(1.0, desc="Initial line search step.")
     retry_on_analysis_error: bool = Field(True,
-                                          description="Backtrack and retry if an AnalysisError "
+                                          desc="Backtrack and retry if an AnalysisError "
                                           "is raised.")
     method: str = Field('Armijo', values=['Armijo', 'Goldstein'],
-                        description="Method to calculate stopping condition.")
-    maxiter: int = Field(5, description="Maximum number of iterations.")
+                        desc="Method to calculate stopping condition.")
+    maxiter: int = Field(5, desc="Maximum number of iterations.")
 
 
 class ArmijoGoldsteinLS(LinesearchSolver):

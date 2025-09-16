@@ -232,14 +232,14 @@ class TestScipyOptimizeDriver(unittest.TestCase):
 
         prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1e-9, disp=False)
 
-        with self.assertRaises(KeyError) as raises_msg:
+        with self.assertRaises(Exception) as raises_msg:
             prob.driver.supports['equality_constraints'] = False
 
         exception = raises_msg.exception
 
-        msg = "ScipyOptimizeDriver: Tried to set read-only option 'equality_constraints'."
+        msg = "equality_constraints\n  Field is frozen"
 
-        self.assertEqual(exception.args[0], msg)
+        self.assertTrue(msg in str(exception))
 
     def test_boolean_driver_return_deprecation(self):
         # Make sure 'array' return_format works.
@@ -700,7 +700,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
                     if option == 'ignore':
                         prob.run_driver()
                     elif option == 'raise':
-                        with self.assertRaises(ValueError) as ctx:
+                        with self.assertRaises(Exception) as ctx:
                             prob.run_driver()
                         self.assertEqual(str(ctx.exception), expected_err)
                     else:

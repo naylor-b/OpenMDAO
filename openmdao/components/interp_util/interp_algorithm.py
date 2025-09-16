@@ -5,15 +5,7 @@ import numpy as np
 from pydantic import Field, BaseModel
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
-from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.validation import OptionsBaseModel, DataModelManager as dmm
-
-
-class InterpAlgorithmOptions(OptionsBaseModel):
-    """
-    Options for the InterpAlgorithm class.
-    """
-    pass
 
 
 class InterpAlgorithm(object):
@@ -275,13 +267,19 @@ class InterpAlgorithm(object):
         return self.data_model
 
 
+class InterpAlgorithmOptions(OptionsBaseModel):
+    """
+    Options for the InterpAlgorithm class.
+    """
+    pass
+
+
 @dmm.register(InterpAlgorithm)
 class InterpAlgorithmModel(BaseModel):
     """
     Model for the InterpAlgorithm class.
     """
     options: InterpAlgorithmOptions = Field(default_factory=InterpAlgorithmOptions)
-
 
 
 class InterpAlgorithmFixed(object):
@@ -329,9 +327,8 @@ class InterpAlgorithmFixed(object):
         """
         Initialize interp algorithm.
         """
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, {})
 
         self.grid = grid
         self.values = values
@@ -346,11 +343,6 @@ class InterpAlgorithmFixed(object):
         self._compute_d_dx = True
 
     def initialize(self):
-        """
-        Declare options.
-
-        Override to add options.
-        """
         pass
 
     def check_config(self):
@@ -585,6 +577,30 @@ class InterpAlgorithmFixed(object):
         """
         raise NotImplementedError()
 
+    def update_from_data_model(self, data_model):
+        self.options = data_model.options
+        return self
+
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+
+class InterpAlgorithmFixedOptions(OptionsBaseModel):
+    """
+    Options for the InterpAlgorithm class.
+    """
+    pass
+
+
+@dmm.register(InterpAlgorithmFixed)
+class InterpAlgorithmFixedModel(BaseModel):
+    """
+    Model for the InterpFixedAlgorithm class.
+    """
+    options: InterpAlgorithmFixedOptions = Field(default_factory=InterpAlgorithmFixedOptions)
+
 
 class InterpAlgorithmSemi(object):
     """
@@ -648,9 +664,8 @@ class InterpAlgorithmSemi(object):
         """
         Initialize table and subtables.
         """
-        self.options = OptionsDictionary(msginfo=type(self).__name__)
         self.initialize()
-        self.options.update(kwargs)
+        dmm.setup_data_model(self, kwargs)
 
         self.values = values
         self.extrapolate = extrapolate
@@ -850,3 +865,27 @@ class InterpAlgorithmSemi(object):
             True if the coordinate is extrapolated in this dimension.
         """
         raise NotImplementedError()
+
+    def update_from_data_model(self, data_model):
+        self.options = data_model.options
+        return self
+
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+
+class InterpAlgorithmSemiOptions(OptionsBaseModel):
+    """
+    Options for the InterpAlgorithmSemi class.
+    """
+    pass
+
+
+@dmm.register(InterpAlgorithmSemi)
+class InterpAlgorithmSemiModel(BaseModel):
+    """
+    Model for the InterpAlgorithmSemi class.
+    """
+    options: InterpAlgorithmSemiOptions = Field(default_factory=InterpAlgorithmSemiOptions)

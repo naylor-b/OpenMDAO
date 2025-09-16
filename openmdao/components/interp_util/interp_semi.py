@@ -2,7 +2,9 @@
 Base class for interpolation methods that work on a semi-structured grid.
 """
 import numpy as np
+from pydantic import BaseModel, Field
 
+from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
 from openmdao.components.interp_util.interp_akima import InterpAkimaSemi
 from openmdao.components.interp_util.interp_lagrange2 import InterpLagrange2Semi
 from openmdao.components.interp_util.interp_lagrange3 import InterpLagrange3Semi
@@ -91,6 +93,7 @@ class InterpNDSemi(object):
             msg = "Interpolation method '%s' does not support complex values." % method
             raise ValueError(msg)
 
+        dmm.setup_data_model(self, {})
         self.grid = points
         self.values = values
         self.extrapolate = extrapolate
@@ -230,3 +233,27 @@ class InterpNDSemi(object):
             Gradient of output with respect to training point values.
         """
         return self._d_dvalues
+
+    def update_from_data_model(self, data_model):
+        self.options = data_model.options
+        return self
+
+    def init_data_model(self):
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
+
+class InterpNDSemiOptions(OptionsBaseModel):
+    """
+    Options for the InterpNDSemi class.
+    """
+    pass
+
+
+@dmm.register(InterpNDSemi)
+class InterpNDSemiModel(BaseModel):
+    """
+    Model for the InterpNDSemi class.
+    """
+    options: InterpNDSemiOptions = Field(default_factory=InterpNDSemiOptions)

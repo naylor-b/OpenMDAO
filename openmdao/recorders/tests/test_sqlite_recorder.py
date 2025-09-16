@@ -34,7 +34,7 @@ from openmdao.recorders.tests.recorder_test_utils import run_driver
 from openmdao.utils.assert_utils import assert_near_equal, assert_equal_arrays, \
     assert_no_warning
 from openmdao.utils.general_utils import determine_adder_scaler
-from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse
+from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse, sort_indented_lines
 from openmdao.utils.om_warnings import OMDeprecationWarning
 
 # check that pyoptsparse is installed. if it is, try to use SLSQP.
@@ -531,6 +531,9 @@ class TestSqliteRecorder(unittest.TestCase):
             "        do_coloring: False",
             ""
         ]
+        
+        expected = sort_indented_lines(expected, starting_depth=2)
+        text = sort_indented_lines(text, starting_depth=2)
 
         for i, line in enumerate(text):
             self.assertEqual(line, expected[i], f"line {i}: {line} != {expected[i]}")
@@ -549,6 +552,9 @@ class TestSqliteRecorder(unittest.TestCase):
             "        auto_order: False",
             ""
         ]
+
+        expected = sort_indented_lines(expected, starting_depth=2)
+        text = sort_indented_lines(text, starting_depth=2)
 
         for i, line in enumerate(text):
             self.assertEqual(line, expected[i], f"line {i}: {line} != {expected[i]}")
@@ -595,7 +601,7 @@ class TestSqliteRecorder(unittest.TestCase):
             "        always_opt: False",
             "        use_jit: True",
             "        default_shape: (1,)",
-            "        name: UNDEFINED",
+            "        name: ",
             "        val: 1.0",
             "        shape: ()",
             "        units: None",
@@ -614,7 +620,7 @@ class TestSqliteRecorder(unittest.TestCase):
             "        always_opt: False",
             "        use_jit: True",
             "        default_shape: (1,)",
-            "        name: UNDEFINED",
+            "        name: ",
             "        val: 1.0",
             "        shape: ()",
             "        units: None",
@@ -647,6 +653,9 @@ class TestSqliteRecorder(unittest.TestCase):
             ""
         ]
 
+        expected = sort_indented_lines(expected, starting_depth=2)
+        text = sort_indented_lines(text, starting_depth=2)
+
         for i, line in enumerate(text):
             self.assertEqual(line, expected[i], f"line {i}: {line} != {expected[i]}")
 
@@ -664,6 +673,9 @@ class TestSqliteRecorder(unittest.TestCase):
             "        auto_order: False",
             ""
         ]
+
+        expected = sort_indented_lines(expected, starting_depth=2)
+        text = sort_indented_lines(text, starting_depth=2)
 
         for i, line in enumerate(text):
             self.assertEqual(line, expected[i], f"line {i}: {line} != {expected[i]}")

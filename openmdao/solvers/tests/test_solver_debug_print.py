@@ -90,10 +90,8 @@ class TestNonlinearSolvers(unittest.TestCase):
         nl.options['iprint'] = model.circuit.linear_solver.options['iprint'] = -1
 
         # For Broydensolver, don't calc Jacobian
-        try:
+        if name == 'BroydenSolver':
             nl.options['compute_jacobian'] = False
-        except KeyError:
-            pass
 
         # set some poor initial guesses so that we don't converge
         p['circuit.n1.V'] = 10.

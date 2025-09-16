@@ -101,7 +101,6 @@ from openmdao.drivers.sampling.pyDOE_generators import \
     GeneralizedSubsetGenerator as GeneralizedSubsetAnalysisGenerator
 
 # System-Building Tools
-from openmdao.utils.options_dictionary import OptionsDictionary
 
 # Recorders
 from openmdao.recorders.sqlite_recorder import SqliteRecorder

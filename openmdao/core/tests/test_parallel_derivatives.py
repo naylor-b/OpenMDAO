@@ -767,14 +767,10 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
     N_PROCS = 3
 
     def setup_model(self, size):
-        class DelayCompOptions(ExplicitComponentOptions):
-            time: float = Field(default=3.0, desc='Time parameter')
-            size: int = Field(default=1, desc='Size parameter')
-
         class DelayComp(om.ExplicitComponent):
 
-            def __init__(self):
-                super().__init__()
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
                 self.counter = 0
 
             def setup(self):
@@ -807,6 +803,10 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
                             d_inputs['x'] += np.linspace(3, 10, size)*d_outputs['y']
                         if 'y2' in d_outputs:
                             d_inputs['x'] += np.linspace(2, 4, size)*d_outputs['y2']
+
+        class DelayCompOptions(ExplicitComponentOptions):
+            time: float = Field(default=3.0, desc='Time parameter')
+            size: int = Field(default=1, desc='Size parameter')
 
         @dmm.register(DelayComp)
         class DelayCompModel(ExplicitComponentModel):

@@ -4,9 +4,10 @@
 import numpy as np
 import scipy.linalg as spla
 from typing import Optional, Tuple
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -57,7 +58,6 @@ class MatrixVectorProductComp(ExplicitComponent):
                          vec_size=opt['vec_size'], A_shape=opt['A_shape'])
 
         self._no_check_partials = True
-
 
     def add_product(self, b_name, A_name='A', x_name='x', A_units=None, x_units=None, b_units=None,
                     vec_size=1, A_shape=(3, 3)):
@@ -224,11 +224,12 @@ class MatrixVectorProductComp(ExplicitComponent):
 
 
 class MatrixVectorProductCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    vec_size: int = Field(default=1, desc='The number of points at which the matrix vector product is to be computed')
+    vec_size: int = \
+        Field(default=1,
+              desc='The number of points at which the matrix vector product is to be computed')
     A_name: str = Field(default='A', desc='The variable name for the matrix.')
-    A_shape: Tuple[int, int] = Field(default=(3, 3), desc='The shape of the input matrix at a single point.')
+    A_shape: Tuple[int, int] = Field(default=(3, 3),
+                                     desc='The shape of the input matrix at a single point.')
     A_units: Optional[str] = Field(default=None, desc='The units of the input matrix.')
     x_name: str = Field(default='x', desc='The name of the input vector.')
     x_units: Optional[str] = Field(default=None, desc='The units of the input vector.')

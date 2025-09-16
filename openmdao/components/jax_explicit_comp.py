@@ -6,7 +6,7 @@ import sys
 import inspect
 from types import MethodType
 from functools import partial
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
 from openmdao.core.explicitcomponent import ExplicitComponent, \
     NonDistributedExplicitComponentOptions, ExplicitComponentModel
@@ -78,7 +78,6 @@ class JaxExplicitComponent(ExplicitComponent):
             issue_warning(f"{self.msginfo}: JAX is not available, so '{fallback_derivs_method}' "
                           "will be used for derivatives.")
             self.options['derivs_method'] = fallback_derivs_method
-
 
     def _setup_check(self):
         """
@@ -525,9 +524,11 @@ class JaxExplicitComponent(ExplicitComponent):
 
 
 class JaxExplicitComponentOptions(NonDistributedExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    default_to_dyn_shapes: bool = Field(default=False, desc='If True, use dynamic shaping for any variables whose value is scalar and whose shape is not explicitly set. Inputs will use shape_by_conn and outputs will use a compute_shape method based on jax.eval_shape. Default is False.')
+    default_to_dyn_shapes: bool = \
+        Field(default=False,
+              desc='If True, use dynamic shaping for any variables whose value is scalar and whose '
+              'shape is not explicitly set. Inputs will use shape_by_conn and outputs will use a '
+              'compute_shape method based on jax.eval_shape. Default is False.')
 
 
 @dmm.register(JaxExplicitComponent)

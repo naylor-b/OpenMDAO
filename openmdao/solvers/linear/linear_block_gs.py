@@ -210,11 +210,11 @@ class LinearBlockGS(BlockLinearSolver):
 
 
 class _NonIterLinearBlockGSOptions(_NonIterLinearSolverOptions):
-    use_aitken: bool = Field(False, description='whether to use Aitken relaxation')
-    aitken_min_factor: float = Field(0.1, description='lower limit for Aitken relaxation factor')
-    aitken_max_factor: float = Field(1.5, description='upper limit for Aitken relaxation factor')
+    use_aitken: bool = Field(False, desc='whether to use Aitken relaxation')
+    aitken_min_factor: float = Field(0.1, desc='lower limit for Aitken relaxation factor')
+    aitken_max_factor: float = Field(1.5, desc='upper limit for Aitken relaxation factor')
     aitken_initial_factor: float = Field(1.0,
-                                         description='initial value for Aitken relaxation factor')
+                                         desc='initial value for Aitken relaxation factor')
 
 
 class _LinearBlockGSOptions(_IterSolverOptions, _NonIterLinearBlockGSOptions):

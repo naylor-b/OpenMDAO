@@ -6,8 +6,8 @@ from pydantic import Field
 import openmdao.api as om
 
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
+from openmdao.core.group import GroupOptions, GroupModel
 
 
 class SubComp1(om.ExplicitComponent):
@@ -76,7 +76,7 @@ class CoupledGroup(om.Group):
         self.linear_solver = om.DirectSolver(assemble_jac=True)
 
 
-class NLBGSGroupOptions(ImplicitComponentOptions):
+class NLBGSGroupOptions(GroupOptions):
     use_guess: bool = Field(default=False, desc='Whether to use guess')
 
 
@@ -102,7 +102,7 @@ class NLBGSGroup(om.Group):
 
 
 @dmm.register(NLBGSGroup)
-class NLBGSGroupModel(ImplicitComponentModel):
+class NLBGSGroupModel(GroupModel):
     options: NLBGSGroupOptions = Field(default_factory=NLBGSGroupOptions)
 
 

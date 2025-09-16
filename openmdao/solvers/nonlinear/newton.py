@@ -4,7 +4,7 @@ from pydantic import Field
 
 
 from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, _SolverSupports
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.solver import _NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions
 from openmdao.solvers.solver import NonlinearSolverModel
@@ -41,9 +41,6 @@ class NewtonSolver(NonlinearSolver):
 
         self.linear_solver = None
         self._linesearch = BoundsEnforceLS()
-        self.supports['linesearch'] = True
-        self.supports['gradients'] = True
-        self.supports['implicit_components'] = True
 
     def _setup_solvers(self, system, depth):
         """
@@ -284,6 +281,13 @@ class _NewtonSolverOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSolverO
                                               'subsolve; when false, it will continue solving.')
 
 
+class _NewtonSolverSupports(_SolverSupports):
+    linesearch: bool = Field(default=True, frozen=True)
+    gradients: bool = Field(default=True, frozen=True)
+    implicit_components: bool = Field(default=True, frozen=True)
+
+
 @dmm.register(NewtonSolver)
 class NewtonSolverModel(NonlinearSolverModel):
     options: _NewtonSolverOptions = Field(default_factory=_NewtonSolverOptions)
+    supports: _NewtonSolverSupports = Field(default_factory=_NewtonSolverSupports)

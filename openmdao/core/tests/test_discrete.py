@@ -124,16 +124,12 @@ class InternalDiscreteGroup(om.Group):
 
 class DiscreteDriver(Driver):
 
-    def __init__(self):
-        super().__init__()
-        self.supports.declare('integer_design_vars', types=bool, default=True)
-
     def run(self):
         self.get_design_var_values()
 
 
 class DiscreteDriverSupports(DriverSupports):
-    integer_design_vars = True
+    integer_design_vars: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(DiscreteDriver)

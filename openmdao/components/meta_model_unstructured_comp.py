@@ -6,7 +6,8 @@ from pydantic import Field, ConfigDict
 
 import numpy as np
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.surrogate_models.surrogate_model import SurrogateModel
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.name_maps import rel_key2abs_key
@@ -99,7 +100,6 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         self._input_size = self._static_input_size
 
         super()._setup_procs(pathname, comm, prob_meta)
-
 
     def add_input(self, name, val=1.0, training_data=None, **kwargs):
         """
@@ -593,11 +593,18 @@ class MetaModelUnStructuredComp(ExplicitComponent):
 class MetaModelUnStructuredCompOptions(ExplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    default_surrogate: Optional[SurrogateModel] = Field(default=None, desc="Surrogate that will be used for all outputs that don't have a specific surrogate assigned to them.")
-    vec_size: int = Field(default=1, desc='Number of points that will be simultaneously predicted by the surrogate.')
-    training_data: Dict[str, Any] = Field(default_factory=dict, desc='Training data for each output.')
+    default_surrogate: Optional[SurrogateModel] = \
+        Field(default=None,
+              desc="Surrogate that will be used for all outputs that don't have a specific "
+              "surrogate assigned to them.")
+    vec_size: int = \
+        Field(default=1,
+              desc='Number of points that will be simultaneously predicted by the surrogate.')
+    training_data: Dict[str, Any] = \
+        Field(default_factory=dict, desc='Training data for each output.')
 
 
 @dmm.register(MetaModelUnStructuredComp)
 class MetaModelUnStructuredCompModel(ExplicitComponentModel):
-    options: MetaModelUnStructuredCompOptions = Field(default_factory=MetaModelUnStructuredCompOptions)
+    options: MetaModelUnStructuredCompOptions = \
+        Field(default_factory=MetaModelUnStructuredCompOptions)

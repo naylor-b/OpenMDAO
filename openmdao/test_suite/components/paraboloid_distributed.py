@@ -151,8 +151,6 @@ class DistParabFeatureOptions(ExplicitComponentOptions):
 
 
 class DistParabDeprecatedOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
 

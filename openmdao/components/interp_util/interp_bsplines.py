@@ -4,7 +4,7 @@ Interpolation usng simple B-splines.
 import numpy as np
 from scipy.sparse import csr_matrix
 from typing import Optional
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
 from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
     InterpAlgorithmOptions, InterpAlgorithmModel
@@ -225,11 +225,13 @@ class InterpBSplines(InterpAlgorithm):
 
 
 class InterpBSplinesOptions(InterpAlgorithmOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     order: int = Field(default=4, desc='B-spline order.')
-    x_cp_start: Optional[float] = Field(default=None, desc='Location of first control point. If None, use the first interpolation point.')
-    x_cp_end: Optional[float] = Field(default=None, desc='Location of last control point. If None, use the last interpolation point.')
+    x_cp_start: Optional[float] = \
+        Field(default=None,
+              desc='Location of first control point. If None, use the first interpolation point.')
+    x_cp_end: Optional[float] = \
+        Field(default=None,
+              desc='Location of last control point. If None, use the last interpolation point.')
 
 
 @dmm.register(InterpBSplines)

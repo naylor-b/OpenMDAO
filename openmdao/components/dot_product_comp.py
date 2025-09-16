@@ -2,9 +2,10 @@
 
 import numpy as np
 from typing import Optional
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -47,7 +48,6 @@ class DotProductComp(ExplicitComponent):
                          vec_size=opt['vec_size'], length=opt['length'])
 
         self._no_check_partials = True
-
 
     def add_product(self, c_name, a_name='a', b_name='b', c_units=None, a_units=None, b_units=None,
                     vec_size=1, length=3):
@@ -186,9 +186,8 @@ class DotProductComp(ExplicitComponent):
 
 
 class DotProductCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    vec_size: int = Field(default=1, desc='The number of points at which the dot product is computed')
+    vec_size: int = Field(default=1,
+                          desc='The number of points at which the dot product is computed')
     length: int = Field(default=3, desc='The length of vectors a and b')
     a_name: str = Field(default='a', desc='The variable name for input vector a.')
     b_name: str = Field(default='b', desc='The variable name for input vector b.')

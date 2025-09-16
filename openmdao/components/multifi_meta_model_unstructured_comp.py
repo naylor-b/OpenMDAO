@@ -107,7 +107,6 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
 
         self._no_check_partials = True
 
-
     def _setup_procs(self, pathname, comm, prob_meta):
         """
         Execute first phase of the setup process.
@@ -259,4 +258,5 @@ class MultiFiMetaModelUnStructuredCompOptions(MetaModelUnStructuredCompOptions):
 
 @dmm.register(MultiFiMetaModelUnStructuredComp)
 class MultiFiMetaModelUnStructuredCompModel(MetaModelUnStructuredCompModel):
-    options: MultiFiMetaModelUnStructuredCompOptions = Field(default_factory=MultiFiMetaModelUnStructuredCompOptions)
+    options: MultiFiMetaModelUnStructuredCompOptions = \
+        Field(default_factory=MultiFiMetaModelUnStructuredCompOptions)

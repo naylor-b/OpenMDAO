@@ -3,8 +3,11 @@ import numpy as np
 from io import StringIO
 
 from packaging.version import Version
+from pydantic import Field
 
 import openmdao.api as om
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
 from openmdao.utils.array_utils import evenly_distrib_idxs
@@ -29,10 +32,6 @@ class DistributedAdder(om.ExplicitComponent):
     Distributes the work of adding 10 to every item in the param vector
     """
 
-    def initialize(self):
-        self.options.declare('local_size', types=int, default=1,
-                             desc="Local size of input and output vectors.")
-
     def setup(self):
         """
         specify the local sizes of the variables and which specific indices this specific
@@ -49,6 +48,13 @@ class DistributedAdder(om.ExplicitComponent):
         # print('process {0:d}: {1}'.format(self.comm.rank, params['x'].shape))
 
         outputs['y'] = inputs['x'] + 10.
+
+class DistributedAdderOptions(ExplicitComponentOptions):
+    local_size: int = Field(default=1, desc="Local size of input and output vectors.")
+
+@dmm.register(DistributedAdder)
+class DistributedAdderModel(ExplicitComponentModel):
+    options: DistributedAdderOptions = Field(default_factory=DistributedAdderOptions)
 
 
 @use_tempdirs

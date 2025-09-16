@@ -8,10 +8,16 @@ import platform
 from io import StringIO
 from tempfile import mkstemp
 from collections import OrderedDict
+from pydantic import Field
+from typing import Any
 
 import numpy as np
 
 import openmdao.api as om
+from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.indepvarcomp import IndepVarCompOptions, IndepVarCompModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao import __version__ as openmdao_version
 from openmdao.recorders.sqlite_recorder import format_version
 from openmdao.recorders.sqlite_reader import SqliteCaseReader
@@ -68,20 +74,6 @@ class SellarDerivativesGroupedPreAutoIVC(om.Group):
     models.
     """
 
-    def initialize(self):
-        self.options.declare('nonlinear_solver', default=om.NonlinearBlockGS,
-                             desc='Nonlinear solver (class or instance) for Sellar MDA')
-        self.options.declare('nl_atol', default=None,
-                             desc='User-specified atol for nonlinear solver.')
-        self.options.declare('nl_maxiter', default=None,
-                             desc='Iteration limit for nonlinear solver.')
-        self.options.declare('linear_solver', default=om.ScipyKrylov,
-                             desc='Linear solver (class or instance)')
-        self.options.declare('ln_atol', default=None,
-                             desc='User-specified atol for linear solver.')
-        self.options.declare('ln_maxiter', default=None,
-                             desc='Iteration limit for linear solver.')
-
     def setup(self):
         self.add_subsystem('px', om.IndepVarComp('x', 1.0), promotes=['x'])
         self.add_subsystem('pz', om.IndepVarComp('z', np.array([5.0, 2.0])), promotes=['z'])
@@ -114,6 +106,19 @@ class SellarDerivativesGroupedPreAutoIVC(om.Group):
     def configure(self):
         self.mda.linear_solver = om.ScipyKrylov()
         self.mda.nonlinear_solver = om.NonlinearBlockGS()
+
+
+class SellarDerivativesGroupedPreAutoIVCOptions(GroupOptions):
+    nonlinear_solver: type = Field(default=om.NonlinearBlockGS, desc='Nonlinear solver (class or instance) for Sellar MDA')
+    nl_atol: float = Field(default=None, desc='User-specified atol for nonlinear solver.')
+    nl_maxiter: int = Field(default=None, desc='Iteration limit for nonlinear solver.')
+    linear_solver: type = Field(default=om.ScipyKrylov, desc='Linear solver (class or instance)')
+    ln_atol: float = Field(default=None, desc='User-specified atol for linear solver.')
+    ln_maxiter: int = Field(default=None, desc='Iteration limit for linear solver.')
+
+@dmm.register(SellarDerivativesGroupedPreAutoIVC)
+class SellarDerivativesGroupedPreAutoIVCModel(GroupModel):
+    options: SellarDerivativesGroupedPreAutoIVCOptions = Field(default_factory=SellarDerivativesGroupedPreAutoIVCOptions)
 
 
 @use_tempdirs
@@ -1906,23 +1911,31 @@ class TestSqliteCaseReader(unittest.TestCase):
                 np.testing.assert_almost_equal(expected_set[k], actual_set[k])
 
     def test_system_options_pickle_fail(self):
+
+        class MyIVC(om.IndepVarComp):
+            pass
+
+        class MyIVCOptions(IndepVarCompOptions):
+            options_value_1: int = Field(default=1, desc='Options value 1')
+            options_value_to_fail: Any = Field(default=(i for i in []), desc='Options value to fail')
+
+        @dmm.register(MyIVC)
+        class MyIVCModel(IndepVarCompModel):
+            options: MyIVCOptions = Field(default_factory=MyIVCOptions)
+
         # simple paraboloid model
         model = om.Group()
-        ivc = om.IndepVarComp()
+        ivc = om.MyIVC()
         ivc.add_output('x', 3.0)
         model.add_subsystem('subs', ivc)
         subs = model.subs
 
-        # declare two options
-        subs.options.declare('options value 1', 1)
-        # Given object which can't be pickled
-        subs.options.declare('options value to fail', (i for i in []))
         subs.add_recorder(self.recorder)
 
         prob = om.Problem(model)
         prob.setup()
 
-        msg = ("'subs' <class IndepVarComp>: Trying to record option 'options value to fail' which "
+        msg = ("'subs' <class MyIVC>: Trying to record option 'options_value_to_fail' which "
                "cannot be pickled on this system. Set option 'recordable' to False. Skipping "
                "recording options for this system.")
         with assert_warning(om.CaseRecorderWarning, msg):
@@ -3097,8 +3110,13 @@ class DummyClass(object):
                     x = inputs['x']
                     y = inputs['y']
                     outputs['f_xy'] = (x - 3.0)**2 + x * y + (y + 4.0)**2 - 3.0
-                def initialize(self):
-                    self.options.declare('dummy', types=mymodule.DummyClass, default=mymodule.DummyClass())
+
+            class ParaboloidWithDummyMetadataOptions(ExplicitComponentOptions):
+                dummy: object = Field(default_factory=lambda: mymodule.DummyClass(), desc='Dummy metadata')
+
+            @dmm.register(ParaboloidWithDummyMetadata)
+            class ParaboloidWithDummyMetadataModel(ExplicitComponentModel):
+                options: ParaboloidWithDummyMetadataOptions = Field(default_factory=ParaboloidWithDummyMetadataOptions)
 
             prob = om.Problem(name='test_reading_non_importable_objects_in_system_options')
             recorder = om.SqliteRecorder('cases.sql')
@@ -3215,15 +3233,19 @@ class DummyClass(object):
                 self.func = func
                 super().__init__(**kwargs)
 
-            def initialize(self):
-                self.options.declare('payload', Payload(self.func))
-
             def setup(self):
                 self.add_input('x')
                 self.add_output('y')
 
             def compute(self, inputs, outputs):
                 outputs['y'] = 2 * inputs['x']
+
+        class PayloadCompOptions(ExplicitComponentOptions):
+            payload: object = Field(default=None, desc='Payload')
+
+        @dmm.register(PayloadComp)
+        class PayloadCompModel(ExplicitComponentModel):
+            options: PayloadCompOptions = Field(default_factory=PayloadCompOptions)
 
         os_module = 'nt' if platform.system() == 'Windows' else 'posix'
         test_matrix = (
@@ -4684,7 +4706,7 @@ class TestSqliteCaseReaderLegacy(unittest.TestCase):
 
 
 class TestCaseReaderConstraints(unittest.TestCase):
-    
+
     def test_casereader_nd_array_constraint(self):
         prob = ParaboloidProblem()
 

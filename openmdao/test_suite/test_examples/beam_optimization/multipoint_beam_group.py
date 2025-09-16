@@ -136,8 +136,6 @@ class MultipointBeamGroup(om.Group):
 
 
 class MultiPointBeamGroupOptions(GroupOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
     L: float = Field(default=1.0, desc='Length of the beam')
     b: float = Field(default=0.1, desc='Width of the beam')

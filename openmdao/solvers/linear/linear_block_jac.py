@@ -6,6 +6,7 @@ from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptio
 from openmdao.solvers.solver import LinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
+
 class LinearBlockJac(BlockLinearSolver):
     """
     Linear block Jacobi solver.

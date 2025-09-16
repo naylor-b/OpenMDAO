@@ -564,29 +564,23 @@ class TestBoundsEnforceLSArrayBounds(unittest.TestCase):
         # error if they are set when instantiating BoundsEnforceLS.
         # atol, rtol, maxiter, and err_on_non_converge are not used in BoundsEnforceLS
 
-        with self.assertRaises(KeyError) as context:
+        with self.assertRaises(Exception) as context:
             om.BoundsEnforceLS(bound_enforcement='scalar', atol=1.0)
 
-        self.assertEqual(str(context.exception), "\"BoundsEnforceLS: Option 'atol' cannot be set because it "
-                                                 "has not been declared.\"")
-
-        with self.assertRaises(KeyError) as context:
+        self.assertTrue("Object has no attribute 'atol'" in str(context.exception))
+        with self.assertRaises(Exception) as context:
             om.BoundsEnforceLS(bound_enforcement='scalar', rtol=2.0)
 
-        self.assertEqual(str(context.exception), "\"BoundsEnforceLS: Option 'rtol' cannot be set because it "
-                                                 "has not been declared.\"")
-
-        with self.assertRaises(KeyError) as context:
+        self.assertTrue("Object has no attribute 'rtol'" in str(context.exception))
+        with self.assertRaises(Exception) as context:
             om.BoundsEnforceLS(bound_enforcement='scalar', maxiter=1)
 
-        self.assertEqual(str(context.exception), "\"BoundsEnforceLS: Option 'maxiter' cannot be set because it "
-                                                 "has not been declared.\"")
+        self.assertTrue("Object has no attribute 'maxiter'" in str(context.exception))
 
-        with self.assertRaises(KeyError) as context:
+        with self.assertRaises(Exception) as context:
             om.BoundsEnforceLS(bound_enforcement='scalar', err_on_non_converge=True)
 
-        self.assertEqual(str(context.exception), "\"BoundsEnforceLS: Option 'err_on_non_converge' cannot be set because it "
-                                                 "has not been declared.\"")
+        self.assertTrue("Object has no attribute 'err_on_non_converge'" in str(context.exception))
 
 
 class SellarDis1withDerivativesMod(SellarDis1):

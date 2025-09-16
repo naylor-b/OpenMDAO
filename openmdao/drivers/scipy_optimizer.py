@@ -13,7 +13,8 @@ from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging, DriverModel, DriverOptions
+from openmdao.core.driver import Driver, RecordingDebugging, DriverModel, DriverOptions, \
+    DriverSupports
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
@@ -89,6 +90,7 @@ CITATIONS = """
  publisher = {ACM},
 """
 
+
 class ScipyOptimizeDriver(Driver):
     """
     Driver wrapper for the scipy.optimize.minimize family of local optimizers.
@@ -141,21 +143,6 @@ class ScipyOptimizeDriver(Driver):
         Initialize the ScipyOptimizeDriver.
         """
         super().__init__(**kwargs)
-
-        # What we support
-        self.supports['optimization'] = True
-        self.supports['inequality_constraints'] = True
-        self.supports['equality_constraints'] = True
-        self.supports['two_sided_constraints'] = True
-        self.supports['linear_constraints'] = True
-        self.supports['simultaneous_derivatives'] = True
-
-        # What we don't support
-        self.supports['multiple_objectives'] = False
-        self.supports['active_set'] = False
-        self.supports['integer_design_vars'] = False
-        self.supports['distributed_design_vars'] = False
-        self.supports._read_only = True
 
         # The user places optimizer-specific settings in here.
         self.opt_settings = {}
@@ -820,9 +807,10 @@ class ScipyOptimizeDriverOptions(DriverOptions):
         Field(default=1.0e-6,
               desc="Tolerance for termination. For detailed control, use solver-specific options.")
     maxiter: int = Field(default=200, desc="Maximum number of iterations.")
-    disp: Union[int, bool] = Field(default=True,
-                       desc='Value of "disp" argument provided to scipy.optimize.minimize '
-                       'which controls the verbosity of the optimization.')
+    disp: Union[int, bool] = \
+        Field(default=True,
+              desc='Value of "disp" argument provided to scipy.optimize.minimize '
+              'which controls the verbosity of the optimization.')
     singular_jac_behavior: str = \
         Field(default='warn',
               desc="Defines behavior of a zero row/col check after first call to compute_totals:\n"
@@ -832,9 +820,22 @@ class ScipyOptimizeDriverOptions(DriverOptions):
     singular_jac_tol: float = Field(default=1e-16, desc='Tolerance for zero row/column check.')
 
 
+class ScipyOptimizeDriverSupports(DriverSupports):
+    # These can't be frozen because they depend on the actual optimizer
+    gradients: bool = Field(default=True)
+    inequality_constraints: bool = Field(default=True)
+    equality_constraints: bool = Field(default=True)
+    two_sided_constraints: bool = Field(default=True)
+
+    optimization: bool = Field(default=True, frozen=True)
+    linear_constraints: bool = Field(default=True, frozen=True)
+    simultaneous_derivatives: bool = Field(default=True, frozen=True)
+
+
 @dmm.register(ScipyOptimizeDriver)
 class ScipyOptimizeDriverModel(DriverModel):
     options: ScipyOptimizeDriverOptions = Field(default_factory=ScipyOptimizeDriverOptions)
+    supports: ScipyOptimizeDriverSupports = Field(default_factory=ScipyOptimizeDriverSupports)
 
 
 def signature_extender(fcn, extra_args):

@@ -2,9 +2,10 @@
 
 
 import numpy as np
-from pydantic import Field, ConfigDict
+from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
+    ExplicitComponentModel
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -36,7 +37,6 @@ class MuxComp(ExplicitComponent):
         self._input_names = {}
 
         self._no_check_partials = True
-
 
     def add_var(self, name, val=1.0, shape=None, units=None, desc='', axis=0):
         """
@@ -133,8 +133,6 @@ class MuxComp(ExplicitComponent):
 
 
 class MuxCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     vec_size: int = Field(default=2, desc='The number of elements to be combined into an output.')
 
 

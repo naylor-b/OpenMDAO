@@ -27,8 +27,6 @@ class MomentOfInertiaComp(om.ExplicitComponent):
 
 
 class MomentOfInertiaCompOptions(ExplicitComponentOptions):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     num_elements: int = Field(default=5, desc='Number of beam elements')
     b: float = Field(default=0.1, desc='Width of the beam')
 

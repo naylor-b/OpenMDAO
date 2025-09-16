@@ -9,7 +9,8 @@ from pydantic import Field
 
 import numpy as np
 
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel
+from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
+    DriverSupports
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.drivers.doe_generators import DOEGenerator, ListGenerator
 
@@ -62,14 +63,6 @@ class DOEDriver(Driver):
 
         super().__init__(**kwargs)
 
-        # What we support
-        self.supports['integer_design_vars'] = True
-
-        # What we don't support
-        self.supports['distributed_design_vars'] = False
-        self.supports['optimization'] = False
-        self.supports._read_only = True
-
         if generator is not None:
             self.options['generator'] = generator
 
@@ -80,7 +73,6 @@ class DOEDriver(Driver):
         self._indep_list = []
         self._quantities = []
         self._total_jac_format = 'dict'
-
 
     def _setup_comm(self, comm):
         """
@@ -280,13 +272,23 @@ class DOEDriver(Driver):
 
         super()._setup_recording()
 
+
 class DOEDriverOptions(DriverOptions):
-    generator: Any = Field(default=DOEGenerator(), desc='The case generator. If default, no cases are generated.')
+    generator: Any = \
+        Field(default=DOEGenerator(),
+              desc='The case generator. If default, no cases are generated.')
     run_parallel: bool = Field(default=False, desc='Set to True to execute cases in parallel.')
-    procs_per_model: int = Field(default=1, desc='Number of processors to give each model under MPI.')
+    procs_per_model: int = \
+        Field(default=1, desc='Number of processors to give each model under MPI.')
+
+
+class DOEDriverSupports(DriverSupports):
+    integer_design_vars: bool = Field(default=True, frozen=True)
+    distributed_design_vars: bool = Field(default=False, frozen=True)
+    optimization: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(DOEDriver)
 class DOEDriverModel(DriverModel):
     options: DOEDriverOptions = Field(default_factory=DOEDriverOptions)
-
+    supports: DOEDriverSupports = Field(default_factory=DOEDriverSupports)

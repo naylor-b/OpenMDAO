@@ -81,7 +81,6 @@ class InterpScipy(InterpAlgorithm):
             if n_p <= k:
                 self._ki[-1] = n_p - 1
 
-
     def check_config(self):
         """
         Verify that we have enough points for this interpolation algorithm.
@@ -311,7 +310,8 @@ class InterpScipy(InterpAlgorithm):
 
 
 class InterpScipyOptions(InterpAlgorithmOptions):
-    interp_method: str = Field(default='scipy_slinear', desc='Interpolation method to use for scipy.')
+    interp_method: str = \
+        Field(default='scipy_slinear', desc='Interpolation method to use for scipy.')
 
 
 @dmm.register(InterpScipy)

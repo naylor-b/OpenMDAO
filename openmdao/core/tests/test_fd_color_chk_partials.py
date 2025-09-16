@@ -1,9 +1,12 @@
 import unittest
 
 from io import StringIO
+from pydantic import Field
 
 import openmdao.api as om
 import numpy as np
+from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.utils.validation import DataModelManager as dmm
 
 
 class FlightDynamics2DComp(om.ExplicitComponent):
@@ -12,11 +15,6 @@ class FlightDynamics2DComp(om.ExplicitComponent):
     "Energy-State approximation in performance optimization of supersonic aircraft", by
     Bryson, Desai, and Hoffman.
     """
-
-    def initialize(self):
-        self.options.declare('num_nodes', types=(int,))
-        self.options.declare('g', types=(float,), default=9.80665,
-                             desc='Gravitational acceleration (m/s**2)')
 
     def setup(self):
         nn = self.options['num_nodes']
@@ -59,6 +57,15 @@ class FlightDynamics2DComp(om.ExplicitComponent):
         outputs['dXdt:gamma'] = T * np.sin(alpha) / mv + L / mv - g * c_gamma / v
         outputs['dXdt:alt'] = v * s_gamma
         outputs['dXdt:r'] = v * c_gamma
+
+
+class FlightDynamics2DCompOptions(ExplicitComponentOptions):
+    num_nodes: int = Field(default=1, desc='Number of nodes')
+    g: float = Field(default=9.80665, desc='Gravitational acceleration (m/s**2)')
+
+@dmm.register(FlightDynamics2DComp)
+class FlightDynamics2DCompModel(ExplicitComponentModel):
+    options: FlightDynamics2DCompOptions = Field(default_factory=FlightDynamics2DCompOptions)
 
 
 class TestColoringChkPartials(unittest.TestCase):

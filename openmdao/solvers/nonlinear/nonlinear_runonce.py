@@ -7,7 +7,7 @@ This is a simple nonlinear solver that just runs the system once.
 from pydantic import Field
 
 from openmdao.recorders.recording_iteration_stack import Recording
-from openmdao.solvers.solver import NonlinearSolver, _NonIterSolverOptions
+from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions
 from openmdao.utils.mpi import multi_proc_fail_check
 from openmdao.solvers.solver import NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
@@ -53,7 +53,7 @@ class NonlinearRunOnce(NonlinearSolver):
             rec.rel = 0.0
 
 
-class NonlinearRunOnceOptions(_NonIterSolverOptions):
+class NonlinearRunOnceOptions(_NonIterNonlinearSolverOptions):
     pass
 
 

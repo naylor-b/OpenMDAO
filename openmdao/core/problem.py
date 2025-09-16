@@ -2634,17 +2634,17 @@ class ProblemOptions(OptionsBaseModel):
     group_by_pre_opt_post: bool = \
         Field(default=False,
               desc="If True, group subsystems of the top level model into pre-optimization, "
-                    "optimization, and post-optimization, and only iterate over the optimization "
-                    "subsystems during optimization.  This applies only when the top level "
-                    "nonlinear solver is of type NonlinearRunOnce.")
+              "optimization, and post-optimization, and only iterate over the optimization "
+              "subsystems during optimization.  This applies only when the top level "
+              "nonlinear solver is of type NonlinearRunOnce.")
     allow_post_setup_reorder: bool = \
         Field(default=True,
               desc="If True, the execution order of direct subsystems of any group that sets its "
-                    "'auto_order' option to True will be automatically ordered according to data "
-                    "dependencies. If this option is False, the 'auto_order' option will be "
-                    "ignored and a warning will be issued for each group that has set it to True. "
-                    "Note that subsystems of a Group that form a cycle will never be reordered, "
-                    "regardless of the value of the 'auto_order' option.")
+              "'auto_order' option to True will be automatically ordered according to data "
+              "dependencies. If this option is False, the 'auto_order' option will be "
+              "ignored and a warning will be issued for each group that has set it to True. "
+              "Note that subsystems of a Group that form a cycle will never be reordered, "
+              "regardless of the value of the 'auto_order' option.")
 
 
 class ProblemRecordingOptions(OptionsBaseModel):
@@ -2654,9 +2654,9 @@ class ProblemRecordingOptions(OptionsBaseModel):
     record_responses: bool = Field(default=False,
                                    desc="Set to True to record responses at the problem level.")
     record_objectives: bool = Field(default=True,
-                                   desc="Set to True to record objectives at the problem level.")
+                                    desc="Set to True to record objectives at the problem level.")
     record_constraints: bool = Field(default=True,
-                                   desc="Set to True to record constraints at the problem level.")
+                                     desc="Set to True to record constraints at the problem level.")
     includes: list[str] = Field(default=('*',),
                                 desc="Patterns for variables to include in recording. "
                                 "Uses fnmatch wildcards.")
@@ -2666,15 +2666,15 @@ class ProblemRecordingOptions(OptionsBaseModel):
     options_excludes: list[str] = Field(default_factory=list,
                                         desc="User-defined metadata to exclude in recording")
     record_viewer_data: bool = Field(default=True,
-                                    desc="Set to True to record viewer data at the problem level")
+                                     desc="Set to True to record viewer data at the problem level")
     record_coloring: bool = Field(default=True,
                                   desc="Set to True to record coloring at the problem level")
     record_derivatives: bool = Field(default=False,
-                                    desc="Set to True to record derivatives at the problem level")
+                                     desc="Set to True to record derivatives at the problem level")
     record_inputs: bool = Field(default=True,
                                 desc="Set to True to record inputs at the problem level")
     record_outputs: bool = Field(default=True,
-                                  desc="Set to True to record outputs at the problem level")
+                                 desc="Set to True to record outputs at the problem level")
     record_residuals: bool = Field(default=False,
                                    desc="Set to True to record residuals at the problem level")
     record_abs_error: bool = Field(default=True,

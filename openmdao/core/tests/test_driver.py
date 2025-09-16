@@ -7,9 +7,11 @@ import sys
 import unittest
 
 import numpy as np
+from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver
+from openmdao.core.driver import Driver, DriverSupports, DriverModel
+from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.units import convert_units
 from openmdao.utils.assert_utils import assert_near_equal, assert_warnings, assert_check_totals, assert_no_warning
 from openmdao.utils.general_utils import printoptions, set_pyoptsparse_opt
@@ -284,11 +286,9 @@ class TestDriver(unittest.TestCase):
         self.assertEqual(output.count("Objectives"), 1)
 
         # Check to make sure an invalid debug_print option raises an exception
-        with self.assertRaises(ValueError) as context:
+        with self.assertRaises(Exception) as context:
             prob.driver.options['debug_print'] = ['bad_option']
-        self.assertEqual(str(context.exception),
-                         "Driver: Value (['bad_option']) of option 'debug_print' is not one of "
-                         "['desvars', 'nl_cons', 'ln_cons', 'objs', 'totals'].")
+        self.assertTrue("debug_print must be one of ['desvars', 'ln_cons', 'nl_cons', 'objs', 'totals']." in str(context.exception))
 
     def test_debug_print_approx(self):
 
@@ -964,8 +964,13 @@ class TestDriverMPI(unittest.TestCase):
 
             def __init__(self, generator=None, **kwargs):
                 super().__init__(**kwargs)
-                self.supports['distributed_design_vars'] = False
-                self.supports._read_only = True
+
+        class MyDriverSupports(DriverSupports):
+            distributed_design_vars: bool = Field(default=False, frozen=True)
+
+        @dmm.register(MyDriver)
+        class MyDriverModel(DriverModel):
+            supports: MyDriverSupports = Field(default_factory=MyDriverSupports)
 
         prob = om.Problem()
         model = prob.model
