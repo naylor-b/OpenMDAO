@@ -7,7 +7,7 @@ from pydantic import Field
 from openmdao.jacobians.dictionary_jacobian import ExplicitDictionaryJacobian
 from openmdao.jacobians.jacobian import JacobianUpdateContext
 from openmdao.utils.coloring import _ColSparsityJac
-from openmdao.core.system import SystemOptions, SystemModel
+from openmdao.core.system import _SystemOptions, _SystemModel
 from openmdao.core.component import Component
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.class_util import overrides_method
@@ -676,7 +676,7 @@ class ExplicitComponent(Component):
         return jac.get_sparsity()
 
 
-class NonDistributedExplicitComponentOptions(SystemOptions):
+class _NonDistributedExplicitComponentOptions(_SystemOptions):
     run_root_only: bool = Field(default=False,
                                 desc='If True, call compute, compute_partials, linearize, '
                                 'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
@@ -695,12 +695,12 @@ class NonDistributedExplicitComponentOptions(SystemOptions):
                                  'compute_shape. Default is (1,).')
 
 
-class ExplicitComponentOptions(NonDistributedExplicitComponentOptions):
+class _ExplicitComponentOptions(_NonDistributedExplicitComponentOptions):
     distributed: bool = Field(default=False,
                               desc='If True, set all variables in this component as distributed '
                               'across multiple processes')
 
 
 @dmm.register(ExplicitComponent)
-class ExplicitComponentModel(SystemModel):
-    options: ExplicitComponentOptions = Field(default_factory=ExplicitComponentOptions)
+class _ExplicitComponentModel(_SystemModel):
+    options: _ExplicitComponentOptions = Field(default_factory=_ExplicitComponentOptions)

@@ -6,7 +6,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.distributed_components import DistribComp, Summer
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
@@ -21,7 +21,7 @@ except ImportError:
     PETScVector = None
 
 
-class InOutArrayCompOptions(ExplicitComponentOptions):
+class InOutArrayCompOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
     delay: float = Field(default=.01, desc="Time to sleep in compute function.")
 
@@ -44,11 +44,11 @@ class InOutArrayComp(om.ExplicitComponent):
 
 
 @dmm.register(InOutArrayComp)
-class InOutArrayCompModel(ExplicitComponentModel):
+class InOutArrayCompModel(_ExplicitComponentModel):
     options: InOutArrayCompOptions = Field(default_factory=InOutArrayCompOptions)
 
 
-class DistribCompSimpleOptions(ExplicitComponentOptions):
+class DistribCompSimpleOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
 
@@ -79,11 +79,11 @@ class DistribCompSimple(om.ExplicitComponent):
 
 
 @dmm.register(DistribCompSimple)
-class DistribCompSimpleModel(ExplicitComponentModel):
+class DistribCompSimpleModel(_ExplicitComponentModel):
     options: DistribCompSimpleOptions = Field(default_factory=DistribCompSimpleOptions)
 
 
-class DistribInputCompOptions(ExplicitComponentOptions):
+class DistribInputCompOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=11, desc="Size of input and output vectors.")
 
 
@@ -115,11 +115,11 @@ class DistribInputComp(om.ExplicitComponent):
 
 
 @dmm.register(DistribInputComp)
-class DistribInputCompModel(ExplicitComponentModel):
+class DistribInputCompModel(_ExplicitComponentModel):
     options: DistribInputCompOptions = Field(default_factory=DistribInputCompOptions)
 
 
-class DistribOverlappingInputCompOptions(ExplicitComponentOptions):
+class DistribOverlappingInputCompOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=11, desc="Size of input and output vectors.")
     local_size: int = Field(default=1, desc="Local size of output vector.")
 
@@ -150,11 +150,11 @@ class DistribOverlappingInputComp(om.ExplicitComponent):
 
 
 @dmm.register(DistribOverlappingInputComp)
-class DistribOverlappingInputCompModel(ExplicitComponentModel):
+class DistribOverlappingInputCompModel(_ExplicitComponentModel):
     options: DistribOverlappingInputCompOptions = Field(default_factory=DistribOverlappingInputCompOptions)
 
 
-class DistribInputDistribOutputCompOptions(ExplicitComponentOptions):
+class DistribInputDistribOutputCompOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=11, desc="Size of input and output vectors.")
 
 
@@ -180,11 +180,11 @@ class DistribInputDistribOutputComp(om.ExplicitComponent):
 
 
 @dmm.register(DistribInputDistribOutputComp)
-class DistribInputDistribOutputCompModel(ExplicitComponentModel):
+class DistribInputDistribOutputCompModel(_ExplicitComponentModel):
     options: DistribInputDistribOutputCompOptions = Field(default_factory=DistribInputDistribOutputCompOptions)
 
 
-class DistribCompWithDerivsOptions(ExplicitComponentOptions):
+class DistribCompWithDerivsOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=11, desc="Size of input and output vectors.")
 
 
@@ -219,7 +219,7 @@ class DistribCompWithDerivs(om.ExplicitComponent):
 
 
 @dmm.register(DistribCompWithDerivs)
-class DistribCompWithDerivsModel(ExplicitComponentModel):
+class DistribCompWithDerivsModel(_ExplicitComponentModel):
     options: DistribCompWithDerivsOptions = Field(default_factory=DistribCompWithDerivsOptions)
 
 
@@ -235,7 +235,7 @@ class DistribInputDistribOutputDiscreteComp(DistribInputDistribOutputComp):
         self.add_discrete_output('disc_out', 'foobar')
 
 
-class DistribNoncontiguousCompOptions(ExplicitComponentOptions):
+class DistribNoncontiguousCompOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
@@ -253,11 +253,11 @@ class DistribNoncontiguousComp(om.ExplicitComponent):
 
 
 @dmm.register(DistribNoncontiguousComp)
-class DistribNoncontiguousCompModel(ExplicitComponentModel):
+class DistribNoncontiguousCompModel(_ExplicitComponentModel):
     options: DistribNoncontiguousCompOptions = Field(default_factory=DistribNoncontiguousCompOptions)
 
 
-class DistribGatherCompOptions(ExplicitComponentOptions):
+class DistribGatherCompOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=11, desc="Size of input and output vectors.")
 
 
@@ -288,11 +288,11 @@ class DistribGatherComp(om.ExplicitComponent):
 
 
 @dmm.register(DistribGatherComp)
-class DistribGatherCompModel(ExplicitComponentModel):
+class DistribGatherCompModel(_ExplicitComponentModel):
     options: DistribGatherCompOptions = Field(default_factory=DistribGatherCompOptions)
 
 
-class NonDistribGatherCompOptions(ExplicitComponentOptions):
+class NonDistribGatherCompOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
@@ -310,7 +310,7 @@ class NonDistribGatherComp(om.ExplicitComponent):
 
 
 @dmm.register(NonDistribGatherComp)
-class NonDistribGatherCompModel(ExplicitComponentModel):
+class NonDistribGatherCompModel(_ExplicitComponentModel):
     options: NonDistribGatherCompOptions = Field(default_factory=NonDistribGatherCompOptions)
 
 
@@ -1130,7 +1130,7 @@ class TestGroupMPI(unittest.TestCase):
 
     def test_promote_distrib(self):
 
-        class MyCompOptions(ExplicitComponentOptions):
+        class MyCompOptions(_ExplicitComponentOptions):
             size: int = Field(default=1, desc="Size of input vector x.")
 
         class MyComp(om.ExplicitComponent):
@@ -1142,7 +1142,7 @@ class TestGroupMPI(unittest.TestCase):
                 outputs['y'] = np.sum(inputs['x'])*2.0
 
         @dmm.register(MyComp)
-        class MyCompModel(ExplicitComponentModel):
+        class MyCompModel(_ExplicitComponentModel):
             options: MyCompOptions = Field(default_factory=MyCompOptions)
 
         p = om.Problem()

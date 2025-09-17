@@ -3,7 +3,7 @@ import unittest
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -22,7 +22,7 @@ class DiscreteIn2(om.ExplicitComponent):
         self.add_discrete_input('x', val=0)
 
 
-class Group1Options(GroupOptions):
+class Group1Options(_GroupOptions):
     conn: int = Field(default=1, values=[1, 2], desc='Connection option')
 
 
@@ -39,7 +39,7 @@ class Group1(om.Group):
 
 
 @dmm.register(Group1)
-class Group1Model(GroupModel):
+class Group1Model(_GroupModel):
     options: Group1Options = Field(default_factory=Group1Options)
 
 

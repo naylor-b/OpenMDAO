@@ -3,7 +3,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.validation import DataModelManager as dmm
@@ -231,11 +231,11 @@ class SrcIndicesTestCase(unittest.TestCase):
                 self.add_subsystem('comp2', om.ExecComp(['y2=x*3'], y2=np.ones(size), x=np.ones(size)),
                                 promotes_inputs=['*'], promotes_outputs=['*'])
 
-        class RHSOptions(GroupOptions):
+        class RHSOptions(_GroupOptions):
             size: int = Field(default=1, desc='Size')
 
         @dmm.register(RHS)
-        class RHSModel(GroupModel):
+        class RHSModel(_GroupModel):
             options: RHSOptions = Field(default_factory=RHSOptions)
 
 
@@ -610,11 +610,11 @@ class TestNestedInputDefaults(unittest.TestCase):
                     self.add_subsystem(name, Grp())
                     self.promotes(name, inputs=["x"], src_indices=[node])
 
-        class VecOptions(GroupOptions):
+        class VecOptions(_GroupOptions):
             num: int = Field(default=1, desc='Number')
 
         @dmm.register(Vec)
-        class VecModel(GroupModel):
+        class VecModel(_GroupModel):
             options: VecOptions = Field(default_factory=VecOptions)
 
         # This one seems to require that set_input_defaults (on line 8) is NOT called in Comp.setup()

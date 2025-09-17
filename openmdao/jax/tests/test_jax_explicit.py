@@ -10,8 +10,8 @@ import openmdao.api as om
 from openmdao.utils.jax_utils import jax, jnp
 from openmdao.utils.testing_utils import parameterized_name
 from pydantic import Field
-from openmdao.components.jax_explicit_comp import JaxExplicitComponentOptions, \
-    JaxExplicitComponentModel
+from openmdao.components.jax_explicit_comp import _JaxExplicitComponentOptions, \
+    _JaxExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 try:
@@ -71,7 +71,7 @@ class DotProdMultPrimal(DotProdMultPrimalNoDeclPartials):
         self.declare_partials(of=['zz'], wrt=['y'])
 
 
-class DotProdMultPrimalOptionOptions(JaxExplicitComponentOptions):
+class DotProdMultPrimalOptionOptions(_JaxExplicitComponentOptions):
     mult: float = Field(default=1.0, desc='Multiplier value')
 
 
@@ -96,7 +96,7 @@ class DotProdMultPrimalOption(om.JaxExplicitComponent):
 
 
 @dmm.register(DotProdMultPrimalOption)
-class DotProdMultPrimalOptionModel(JaxExplicitComponentModel):
+class DotProdMultPrimalOptionModel(_JaxExplicitComponentModel):
     options: DotProdMultPrimalOptionOptions = Field(default_factory=DotProdMultPrimalOptionOptions)
 
 

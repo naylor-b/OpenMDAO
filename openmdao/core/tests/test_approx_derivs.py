@@ -10,7 +10,7 @@ from scipy import __version__ as scipy_version
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.impl_comp_array import TestImplCompArray, TestImplCompArrayDense
 from openmdao.test_suite.components.paraboloid import Paraboloid
@@ -826,7 +826,7 @@ class TestGroupFiniteDifference(unittest.TestCase):
         # solve on its subsystems, which led to partials declared with 'val' corrupting the
         # results.
 
-        class DistParabOptions(ExplicitComponentOptions):
+        class DistParabOptions(_ExplicitComponentOptions):
             arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
         class DistParab(om.ExplicitComponent):
@@ -844,10 +844,10 @@ class TestGroupFiniteDifference(unittest.TestCase):
                 outputs['f_xy'] = x**2
 
         @dmm.register(DistParab)
-        class DistParabModel(ExplicitComponentModel):
+        class DistParabModel(_ExplicitComponentModel):
             options: DistParabOptions = Field(default_factory=DistParabOptions)
 
-        class NonDistCompOptions(ExplicitComponentOptions):
+        class NonDistCompOptions(_ExplicitComponentOptions):
             arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
         class NonDistComp(om.ExplicitComponent):
@@ -871,7 +871,7 @@ class TestGroupFiniteDifference(unittest.TestCase):
                 outputs['g'] = x * np.array([3.5, -1.0, 5.0])
 
         @dmm.register(NonDistComp)
-        class NonDistCompModel(ExplicitComponentModel):
+        class NonDistCompModel(_ExplicitComponentModel):
             options: NonDistCompOptions = Field(default_factory=NonDistCompOptions)
 
         size = 3
@@ -2262,7 +2262,7 @@ class TestFDRelative(unittest.TestCase):
         # Due to the 20 spread in orders of magnitude, accurate derivatives are only possible with
         # rel_element calculation.
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         class FDComp(om.ExplicitComponent):
@@ -2281,7 +2281,7 @@ class TestFDRelative(unittest.TestCase):
                 outputs['y'] = 0.5 * x ** 2
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2322,11 +2322,11 @@ class TestFDRelative(unittest.TestCase):
                 x = inputs['x']
                 outputs['y'] = 0.5 * x ** 2
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2371,11 +2371,11 @@ class TestFDRelative(unittest.TestCase):
                 x3 = inputs['x_element']
                 outputs['y'] = 0.5 * x1 ** 2 + 0.5 * x2 ** 2 + 0.5 * x3 ** 2
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2421,11 +2421,11 @@ class TestFDRelative(unittest.TestCase):
                 x3 = inputs['x_element']
                 outputs['y'] = 0.5 * x1 ** 2 + 0.5 * x2 ** 2 + 0.5 * x3 ** 2
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2460,11 +2460,11 @@ class TestFDRelative(unittest.TestCase):
             def setup_partials(self):
                 self.declare_partials('y', 'x', method='fd', step_calc='junk')
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2510,11 +2510,11 @@ class TestFDRelative(unittest.TestCase):
                         if 'x_element' in d_inputs:
                             d_inputs['x_element'] += x3 * d_outputs['y']
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2557,11 +2557,11 @@ class TestFDRelative(unittest.TestCase):
                 x3 = inputs['x_element']
                 partials['y', 'x_element'] = x3
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2604,11 +2604,11 @@ class TestFDRelative(unittest.TestCase):
                 x3 = inputs['x_element']
                 partials['y', 'x_element'] = x3
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()
@@ -2681,7 +2681,7 @@ class CheckTotalsParallelGroup(unittest.TestCase):
     N_PROCS = 3
 
     def test_vois_in_parallelgroup(self):
-        class PassThruCompOptions(ExplicitComponentOptions):
+        class PassThruCompOptions(_ExplicitComponentOptions):
             time: float = Field(default=3.0, desc='Time parameter')
             size: int = Field(default=1, desc='Size parameter')
 
@@ -2704,7 +2704,7 @@ class CheckTotalsParallelGroup(unittest.TestCase):
                 J['y', 'x'] = np.eye(size)
 
         @dmm.register(PassThruComp)
-        class PassThruCompModel(ExplicitComponentModel):
+        class PassThruCompModel(_ExplicitComponentModel):
             options: PassThruCompOptions = Field(default_factory=PassThruCompOptions)
 
         model = om.Group()

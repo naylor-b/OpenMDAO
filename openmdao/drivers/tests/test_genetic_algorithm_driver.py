@@ -838,9 +838,9 @@ class TestConstrainedSimpleGA(unittest.TestCase):
 
         exception = raises_msg.exception
 
-        msg = "SimpleGADriver: Tried to set read-only option 'equality_constraints'."
+        msg = "equality_constraints\n  Field is frozen [type=frozen_field, input_value=False, input_type=bool]"
 
-        self.assertEqual(exception.args[0], msg)
+        self.assertTrue(msg in str(exception))
 
     def test_constrained_without_penalty(self):
 

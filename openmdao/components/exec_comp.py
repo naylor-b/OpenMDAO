@@ -12,7 +12,7 @@ from numpy import ndarray, imag
 from openmdao.core.system import _DEFAULT_COLORING_META
 from openmdao.utils.coloring import _ColSparsityJac, _compute_coloring
 from openmdao.core.explicitcomponent import ExplicitComponent, \
-    NonDistributedExplicitComponentOptions, ExplicitComponentModel
+    _NonDistributedExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.units import valid_units
 from openmdao.utils import cs_safe
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, SetupWarning
@@ -1106,8 +1106,20 @@ class ExecComp(ExplicitComponent):
                     # restore old input value
                     ival[idx] -= step
 
-    def update_from_data_model(self, data_model: ExplicitComponentModel):
-        """Update the instance from the data model."""
+    def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _ExecCompModel
+            The data model to update from.
+
+        Returns
+        -------
+        ExecComp
+            The updated instance.
+        """
         super().update_from_data_model(data_model)
         exprs = self._exprs
         self._exprs = data_model.exprs
@@ -1117,7 +1129,7 @@ class ExecComp(ExplicitComponent):
         return self
 
 
-class ExecCompOptions(NonDistributedExplicitComponentOptions):
+class _ExecCompOptions(_NonDistributedExplicitComponentOptions):
     has_diag_partials: bool = Field(default=False,
                                     desc="If True, treat all array/array partials as diagonal if "
                                     "both arrays have size > 1. All arrays with size > 1 must have "
@@ -1137,10 +1149,17 @@ class ExecCompOptions(NonDistributedExplicitComponentOptions):
                               desc="If True (the default), compute the partial jacobian "
                               "coloring for this component.")
 
+    @field_validator('units')
+    @classmethod
+    def _validate_units(cls, v):
+        if v is not None and not valid_units(v):
+            raise ValueError(f"The units '{v}' are invalid.")
+        return v
+
 
 @dmm.register(ExecComp)
-class ExecCompModel(ExplicitComponentModel):
-    options: ExecCompOptions = Field(default_factory=ExecCompOptions)
+class _ExecCompModel(_ExplicitComponentModel):
+    options: _ExecCompOptions = Field(default_factory=_ExecCompOptions)
     exprs: Union[str, List[str]] = Field(default_factory=list, desc='List of expressions.')
 
     @field_validator("exprs", mode="before")

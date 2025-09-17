@@ -9,7 +9,7 @@ from functools import partial
 from pydantic import Field
 
 from openmdao.core.explicitcomponent import ExplicitComponent, \
-    NonDistributedExplicitComponentOptions, ExplicitComponentModel
+    _NonDistributedExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.jax_utils import jax, jit, \
@@ -523,7 +523,7 @@ class JaxExplicitComponent(ExplicitComponent):
         return self._output_shapes[name]
 
 
-class JaxExplicitComponentOptions(NonDistributedExplicitComponentOptions):
+class _JaxExplicitComponentOptions(_NonDistributedExplicitComponentOptions):
     default_to_dyn_shapes: bool = \
         Field(default=False,
               desc='If True, use dynamic shaping for any variables whose value is scalar and whose '
@@ -532,5 +532,5 @@ class JaxExplicitComponentOptions(NonDistributedExplicitComponentOptions):
 
 
 @dmm.register(JaxExplicitComponent)
-class JaxExplicitComponentModel(ExplicitComponentModel):
-    options: JaxExplicitComponentOptions = Field(default_factory=JaxExplicitComponentOptions)
+class _JaxExplicitComponentModel(_ExplicitComponentModel):
+    options: _JaxExplicitComponentOptions = Field(default_factory=_JaxExplicitComponentOptions)

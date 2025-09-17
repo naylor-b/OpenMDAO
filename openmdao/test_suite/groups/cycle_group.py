@@ -35,7 +35,7 @@ from openmdao.test_suite.components.cycle_comps import PSI, \
     ExplicitCycleComp, ExplicitFirstComp, ExplicitLastComp
 from openmdao.test_suite.groups.parametric_group import ParametericTestGroup, \
     ParametericTestGroupOptions, ParametericTestGroupModel
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 

@@ -16,7 +16,7 @@ except ImportError:
 
 from openmdao.api import Problem, Group, IndepVarComp, ImplicitComponent, ExplicitComponent, \
     NonlinearBlockGS, ScipyOptimizeDriver, NewtonSolver, DirectSolver, ImplicitFuncComp
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.core.problem import _clear_problem_names
 import openmdao.func_api as omf
@@ -1096,7 +1096,7 @@ class TestColoring(unittest.TestCase):
 
     def test_no_solver_linearize(self):
         # this raised a singularity error before the fix
-        class Get_val_impOptions(ImplicitComponentOptions):
+        class Get_val_impOptions(_ImplicitComponentOptions):
             size: int = Field(default=1, desc='Size parameter')
 
         class Get_val_imp(ImplicitComponent):
@@ -1126,7 +1126,7 @@ class TestColoring(unittest.TestCase):
                 residuals['state']=inputs['foobar']-area_ratio
 
         @dmm.register(Get_val_imp)
-        class Get_val_impModel(ImplicitComponentModel):
+        class Get_val_impModel(_ImplicitComponentModel):
             options: Get_val_impOptions = Field(default_factory=Get_val_impOptions)
 
         size = 3

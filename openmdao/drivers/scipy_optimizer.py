@@ -13,8 +13,8 @@ from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging, DriverModel, DriverOptions, \
-    DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, _DriverModel, _DriverOptions, \
+    _DriverSupports
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
@@ -187,12 +187,22 @@ class ScipyOptimizeDriver(Driver):
         super()._setup_driver(problem)
         opt = self.options['optimizer']
 
-        self.supports._read_only = False
-        self.supports['gradients'] = opt in _gradient_optimizers
-        self.supports['inequality_constraints'] = opt in _constraint_optimizers
-        self.supports['two_sided_constraints'] = opt in _constraint_optimizers
-        self.supports['equality_constraints'] = opt in _eq_constraint_optimizers
-        self.supports._read_only = True
+        # since several of these options are read-only but have values that depend on the optimizer,
+        # we need to create a new 'supports' class for each optimizer
+        self.supports = \
+            dmm.create_class('_ScipyOptimizeDriverSupports', base=_ScipyOptimizeDriverSupports,
+                             gradients=(bool, Field(default=opt in _gradient_optimizers,
+                                                    frozen=True)),
+                             inequality_constraints=(bool,
+                                                     Field(default=opt in _constraint_optimizers,
+                                                     frozen=True)),
+                             two_sided_constraints=(bool,
+                                                    Field(default=opt in _constraint_optimizers,
+                                                    frozen=True)),
+                             equality_constraints=(bool,
+                                                   Field(default=opt in _eq_constraint_optimizers,
+                                                   frozen=True)))()
+
         self._check_jac = self.options['singular_jac_behavior'] in ['error', 'warn']
 
         # Raises error if multiple objectives are not supported, but more objectives were defined.
@@ -801,7 +811,7 @@ class ScipyOptimizeDriver(Driver):
             return grad[grad_idx, :]
 
 
-class ScipyOptimizeDriverOptions(DriverOptions):
+class _ScipyOptimizeDriverOptions(_DriverOptions):
     optimizer: str = Field(default="SLSQP", desc="Name of optimizer to use.")
     tol: float = \
         Field(default=1.0e-6,
@@ -820,22 +830,21 @@ class ScipyOptimizeDriverOptions(DriverOptions):
     singular_jac_tol: float = Field(default=1e-16, desc='Tolerance for zero row/column check.')
 
 
-class ScipyOptimizeDriverSupports(DriverSupports):
-    # These can't be frozen because they depend on the actual optimizer
-    gradients: bool = Field(default=True)
-    inequality_constraints: bool = Field(default=True)
-    equality_constraints: bool = Field(default=True)
-    two_sided_constraints: bool = Field(default=True)
-
+class _ScipyOptimizeDriverSupports(_DriverSupports):
+    gradients: bool = Field(default=True, frozen=True)
+    inequality_constraints: bool = Field(default=True, frozen=True)
+    equality_constraints: bool = Field(default=True, frozen=True)
+    two_sided_constraints: bool = Field(default=True, frozen=True)
     optimization: bool = Field(default=True, frozen=True)
     linear_constraints: bool = Field(default=True, frozen=True)
     simultaneous_derivatives: bool = Field(default=True, frozen=True)
+    integer_design_vars: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(ScipyOptimizeDriver)
-class ScipyOptimizeDriverModel(DriverModel):
-    options: ScipyOptimizeDriverOptions = Field(default_factory=ScipyOptimizeDriverOptions)
-    supports: ScipyOptimizeDriverSupports = Field(default_factory=ScipyOptimizeDriverSupports)
+class _ScipyOptimizeDriverModel(_DriverModel):
+    options: _ScipyOptimizeDriverOptions = Field(default_factory=_ScipyOptimizeDriverOptions)
+    supports: _ScipyOptimizeDriverSupports = Field(default_factory=_ScipyOptimizeDriverSupports)
 
 
 def signature_extender(fcn, extra_args):

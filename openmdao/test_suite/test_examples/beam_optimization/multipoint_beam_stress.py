@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.local_stiffness_matrix_comp import LocalStiffnessMatrixComp
@@ -150,7 +150,7 @@ class MultipointBeamGroup(om.Group):
         self.add_objective('volume_comp.volume')
 
 
-class MultipointBeamGroupOptions(GroupOptions):
+class MultipointBeamGroupOptions(_GroupOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
@@ -166,5 +166,5 @@ class MultipointBeamGroupOptions(GroupOptions):
 
 
 @dmm.register(MultipointBeamGroup)
-class MultipointBeamGroupModel(GroupModel):
+class MultipointBeamGroupModel(_GroupModel):
     options: MultipointBeamGroupOptions = Field(default_factory=MultipointBeamGroupOptions)

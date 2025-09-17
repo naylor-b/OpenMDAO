@@ -26,8 +26,8 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
-    DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, _DriverOptions, _DriverModel, \
+    _DriverSupports
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
@@ -644,7 +644,7 @@ class DifferentialEvolution(object):
         return xopt, fopt, nfit
 
 
-class DifferentialEvolutionDriverOptions(DriverOptions):
+class _DifferentialEvolutionDriverOptions(_DriverOptions):
     max_gen: int = Field(default=100, desc='Number of generations before termination.')
     pop_size: int = \
         Field(default=0,
@@ -666,7 +666,7 @@ class DifferentialEvolutionDriverOptions(DriverOptions):
     multi_obj_exponent: float = Field(default=1.0, desc='Multi-objective weighting exponent.')
 
 
-class DifferentialEvolutionDriverSupports(DriverSupports):
+class _DifferentialEvolutionDriverSupports(_DriverSupports):
     optimization: bool = Field(default=True, frozen=True)
     inequality_constraints: bool = Field(default=True, frozen=True)
     equality_constraints: bool = Field(default=True, frozen=True)
@@ -680,8 +680,8 @@ class DifferentialEvolutionDriverSupports(DriverSupports):
 
 
 @dmm.register(DifferentialEvolutionDriver)
-class DifferentialEvolutionDriverModel(DriverModel):
-    options: DifferentialEvolutionDriverOptions = \
-        Field(default_factory=DifferentialEvolutionDriverOptions)
-    supports: DifferentialEvolutionDriverSupports = \
-        Field(default_factory=DifferentialEvolutionDriverSupports)
+class _DifferentialEvolutionDriverModel(_DriverModel):
+    options: _DifferentialEvolutionDriverOptions = \
+        Field(default_factory=_DifferentialEvolutionDriverOptions)
+    supports: _DifferentialEvolutionDriverSupports = \
+        Field(default_factory=_DifferentialEvolutionDriverSupports)

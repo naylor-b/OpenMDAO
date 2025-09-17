@@ -4,7 +4,7 @@ Base class for interpolation methods that work on a semi-structured grid.
 import numpy as np
 from pydantic import BaseModel, Field
 
-from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
+from openmdao.utils.validation import DataModelManager as dmm, _OptionsBaseModel
 from openmdao.components.interp_util.interp_akima import InterpAkimaSemi
 from openmdao.components.interp_util.interp_lagrange2 import InterpLagrange2Semi
 from openmdao.components.interp_util.interp_lagrange3 import InterpLagrange3Semi
@@ -235,25 +235,48 @@ class InterpNDSemi(object):
         return self._d_dvalues
 
     def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _InterpNDSemiModel
+            The data model to update from.
+
+        Returns
+        -------
+        InterpNDSemi
+            The updated instance.
+        """
         self.options = data_model.options
         return self
 
     def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _InterpNDSemiModel
+            The data model.
+        """
         self.data_model = dmm.class_to_data_model_instance(self.__class__)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
 
-class InterpNDSemiOptions(OptionsBaseModel):
+class _InterpNDSemiOptions(_OptionsBaseModel):
     """
     Options for the InterpNDSemi class.
     """
+
     pass
 
 
 @dmm.register(InterpNDSemi)
-class InterpNDSemiModel(BaseModel):
+class _InterpNDSemiModel(BaseModel):
     """
     Model for the InterpNDSemi class.
     """
-    options: InterpNDSemiOptions = Field(default_factory=InterpNDSemiOptions)
+
+    options: _InterpNDSemiOptions = Field(default_factory=_InterpNDSemiOptions)

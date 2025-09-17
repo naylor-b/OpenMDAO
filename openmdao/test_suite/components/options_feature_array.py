@@ -6,7 +6,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -26,12 +26,12 @@ class ArrayMultiplyComp(om.ExplicitComponent):
         outputs['y'] = self.options['array'] * inputs['x']
 
 
-class ArrayMultiplyCompOptions(ExplicitComponentOptions):
+class ArrayMultiplyCompOptions(_ExplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     array: np.ndarray = Field(default=np.zeros(0), desc='Array to multiply by input')
 
 
 @dmm.register(ArrayMultiplyComp)
-class ArrayMultiplyCompModel(ExplicitComponentModel):
+class ArrayMultiplyCompModel(_ExplicitComponentModel):
     options: ArrayMultiplyCompOptions = Field(default_factory=ArrayMultiplyCompOptions)

@@ -7,8 +7,8 @@ from pydantic import Field
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.components.interp_util.interp import InterpND
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -248,7 +248,7 @@ class MetaModelStructuredComp(ExplicitComponent):
                 partials[out_name, "%s_train" % out_name] = dy_ddata
 
 
-class MetaModelStructuredCompOptions(ExplicitComponentOptions):
+class _MetaModelStructuredCompOptions(_ExplicitComponentOptions):
     extrapolate: bool = \
         Field(default=False,
               desc='Sets whether extrapolation should be performed when an input is out of bounds.')
@@ -262,6 +262,6 @@ class MetaModelStructuredCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(MetaModelStructuredComp)
-class MetaModelStructuredCompModel(ExplicitComponentModel):
-    options: MetaModelStructuredCompOptions = \
-        Field(default_factory=MetaModelStructuredCompOptions)
+class _MetaModelStructuredCompModel(_ExplicitComponentModel):
+    options: _MetaModelStructuredCompOptions = \
+        Field(default_factory=_MetaModelStructuredCompOptions)

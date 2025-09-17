@@ -12,7 +12,7 @@ from pydantic import Field
 
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions
-from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.solvers.solver import _NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
@@ -180,7 +180,7 @@ class LinesearchSolver(NonlinearSolver):
 
 
 @dmm.register(LinesearchSolver)
-class LinesearchSolverModel(NonlinearSolverModel):
+class _LinesearchSolverModel(_NonlinearSolverModel):
     options: _LinesearchSolverOptions = Field(default_factory=_LinesearchSolverOptions)
 
 
@@ -460,7 +460,7 @@ class ArmijoGoldsteinLS(LinesearchSolver):
 
 
 @dmm.register(ArmijoGoldsteinLS)
-class ArmijoGoldsteinLSModel(LinesearchSolverModel):
+class _ArmijoGoldsteinLSModel(_LinesearchSolverModel):
     options: _ArmijoGoldsteinLSOptions = Field(default_factory=_ArmijoGoldsteinLSOptions)
 
 

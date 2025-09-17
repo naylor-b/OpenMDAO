@@ -11,7 +11,7 @@ except ImportError:
     ipy = display = HTML = IFrame = None
 
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
-from openmdao.utils.validation import OptionsBaseModel
+from openmdao.utils.validation import _OptionsBaseModel
 
 
 colab = 'google.colab' in sys.modules
@@ -110,7 +110,6 @@ def show_options_table(reference, recording_options=False, options_dict='options
     IPython.display
         Options table of the given class or function.
     """
-
     if isinstance(reference, str):
         obj = _get_object_from_reference(reference)()
     else:
@@ -122,7 +121,7 @@ def show_options_table(reference, recording_options=False, options_dict='options
                              '`options_dict="recording_options" to remove this '
                              'warning.')
             opt = obj.recording_options
-        elif isinstance(obj, OptionsBaseModel):
+        elif isinstance(obj, _OptionsBaseModel):
             opt = obj
         elif hasattr(obj, options_dict):
             opt = getattr(obj, options_dict)

@@ -47,6 +47,8 @@ class OptionsDictionary:
         If True, no options can be set after declaration.
     _all_recordable : bool
         Flag to determine if all options in UserOptions are recordable.
+    msginfo : str
+        String to prepend to error messages.
     """
 
     def __init__(self, msginfo=None, read_only=False):
@@ -653,6 +655,3 @@ class OptionsDictionary:
             name = alias
 
         return name, meta
-
-    def model_dump(self):
-        return self._dict

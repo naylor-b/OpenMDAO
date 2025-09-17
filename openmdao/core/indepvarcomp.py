@@ -1,11 +1,11 @@
 """Define the IndepVarComp class."""
 
 import numpy as np
-from typing import Any, List, Tuple
-from pydantic import Field
+from typing import Any, Set, Tuple
+from pydantic import Field, field_validator
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.general_utils import make_set, ensure_compatible
 from openmdao.recorders.recording_iteration_stack import Recording
@@ -190,7 +190,7 @@ class IndepVarComp(ExplicitComponent):
             pass
 
 
-class IndepVarCompOptions(ExplicitComponentOptions):
+class _IndepVarCompOptions(_ExplicitComponentOptions):
     name: str = Field(default="", desc="Name of the variable in this component's namespace.")
     val: Any = Field(default=1.0, esc="The initial value of the variable "
                      "being added in user-defined units.")
@@ -221,14 +221,19 @@ class IndepVarCompOptions(ExplicitComponentOptions):
     res_ref: float = Field(default=None, desc="Scaling parameter. The value in the user-defined "
                            "res_units of this output's residual when the scaled value is 1. "
                            "Default is None, which means residual scaling matches output scaling.")
-    tags: List[str] = Field(default=None,
+    tags: Set[str] = Field(default_factory=set,
                             desc="User defined tags that can be used to filter what gets "
                             "listed when calling list_outputs.")
 
+    @field_validator('tags', mode='before')
+    @classmethod
+    def _validate_tags(cls, v):
+        return make_set(v, name='tags')
+
 
 @dmm.register(IndepVarComp)
-class IndepVarCompModel(ExplicitComponentModel):
-    options: IndepVarCompOptions = Field(default_factory=IndepVarCompOptions)
+class _IndepVarCompModel(_ExplicitComponentModel):
+    options: _IndepVarCompOptions = Field(default_factory=_IndepVarCompOptions)
 
 
 class _AutoIndepVarComp(IndepVarComp):

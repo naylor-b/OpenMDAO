@@ -4,8 +4,8 @@ import numpy as np
 from scipy import linalg
 from pydantic import Field
 
-from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, \
-    ImplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, _ImplicitComponentOptions, \
+    _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -195,12 +195,12 @@ class LinearSystemComp(ImplicitComponent):
                 d_residuals['x'] = linalg.lu_solve(self._lup, d_outputs['x'], trans=1)
 
 
-class LinearSystemCompOptions(ImplicitComponentOptions):
+class _LinearSystemCompOptions(_ImplicitComponentOptions):
     size: int = Field(default=1, desc='The size of the linear system.')
     vec_size: int = Field(default=1, desc='Number of linear systems to solve.')
     vectorize_A: bool = Field(default=False, desc='Set to True to vectorize the A matrix.')
 
 
 @dmm.register(LinearSystemComp)
-class LinearSystemCompModel(ImplicitComponentModel):
-    options: LinearSystemCompOptions = Field(default_factory=LinearSystemCompOptions)
+class _LinearSystemCompModel(_ImplicitComponentModel):
+    options: _LinearSystemCompOptions = Field(default_factory=_LinearSystemCompOptions)

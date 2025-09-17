@@ -12,8 +12,8 @@ import warnings
 
 
 import openmdao.api as om
-from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.core.driver import DriverOptions, DriverModel
+from openmdao.core.group import _GroupOptions, _GroupModel
+from openmdao.core.driver import _DriverOptions, _DriverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.scripts.circuit_analysis import Resistor, Diode, Node
@@ -531,7 +531,7 @@ class TestSqliteRecorder(unittest.TestCase):
             "        do_coloring: False",
             ""
         ]
-        
+
         expected = sort_indented_lines(expected, starting_depth=2)
         text = sort_indented_lines(text, starting_depth=2)
 
@@ -850,7 +850,7 @@ class TestSqliteRecorder(unittest.TestCase):
         # check that deprecated options are recorded but no warning is issued
         from openmdao.core.driver import Driver
 
-        class MyDriverOptions(DriverOptions):
+        class MyDriverOptions(_DriverOptions):
             user_terminate_signal: Optional[str] = \
                 Field(default=None,
                       desc='Signal that triggers a clean user-termination.')
@@ -877,7 +877,7 @@ class TestSqliteRecorder(unittest.TestCase):
             pass
 
         @dmm.register(MyDriver)
-        class MyDriverModel(DriverModel):
+        class MyDriverModel(_DriverModel):
             options: MyDriverOptions = Field(default_factory=MyDriverOptions)
 
         prob = om.Problem(driver=MyDriver())
@@ -3587,7 +3587,7 @@ class TestFeatureSqliteRecorder(unittest.TestCase):
         vec_size = 7
         prob = om.Problem(model=om.Group())
 
-        class _TestSysOptions(GroupOptions):
+        class _TestSysOptions(_GroupOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         class _TestSys(om.Group):
@@ -3614,7 +3614,7 @@ class TestFeatureSqliteRecorder(unittest.TestCase):
                 self.add_objective('z')
 
         @dmm.register(_TestSys)
-        class _TestSysModel(GroupModel):
+        class _TestSysModel(_GroupModel):
             options: _TestSysOptions = Field(default_factory=_TestSysOptions)
 
         test_sys = prob.model.add_subsystem('test_sys', subsys=_TestSys(vec_size=vec_size))

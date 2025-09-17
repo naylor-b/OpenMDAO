@@ -6,8 +6,8 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -299,37 +299,37 @@ class SineFitter(om.Group):
         self.add_objective('arclength_quad.arclength')
 
 
-class LGLFitOptions(ExplicitComponentOptions):
+class LGLFitOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=8, desc='Number of nodes')
 
 
-class DefectCompOptions(ExplicitComponentOptions):
+class DefectCompOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=8, desc='Number of nodes')
 
 
-class ArcLengthFunctionOptions(ExplicitComponentOptions):
+class ArcLengthFunctionOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=8, desc='Number of nodes')
 
 
-class ArcLengthQuadratureOptions(ExplicitComponentOptions):
+class ArcLengthQuadratureOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=8, desc='Number of nodes')
 
 
 @dmm.register(LGLFit)
-class LGLFitModel(ExplicitComponentModel):
+class LGLFitModel(_ExplicitComponentModel):
     options: LGLFitOptions = Field(default_factory=LGLFitOptions)
 
 
 @dmm.register(DefectComp)
-class DefectCompModel(ExplicitComponentModel):
+class DefectCompModel(_ExplicitComponentModel):
     options: DefectCompOptions = Field(default_factory=DefectCompOptions)
 
 
 @dmm.register(ArcLengthFunction)
-class ArcLengthFunctionModel(ExplicitComponentModel):
+class ArcLengthFunctionModel(_ExplicitComponentModel):
     options: ArcLengthFunctionOptions = Field(default_factory=ArcLengthFunctionOptions)
 
 
 @dmm.register(ArcLengthQuadrature)
-class ArcLengthQuadratureModel(ExplicitComponentModel):
+class ArcLengthQuadratureModel(_ExplicitComponentModel):
     options: ArcLengthQuadratureOptions = Field(default_factory=ArcLengthQuadratureOptions)

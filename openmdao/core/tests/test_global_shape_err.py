@@ -4,11 +4,11 @@ from openmdao.utils.mpi import MPI
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
-class TwoDArrayAdderOptions(ExplicitComponentOptions):
+class TwoDArrayAdderOptions(_ExplicitComponentOptions):
     n0: int = Field(default=1, desc='First dimension size')
     n1: int = Field(default=1, desc='Second dimension size')
 
@@ -26,7 +26,7 @@ class TwoDArrayAdder(om.ExplicitComponent):
 
 
 @dmm.register(TwoDArrayAdder)
-class TwoDArrayAdderModel(ExplicitComponentModel):
+class TwoDArrayAdderModel(_ExplicitComponentModel):
     options: TwoDArrayAdderOptions = Field(default_factory=TwoDArrayAdderOptions)
 
 

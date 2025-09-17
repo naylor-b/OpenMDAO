@@ -4,7 +4,7 @@ from pydantic import Field
 
 from openmdao.core.constants import _UNDEFINED
 from openmdao.solvers.linear.linear_block_gs import LinearBlockGS, _NonIterLinearBlockGSOptions
-from openmdao.solvers.solver import LinearSolverModel
+from openmdao.solvers.solver import _LinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -45,5 +45,5 @@ class LinearRunOnce(LinearBlockGS):
 
 
 @dmm.register(LinearRunOnce)
-class LinearRunOnceModel(LinearSolverModel):
+class _LinearRunOnceModel(_LinearSolverModel):
     options: _NonIterLinearBlockGSOptions = Field(default_factory=_NonIterLinearBlockGSOptions)

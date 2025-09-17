@@ -4,8 +4,8 @@ import numpy as np
 from typing import Optional
 from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -185,7 +185,7 @@ class DotProductComp(ExplicitComponent):
             partials[product['c_name'], product['b_name']] = a.ravel()
 
 
-class DotProductCompOptions(ExplicitComponentOptions):
+class _DotProductCompOptions(_ExplicitComponentOptions):
     vec_size: int = Field(default=1,
                           desc='The number of points at which the dot product is computed')
     length: int = Field(default=3, desc='The length of vectors a and b')
@@ -198,5 +198,5 @@ class DotProductCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(DotProductComp)
-class DotProductCompModel(ExplicitComponentModel):
-    options: DotProductCompOptions = Field(default_factory=DotProductCompOptions)
+class _DotProductCompModel(_ExplicitComponentModel):
+    options: _DotProductCompOptions = Field(default_factory=_DotProductCompOptions)

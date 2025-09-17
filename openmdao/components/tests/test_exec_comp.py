@@ -425,26 +425,24 @@ class TestExecComp(unittest.TestCase):
     def test_units_varname(self):
         prob = om.Problem()
 
-        with self.assertRaises(TypeError) as cm:
+        with self.assertRaises(Exception) as cm:
             prob.model.add_subsystem('C1', om.ExecComp('y=x+units+1.',
                                                        x={'val': 2.0, 'units': 'm'},
                                                        y={'units': 'm'},
                                                        units=2.0))
 
-        self.assertEqual(str(cm.exception),
-                         "ExecComp: Value (2.0) of option 'units' has type 'float', "
-                         "but type 'str' was expected.")
+        self.assertTrue("units\n  Input should be a valid string [type=string_type, input_value=2.0, input_type=float]" in str(cm.exception))
 
     def test_units_varname_str(self):
         prob = om.Problem()
 
-        with self.assertRaises(ValueError) as cm:
+        with self.assertRaises(Exception) as cm:
             prob.model.add_subsystem('C1', om.ExecComp('y=x+units+1.',
                                                        x={'val': 2.0, 'units': 'm'},
                                                        y={'units': 'm'},
                                                        units='two'))
 
-        self.assertEqual(str(cm.exception), "The units 'two' are invalid.")
+        self.assertTrue("The units 'two' are invalid" in str(cm.exception))
 
     def test_units_varname_novalue(self):
         prob = om.Problem()

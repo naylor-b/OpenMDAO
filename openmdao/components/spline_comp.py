@@ -4,8 +4,8 @@ from typing import List, Union, Optional, Dict, Any
 from pydantic import Field, ConfigDict, field_validator
 
 from openmdao.components.interp_util.interp import InterpND
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.components.interp_util.interp import SPLINE_METHODS
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -180,7 +180,7 @@ class SplineComp(ExplicitComponent):
             partials[out_name, cp_name] = dy_ddata.flatten()
 
 
-class SplineCompOptions(ExplicitComponentOptions):
+class _SplineCompOptions(_ExplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     vec_size: int = Field(default=1, desc='Number of points to evaluate at once.')
@@ -209,5 +209,5 @@ class SplineCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(SplineComp)
-class SplineCompModel(ExplicitComponentModel):
-    options: SplineCompOptions = Field(default_factory=SplineCompOptions)
+class _SplineCompModel(_ExplicitComponentModel):
+    options: _SplineCompOptions = Field(default_factory=_SplineCompOptions)

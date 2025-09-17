@@ -8,7 +8,7 @@ import scipy.sparse.linalg
 from scipy.sparse import csc_matrix
 from pydantic import Field
 
-from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, LinearSolverModel, \
+from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, _LinearSolverModel, \
     _LinearSolverSupports
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.utils.array_utils import identity_column_iter
@@ -315,7 +315,7 @@ class DirectSolver(LinearSolver):
         system = self._system()
         nproc = system.comm.size
 
-        if system._get_assembled_jac() is not None:
+        if not system.matrix_free and system._get_assembled_jac() is not None:
             matrix = system._assembled_jac.get_dr_do_matrix()
 
             if matrix is None:
@@ -488,7 +488,7 @@ class DirectSolver(LinearSolver):
                     return
 
         # AssembledJacobians are unscaled.
-        if system._get_assembled_jac() is not None:
+        if not system.matrix_free and system._get_assembled_jac() is not None:
             full_b = b_vec
 
             with system._unscaled_context(outputs=[d_outputs], residuals=[d_residuals]):
@@ -530,11 +530,11 @@ class _DirectSolverOptions(_NonIterLinearSolverOptions):
                                f"{LinearRHSChecker.options}")
 
 
-class DirectSolverSupports(_LinearSolverSupports):
+class _DirectSolverSupports(_LinearSolverSupports):
     implicit_components: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(DirectSolver)
-class DirectSolverModel(LinearSolverModel):
+class _DirectSolverModel(_LinearSolverModel):
     options: _DirectSolverOptions = Field(default_factory=_DirectSolverOptions)
-    supports: DirectSolverSupports = Field(default_factory=DirectSolverSupports)
+    supports: _DirectSolverSupports = Field(default_factory=_DirectSolverSupports)

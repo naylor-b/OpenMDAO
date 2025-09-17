@@ -5,7 +5,7 @@ from itertools import chain
 import numpy as np
 from pydantic import Field
 
-from openmdao.core.system import ImplicitSystemOptions, SystemModel
+from openmdao.core.system import _ImplicitSystemOptions, _SystemModel
 from openmdao.core.component import Component, _allowed_types
 from openmdao.core.constants import _UNDEFINED, _SetupStatus
 from openmdao.vectors.vector import _full_slice
@@ -1041,7 +1041,7 @@ class ImplicitComponent(Component):
         return jac.get_sparsity()
 
 
-class NonDistributedImplicitComponentOptions(ImplicitSystemOptions):
+class _NonDistributedImplicitComponentOptions(_ImplicitSystemOptions):
     run_root_only: bool = Field(default=False,
                                 desc='If True, call compute, compute_partials, linearize, '
                                 'apply_linear, apply_nonlinear, solve_linear, solve_nonlinear, '
@@ -1060,15 +1060,15 @@ class NonDistributedImplicitComponentOptions(ImplicitSystemOptions):
                                  'compute_shape. Default is (1,).')
 
 
-class ImplicitComponentOptions(NonDistributedImplicitComponentOptions):
+class _ImplicitComponentOptions(_NonDistributedImplicitComponentOptions):
     distributed: bool = Field(default=False,
                               desc='If True, set all variables in this component as distributed '
                               'across multiple processes')
 
 
 @dmm.register(ImplicitComponent)
-class ImplicitComponentModel(SystemModel):
-    options: ImplicitComponentOptions = Field(default_factory=ImplicitComponentOptions)
+class _ImplicitComponentModel(_SystemModel):
+    options: _ImplicitComponentOptions = Field(default_factory=_ImplicitComponentOptions)
 
 
 class _ResidsWrapper(object):

@@ -4,7 +4,7 @@ import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.units import convert_units
 from pydantic import Field
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -31,7 +31,7 @@ def units_setter(opt_meta, value):
     return (converted_val, units)
 
 
-class AviaryCompOptions(ExplicitComponentOptions):
+class AviaryCompOptions(_ExplicitComponentOptions):
     length: tuple = Field(default=(12.0, 'inch'), desc='Length with units')
 
 
@@ -73,7 +73,7 @@ class TestOptionsDictionaryUnits(unittest.TestCase):
 
 
 @dmm.register(AviaryComp)
-class AviaryCompModel(ExplicitComponentModel):
+class AviaryCompModel(_ExplicitComponentModel):
     options: AviaryCompOptions = Field(default_factory=AviaryCompOptions)
 
 

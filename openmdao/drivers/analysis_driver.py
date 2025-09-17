@@ -7,8 +7,8 @@ import itertools
 import traceback
 from pydantic import Field
 
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
-    DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, _DriverOptions, _DriverModel, \
+    _DriverSupports
 from openmdao.core.analysis_error import AnalysisError
 
 from openmdao.drivers.analysis_generator import AnalysisGenerator, SequenceGenerator
@@ -419,7 +419,7 @@ class AnalysisDriver(Driver):
         return self._metadata
 
 
-class AnalysisDriverOptions(DriverOptions):
+class _AnalysisDriverOptions(_DriverOptions):
     run_parallel: bool = Field(default=False, desc='Set to True to execute samples in parallel.')
     batch_size: int = \
         Field(default=1000,
@@ -430,13 +430,13 @@ class AnalysisDriverOptions(DriverOptions):
                                  desc='Number of processors to give each model under MPI.')
 
 
-class AnalysisDriverSupports(DriverSupports):
+class _AnalysisDriverSupports(_DriverSupports):
     integer_design_vars: bool = Field(default=True, frozen=True)
     distributed_design_vars: bool = Field(default=False, frozen=True)
     optimization: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(AnalysisDriver)
-class AnalysisDriverModel(DriverModel):
-    options: AnalysisDriverOptions = Field(default_factory=AnalysisDriverOptions)
-    supports: AnalysisDriverSupports = Field(default_factory=AnalysisDriverSupports)
+class _AnalysisDriverModel(_DriverModel):
+    options: _AnalysisDriverOptions = Field(default_factory=_AnalysisDriverOptions)
+    supports: _AnalysisDriverSupports = Field(default_factory=_AnalysisDriverSupports)

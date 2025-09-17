@@ -9,7 +9,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import set_pyoptsparse_opt
@@ -463,7 +463,7 @@ class TestParallelListStates(unittest.TestCase):
                          ['par.C1.x', 'par.C2.x', 'par.C4.x'])
 
 
-class ExCompOptions(ExplicitComponentOptions):
+class ExCompOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
 
 
@@ -483,7 +483,7 @@ class ExComp(om.ExplicitComponent):
 
 
 @dmm.register(ExComp)
-class ExCompModel(ExplicitComponentModel):
+class ExCompModel(_ExplicitComponentModel):
     options: ExCompOptions = Field(default_factory=ExCompOptions)
 
 

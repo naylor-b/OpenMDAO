@@ -4,7 +4,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.assert_utils import assert_near_equal
@@ -87,7 +87,7 @@ class TestVector(unittest.TestCase):
 A = np.array([[1.0, 8.0, 0.0], [-1.0, 10.0, 2.0], [3.0, 100.5, 1.0]])
 
 
-class DistribQuadtricOptions(ImplicitComponentOptions):
+class DistribQuadtricOptions(_ImplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
@@ -131,11 +131,11 @@ class DistribQuadtric(om.ImplicitComponent):
 
 
 @dmm.register(DistribQuadtric)
-class DistribQuadtricModel(ImplicitComponentModel):
+class DistribQuadtricModel(_ImplicitComponentModel):
     options: DistribQuadtricOptions = Field(default_factory=DistribQuadtricOptions)
 
 
-class SerialLinearOptions(ImplicitComponentOptions):
+class SerialLinearOptions(_ImplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
@@ -158,7 +158,7 @@ class SerialLinear(om.ImplicitComponent):
 
 
 @dmm.register(SerialLinear)
-class SerialLinearModel(ImplicitComponentModel):
+class SerialLinearModel(_ImplicitComponentModel):
     options: SerialLinearOptions = Field(default_factory=SerialLinearOptions)
 
 

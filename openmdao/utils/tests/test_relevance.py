@@ -6,8 +6,8 @@ from pydantic import Field
 import openmdao.api as om
 from openmdao.utils.relevance import _vars2systems
 from openmdao.utils.assert_utils import assert_check_totals
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -71,7 +71,7 @@ class TestRelevanceEmptyGroups(unittest.TestCase):
         assert_check_totals(prob.check_totals(method='cs', out_stream=None))
 
 
-class LinearEquationOptions(ExplicitComponentOptions):
+class LinearEquationOptions(_ExplicitComponentOptions):
     numInputs: int = Field(default=3, desc='Number of inputs')
     numOutputs: int = Field(default=2, desc='Number of outputs')
 
@@ -94,7 +94,7 @@ class LinearEquation(om.ExplicitComponent):
         outputs["res"] = self.A @ inputs["x"] - self.b
 
 
-class SquaredNormOptions(ExplicitComponentOptions):
+class SquaredNormOptions(_ExplicitComponentOptions):
     numInputs: int = Field(default=3, desc='Number of inputs')
 
 
@@ -115,7 +115,7 @@ class SquaredNorm(om.ExplicitComponent):
         outputs["xNorm"] = np.dot(inputs["x"], inputs["x"])
 
 
-class UnderdeterminedSystemOptions(GroupOptions):
+class UnderdeterminedSystemOptions(_GroupOptions):
     numInputs: int = Field(default=3, desc='Number of inputs')
     numOutputs: int = Field(default=2, desc='Number of outputs')
 
@@ -146,15 +146,15 @@ class TestRelevanceNoObjLinearConstraint(unittest.TestCase):
 
 
 @dmm.register(LinearEquation)
-class LinearEquationModel(ExplicitComponentModel):
+class LinearEquationModel(_ExplicitComponentModel):
     options: LinearEquationOptions = Field(default_factory=LinearEquationOptions)
 
 
 @dmm.register(SquaredNorm)
-class SquaredNormModel(ExplicitComponentModel):
+class SquaredNormModel(_ExplicitComponentModel):
     options: SquaredNormOptions = Field(default_factory=SquaredNormOptions)
 
 
 @dmm.register(UnderdeterminedSystem)
-class UnderdeterminedSystemModel(GroupModel):
+class UnderdeterminedSystemModel(_GroupModel):
     options: UnderdeterminedSystemOptions = Field(default_factory=UnderdeterminedSystemOptions)

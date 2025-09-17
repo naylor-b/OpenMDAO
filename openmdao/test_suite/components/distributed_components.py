@@ -7,7 +7,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -36,18 +36,17 @@ class DistribComp(om.ExplicitComponent):
         else:
             outputs['outvec'] = inputs['invec'] * -3.0
 
-class DistribCompOptions(ExplicitComponentOptions):
+class DistribCompOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
 @dmm.register(DistribComp)
-class DistribCompModel(ExplicitComponentModel):
+class DistribCompModel(_ExplicitComponentModel):
     options: DistribCompOptions = Field(default_factory=DistribCompOptions)
 
 
 class Summer(om.ExplicitComponent):
     """Sums an input array."""
-
 
     def setup(self):
         self.add_input('invec', np.ones(self.options['size'], float))
@@ -56,6 +55,15 @@ class Summer(om.ExplicitComponent):
 
     def compute(self, inputs, outputs):
         outputs['sum'] = np.sum(inputs['invec'])
+
+
+class SummerOptions(_ExplicitComponentOptions):
+    size: int = Field(default=1, desc="Size of input and output vectors.")
+
+@dmm.register(Summer)
+class SummerModel(_ExplicitComponentModel):
+    options: SummerOptions = Field(default_factory=SummerOptions)
+
 
 
 class DistribCompDerivs(om.ExplicitComponent):
@@ -97,18 +105,17 @@ class DistribCompDerivs(om.ExplicitComponent):
         else:
             J['outvec', 'invec'] = np.ones((mysize,)) * -3.0
 
-class DistribCompDerivsOptions(ExplicitComponentOptions):
+class DistribCompDerivsOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
 @dmm.register(DistribCompDerivs)
-class DistribCompDerivsModel(ExplicitComponentModel):
+class DistribCompDerivsModel(_ExplicitComponentModel):
     options: DistribCompDerivsOptions = Field(default_factory=DistribCompDerivsOptions)
 
 
 class SummerDerivs(om.ExplicitComponent):
     """Sums an input array."""
-
 
     def setup(self):
         self.add_input('invec', np.ones(self.options['size'], float))
@@ -123,11 +130,11 @@ class SummerDerivs(om.ExplicitComponent):
         outputs['sum'] = np.sum(inputs['invec'])
 
 
-class SummerDerivsOptions(ExplicitComponentOptions):
+class SummerDerivsOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 @dmm.register(SummerDerivs)
-class SummerDerivsModel(ExplicitComponentModel):
+class SummerDerivsModel(_ExplicitComponentModel):
     options: SummerDerivsOptions = Field(default_factory=SummerDerivsOptions)
 
 

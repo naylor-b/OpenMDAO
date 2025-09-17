@@ -25,8 +25,8 @@ except Exception as err:
 
 from openmdao.core.constants import _DEFAULT_REPORTS_DIR
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.driver import Driver, RecordingDebugging, filter_by_meta, DriverModel, \
-    DriverOptions, DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, filter_by_meta, _DriverModel, \
+    _DriverOptions, _DriverSupports
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import FakeComm, MPI
@@ -910,7 +910,7 @@ class pyOptSparseDriver(Driver):
             raise UserRequestedException('User requested termination.')
 
 
-class PyOptSparseDriverOptions(DriverOptions):
+class _PyOptSparseDriverOptions(_DriverOptions):
     optimizer: str = Field(default='SLSQP', desc='Name of optimizers to use')
     title: str = Field(default='Optimization using pyOpt_sparse',
                        desc='Title of this optimization run')
@@ -938,7 +938,7 @@ class PyOptSparseDriverOptions(DriverOptions):
                             desc='Directory location of pyopt_sparse output files.')
 
 
-class PyOptSparseDriverSupports(DriverSupports):
+class _PyOptSparseDriverSupports(_DriverSupports):
     # gradients can't be frozen because it depends on the actual optimizer
     gradients: bool = Field(default=True)
     optimization: bool = Field(default=True, frozen=True)
@@ -956,6 +956,6 @@ class PyOptSparseDriverSupports(DriverSupports):
 
 
 @dmm.register(pyOptSparseDriver)
-class PyOptSparseDriverMode(DriverModel):
-    options: PyOptSparseDriverOptions = Field(default_factory=PyOptSparseDriverOptions)
-    supports: PyOptSparseDriverSupports = Field(default_factory=PyOptSparseDriverSupports)
+class _PyOptSparseDriverModel(_DriverModel):
+    options: _PyOptSparseDriverOptions = Field(default_factory=_PyOptSparseDriverOptions)
+    supports: _PyOptSparseDriverSupports = Field(default_factory=_PyOptSparseDriverSupports)

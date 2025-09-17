@@ -11,7 +11,7 @@ from scipy import __version__ as scipy_version
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.expl_comp_array import TestExplCompArrayDense, TestExplCompArraySparse, TestExplCompArrayJacVec
 from openmdao.test_suite.components.paraboloid import Paraboloid
@@ -43,7 +43,7 @@ def rosenbrock(x):
     return sum((1 - x_0) ** 2) + 100 * sum((x_1 - x_0 ** 2) ** 2)
 
 
-class RosenbrockOptions(ExplicitComponentOptions):
+class RosenbrockOptions(_ExplicitComponentOptions):
     vec_size: int = Field(default=6, desc='Size of input vector.')
 
 
@@ -59,7 +59,7 @@ class Rosenbrock(om.ExplicitComponent):
 
 
 @dmm.register(Rosenbrock)
-class RosenbrockModel(ExplicitComponentModel):
+class RosenbrockModel(_ExplicitComponentModel):
     options: RosenbrockOptions = Field(default_factory=RosenbrockOptions)
 
 

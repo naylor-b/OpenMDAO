@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 from openmdao.approximation_schemes.complex_step import ComplexStep
@@ -149,16 +149,16 @@ class DirectionalVectorizedComp(om.ExplicitComponent):
         partials['out', 'in'] = np.diag(2.0 + np.arange(self.options['n']))
 
 
-class DirectionalVectorizedCompOptions(ExplicitComponentOptions):
+class DirectionalVectorizedCompOptions(_ExplicitComponentOptions):
     n: int = Field(default=1, desc='vector size')
 
 
 @dmm.register(DirectionalVectorizedComp)
-class DirectionalVectorizedCompModel(ExplicitComponentModel):
+class DirectionalVectorizedCompModel(_ExplicitComponentModel):
     options: DirectionalVectorizedCompOptions = Field(default_factory=DirectionalVectorizedCompOptions)
 
 
-class DirectionalVectorizedMatFreeCompOptions(ExplicitComponentOptions):
+class DirectionalVectorizedMatFreeCompOptions(_ExplicitComponentOptions):
     n: int = Field(default=1, desc='vector size')
 
 
@@ -196,7 +196,7 @@ class DirectionalVectorizedMatFreeComp(om.ExplicitComponent):
 
 
 @dmm.register(DirectionalVectorizedMatFreeComp)
-class DirectionalVectorizedMatFreeCompModel(ExplicitComponentModel):
+class DirectionalVectorizedMatFreeCompModel(_ExplicitComponentModel):
     options: DirectionalVectorizedMatFreeCompOptions = Field(default_factory=DirectionalVectorizedMatFreeCompOptions)
 
 
@@ -1705,7 +1705,7 @@ class TestProblemCheckPartials(unittest.TestCase):
 
     def test_directional_mimo(self):
 
-        class DirectionalCompOptions(ExplicitComponentOptions):
+        class DirectionalCompOptions(_ExplicitComponentOptions):
             n: int = Field(default=1, desc='vector size')
 
         class DirectionalComp(om.ExplicitComponent):
@@ -1752,7 +1752,7 @@ class TestProblemCheckPartials(unittest.TestCase):
                             d_inputs['in2'] += -1.0 * self.mat2.transpose().dot(d_outputs['out2'])
 
         @dmm.register(DirectionalComp)
-        class DirectionalCompModel(ExplicitComponentModel):
+        class DirectionalCompModel(_ExplicitComponentModel):
             options: DirectionalCompOptions = Field(default_factory=DirectionalCompOptions)
 
         prob = om.Problem()
@@ -2652,7 +2652,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
 
     def test_directional_sparse_deriv(self):
 
-        class FDCompOptions(ExplicitComponentOptions):
+        class FDCompOptions(_ExplicitComponentOptions):
             vec_size: int = Field(default=1, desc='Vector size')
 
         class FDComp(om.ExplicitComponent):
@@ -2678,7 +2678,7 @@ class TestCheckPartialsFeature(unittest.TestCase):
                 partials['y', 'x_element'] = x3
 
         @dmm.register(FDComp)
-        class FDCompModel(ExplicitComponentModel):
+        class FDCompModel(_ExplicitComponentModel):
             options: FDCompOptions = Field(default_factory=FDCompOptions)
 
         prob = om.Problem()

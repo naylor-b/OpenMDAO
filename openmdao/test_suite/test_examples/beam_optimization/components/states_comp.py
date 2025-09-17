@@ -4,7 +4,7 @@ from scipy.sparse.linalg import splu
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -117,7 +117,7 @@ class StatesComp(om.ImplicitComponent):
         return coo_matrix((data, (rows, cols)), shape=(n_K, n_K)).tocsc()
 
 
-class StatesCompOptions(ImplicitComponentOptions):
+class StatesCompOptions(_ImplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     num_elements: int = Field(default=0, desc='Number of beam elements')
@@ -125,5 +125,5 @@ class StatesCompOptions(ImplicitComponentOptions):
 
 
 @dmm.register(StatesComp)
-class StatesCompModel(ImplicitComponentModel):
+class StatesCompModel(_ImplicitComponentModel):
     options: StatesCompOptions = Field(default_factory=StatesCompOptions)

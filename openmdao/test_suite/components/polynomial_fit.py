@@ -5,7 +5,7 @@ import openmdao.api as om
 import numpy as np
 from pydantic import Field, ConfigDict
 
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 class PolynomialFit(om.ImplicitComponent):
@@ -65,11 +65,11 @@ class PolynomialFit(om.ImplicitComponent):
         residuals['y'] = Y - outputs['y']
 
 
-class PolynomialFitOptions(ImplicitComponentOptions):
+class PolynomialFitOptions(_ImplicitComponentOptions):
     N_cp: int = Field(default=1, desc='Number of control points')
     N_predict: int = Field(default=1, desc='Number of prediction points')
 
 
 @dmm.register(PolynomialFit)
-class PolynomialFitModel(ImplicitComponentModel):
+class PolynomialFitModel(_ImplicitComponentModel):
     options: PolynomialFitOptions = Field(default_factory=PolynomialFitOptions)

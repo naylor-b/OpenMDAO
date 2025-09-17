@@ -2,7 +2,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.moment_comp import MomentOfInertiaComp
@@ -51,7 +51,7 @@ class BeamGroup(om.Group):
         self.add_constraint('volume_comp.volume', equals=volume)
 
 
-class BeamGroupOptions(GroupOptions):
+class BeamGroupOptions(_GroupOptions):
     E: float = Field(default=0.0, desc='Young\'s modulus of the beam material')
     L: float = Field(default=0.0, desc='Length of the beam')
     b: float = Field(default=0.0, desc='Width of the beam')
@@ -60,5 +60,5 @@ class BeamGroupOptions(GroupOptions):
 
 
 @dmm.register(BeamGroup)
-class BeamGroupModel(GroupModel):
+class BeamGroupModel(_GroupModel):
     options: BeamGroupOptions = Field(default_factory=BeamGroupOptions)

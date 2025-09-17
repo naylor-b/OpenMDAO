@@ -8,15 +8,15 @@ import platform
 from io import StringIO
 from tempfile import mkstemp
 from collections import OrderedDict
-from pydantic import Field
+from pydantic import Field, ConfigDict
 from typing import Any
 
 import numpy as np
 
 import openmdao.api as om
-from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.indepvarcomp import IndepVarCompOptions, IndepVarCompModel
+from openmdao.core.group import _GroupOptions, _GroupModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.indepvarcomp import _IndepVarCompOptions, _IndepVarCompModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao import __version__ as openmdao_version
 from openmdao.recorders.sqlite_recorder import format_version
@@ -108,7 +108,7 @@ class SellarDerivativesGroupedPreAutoIVC(om.Group):
         self.mda.nonlinear_solver = om.NonlinearBlockGS()
 
 
-class SellarDerivativesGroupedPreAutoIVCOptions(GroupOptions):
+class SellarDerivativesGroupedPreAutoIVCOptions(_GroupOptions):
     nonlinear_solver: type = Field(default=om.NonlinearBlockGS, desc='Nonlinear solver (class or instance) for Sellar MDA')
     nl_atol: float = Field(default=None, desc='User-specified atol for nonlinear solver.')
     nl_maxiter: int = Field(default=None, desc='Iteration limit for nonlinear solver.')
@@ -117,7 +117,7 @@ class SellarDerivativesGroupedPreAutoIVCOptions(GroupOptions):
     ln_maxiter: int = Field(default=None, desc='Iteration limit for linear solver.')
 
 @dmm.register(SellarDerivativesGroupedPreAutoIVC)
-class SellarDerivativesGroupedPreAutoIVCModel(GroupModel):
+class SellarDerivativesGroupedPreAutoIVCModel(_GroupModel):
     options: SellarDerivativesGroupedPreAutoIVCOptions = Field(default_factory=SellarDerivativesGroupedPreAutoIVCOptions)
 
 
@@ -1695,7 +1695,7 @@ class TestSqliteCaseReader(unittest.TestCase):
                 # driver does not record coupling vars y1 & y2
                 # or the lower level inputs and outputs of d1
                 msg = "'Variable name \"%s\" not found.'" % name
-                with self.assertRaises(KeyError) as cm:
+                with self.assertRaises(Exception) as cm:
                     case[name]
                 self.assertEqual(str(cm.exception), msg)
             else:
@@ -1708,7 +1708,7 @@ class TestSqliteCaseReader(unittest.TestCase):
             if name in ['d1.x', 'd1.y2', 'd1.z']:
                 # problem does not record lower level inputs
                 msg = "'Variable name \"%s\" not found.'" % name
-                with self.assertRaises(KeyError) as cm:
+                with self.assertRaises(Exception) as cm:
                     case[name]
                 self.assertEqual(str(cm.exception), msg)
             else:
@@ -1722,7 +1722,7 @@ class TestSqliteCaseReader(unittest.TestCase):
             if name != 'y1' and not name.startswith('d1.'):
                 # system d1 does not record params, obj and cons
                 msg = "'Variable name \"%s\" not found.'" % name
-                with self.assertRaises(KeyError) as cm:
+                with self.assertRaises(Exception) as cm:
                     case[name]
                 self.assertEqual(str(cm.exception), msg)
             else:
@@ -1915,17 +1915,17 @@ class TestSqliteCaseReader(unittest.TestCase):
         class MyIVC(om.IndepVarComp):
             pass
 
-        class MyIVCOptions(IndepVarCompOptions):
+        class MyIVCOptions(_IndepVarCompOptions):
             options_value_1: int = Field(default=1, desc='Options value 1')
             options_value_to_fail: Any = Field(default=(i for i in []), desc='Options value to fail')
 
         @dmm.register(MyIVC)
-        class MyIVCModel(IndepVarCompModel):
+        class MyIVCModel(_IndepVarCompModel):
             options: MyIVCOptions = Field(default_factory=MyIVCOptions)
 
         # simple paraboloid model
         model = om.Group()
-        ivc = om.MyIVC()
+        ivc = MyIVC()
         ivc.add_output('x', 3.0)
         model.add_subsystem('subs', ivc)
         subs = model.subs
@@ -3111,11 +3111,11 @@ class DummyClass(object):
                     y = inputs['y']
                     outputs['f_xy'] = (x - 3.0)**2 + x * y + (y + 4.0)**2 - 3.0
 
-            class ParaboloidWithDummyMetadataOptions(ExplicitComponentOptions):
+            class ParaboloidWithDummyMetadataOptions(_ExplicitComponentOptions):
                 dummy: object = Field(default_factory=lambda: mymodule.DummyClass(), desc='Dummy metadata')
 
             @dmm.register(ParaboloidWithDummyMetadata)
-            class ParaboloidWithDummyMetadataModel(ExplicitComponentModel):
+            class ParaboloidWithDummyMetadataModel(_ExplicitComponentModel):
                 options: ParaboloidWithDummyMetadataOptions = Field(default_factory=ParaboloidWithDummyMetadataOptions)
 
             prob = om.Problem(name='test_reading_non_importable_objects_in_system_options')
@@ -3229,9 +3229,6 @@ class DummyClass(object):
                     return exec, ("__import__('os').system('touch pwned.txt')",)
 
         class PayloadComp(om.ExplicitComponent):
-            def __init__(self, func, **kwargs):
-                self.func = func
-                super().__init__(**kwargs)
 
             def setup(self):
                 self.add_input('x')
@@ -3240,11 +3237,13 @@ class DummyClass(object):
             def compute(self, inputs, outputs):
                 outputs['y'] = 2 * inputs['x']
 
-        class PayloadCompOptions(ExplicitComponentOptions):
-            payload: object = Field(default=None, desc='Payload')
+        class PayloadCompOptions(_ExplicitComponentOptions):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            payload: Payload = Field(default=None, desc='Payload')
+
 
         @dmm.register(PayloadComp)
-        class PayloadCompModel(ExplicitComponentModel):
+        class PayloadCompModel(_ExplicitComponentModel):
             options: PayloadCompOptions = Field(default_factory=PayloadCompOptions)
 
         os_module = 'nt' if platform.system() == 'Windows' else 'posix'
@@ -3258,7 +3257,7 @@ class DummyClass(object):
             with self.subTest(func):
                 prob = om.Problem()
                 model = prob.model
-                model.add_subsystem('comp1', PayloadComp(func), promotes=['*'])
+                model.add_subsystem('comp1', PayloadComp(payload=Payload(func)), promotes=['*'])
                 model.add_subsystem('comp2', om.ExecComp('z = y * 2'), promotes=['*'])
 
                 filename = f"{func}.sql"

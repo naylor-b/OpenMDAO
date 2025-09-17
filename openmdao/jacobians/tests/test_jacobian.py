@@ -11,7 +11,7 @@ from openmdao.api import IndepVarComp, Group, Problem, \
                          ExplicitComponent, ImplicitComponent, ExecComp, \
                          NewtonSolver, ScipyKrylov, \
                          LinearBlockGS, DirectSolver
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials, assert_check_totals
 from openmdao.utils.array_utils import rand_sparsity
@@ -1217,13 +1217,13 @@ class CCBladeResidualComp(ImplicitComponent):
         partials['Tp', 'phi'] = np.array([13., 14, 15, 16])
 
 
-class CCBladeResidualCompOptions(ImplicitComponentOptions):
+class CCBladeResidualCompOptions(_ImplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
     num_radial: int = Field(default=1, desc='Number of radial points')
 
 
 @dmm.register(CCBladeResidualComp)
-class CCBladeResidualCompModel(ImplicitComponentModel):
+class CCBladeResidualCompModel(_ImplicitComponentModel):
     options: CCBladeResidualCompOptions = Field(default_factory=CCBladeResidualCompOptions)
 
 

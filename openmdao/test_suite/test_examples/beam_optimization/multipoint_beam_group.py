@@ -7,7 +7,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.test_suite.test_examples.beam_optimization.components.local_stiffness_matrix_comp import LocalStiffnessMatrixComp
@@ -135,7 +135,7 @@ class MultipointBeamGroup(om.Group):
         self.add_objective('obj_sum.obj')
 
 
-class MultiPointBeamGroupOptions(GroupOptions):
+class MultiPointBeamGroupOptions(_GroupOptions):
     E: float = Field(default=1.0, desc='Young\'s modulus of the beam material')
     L: float = Field(default=1.0, desc='Length of the beam')
     b: float = Field(default=0.1, desc='Width of the beam')
@@ -146,5 +146,5 @@ class MultiPointBeamGroupOptions(GroupOptions):
 
 
 @dmm.register(MultipointBeamGroup)
-class MultiPointBeamGroupModel(GroupModel):
+class MultiPointBeamGroupModel(_GroupModel):
     options: MultiPointBeamGroupOptions = Field(default_factory=MultiPointBeamGroupOptions)

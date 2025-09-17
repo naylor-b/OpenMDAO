@@ -5,8 +5,8 @@ import numpy as np
 from typing import Optional, Union
 from pydantic import Field, field_validator
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.units import valid_units
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -219,7 +219,7 @@ class KSComp(ExplicitComponent):
         partials['KS', 'g'] = derivs.flatten()
 
 
-class KSCompOptions(ExplicitComponentOptions):
+class _KSCompOptions(_ExplicitComponentOptions):
     width: int = Field(default=1, desc='Width of constraint vector.')
     vec_size: int = Field(default=1, desc='The number of rows to independently aggregate.')
     minimum: bool = \
@@ -261,5 +261,5 @@ class KSCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(KSComp)
-class KSCompModel(ExplicitComponentModel):
-    options: KSCompOptions = Field(default_factory=KSCompOptions)
+class _KSCompModel(_ExplicitComponentModel):
+    options: _KSCompOptions = Field(default_factory=_KSCompOptions)

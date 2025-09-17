@@ -7,7 +7,7 @@ import unittest
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -45,7 +45,7 @@ class Cuber(om.ExplicitComponent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._vars = {}
-        
+
     def add_var(self, name, units='m'):
         """
         Add a variable to be squared by the component.
@@ -79,11 +79,11 @@ class Cuber(om.ExplicitComponent):
         for var in self._vars:
             outputs['{0}_cubed'.format(var)] = inputs[var] ** 3
 
-class CuberOptions(ExplicitComponentOptions):
+class CuberOptions(_ExplicitComponentOptions):
     vec_size: int = Field(default=0, desc='Vector size')
 
 @dmm.register(Cuber)
-class CuberModel(ExplicitComponentModel):
+class CuberModel(_ExplicitComponentModel):
     options: CuberOptions = Field(default_factory=CuberOptions)
 
 

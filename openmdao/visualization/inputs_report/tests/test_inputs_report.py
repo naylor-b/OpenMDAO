@@ -4,7 +4,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.double_sellar import DoubleSellar
 from openmdao.utils.assert_utils import assert_near_equal
@@ -111,11 +111,11 @@ class TestInputReportsMPI(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['x_sum'] = self.comm.allreduce(np.sum(inputs['x']))
 
-        class AdderOptions(ExplicitComponentOptions):
+        class AdderOptions(_ExplicitComponentOptions):
             n0: tuple = Field(default=(), desc='Shape tuple')
 
         @dmm.register(Adder)
-        class AdderModel(ExplicitComponentModel):
+        class AdderModel(_ExplicitComponentModel):
             options: AdderOptions = Field(default_factory=AdderOptions)
 
 

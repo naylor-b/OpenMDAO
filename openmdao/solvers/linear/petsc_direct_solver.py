@@ -7,7 +7,7 @@ import scipy.sparse.linalg
 import scipy.sparse
 from pydantic import Field, field_validator
 
-from openmdao.solvers.linear.direct import DirectSolver, DirectSolverModel, _DirectSolverOptions
+from openmdao.solvers.linear.direct import DirectSolver, _DirectSolverModel, _DirectSolverOptions
 from openmdao.solvers.linear.direct import format_singular_error
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
@@ -487,5 +487,5 @@ class PETScDirectSolver(DirectSolver):
 
 
 @dmm.register(PETScDirectSolver)
-class PETScDirectSolverModel(DirectSolverModel):
+class _PETScDirectSolverModel(_DirectSolverModel):
     options: _PETScDirectSolverOptions = Field(default_factory=_PETScDirectSolverOptions)

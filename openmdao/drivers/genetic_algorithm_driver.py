@@ -33,8 +33,8 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
-    DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, _DriverOptions, _DriverModel, \
+    _DriverSupports
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
@@ -1038,7 +1038,7 @@ class GeneticAlgorithm(object):
         return b
 
 
-class SimpleGADriverOptions(DriverOptions):
+class _SimpleGADriverOptions(_DriverOptions):
     bits: Dict[str, Any] = \
         Field(default_factory=dict,
               desc='Number of bits of resolution. Default is an empty dict, where every '
@@ -1082,7 +1082,7 @@ class SimpleGADriverOptions(DriverOptions):
               'options are ignored.')
 
 
-class SimpleGADriverSupports(DriverSupports):
+class _SimpleGADriverSupports(_DriverSupports):
     optimization: bool = Field(default=True, frozen=True)
     inequality_constraints: bool = Field(default=True, frozen=True)
     equality_constraints: bool = Field(default=True, frozen=True)
@@ -1096,6 +1096,6 @@ class SimpleGADriverSupports(DriverSupports):
 
 
 @dmm.register(SimpleGADriver)
-class SimpleGADriverModel(DriverModel):
-    options: SimpleGADriverOptions = Field(default_factory=SimpleGADriverOptions)
-    supports: SimpleGADriverSupports = Field(default_factory=SimpleGADriverSupports)
+class _SimpleGADriverModel(_DriverModel):
+    options: _SimpleGADriverOptions = Field(default_factory=_SimpleGADriverOptions)
+    supports: _SimpleGADriverSupports = Field(default_factory=_SimpleGADriverSupports)

@@ -6,8 +6,8 @@ import scipy.linalg as spla
 from typing import Optional, Tuple
 from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -223,7 +223,7 @@ class MatrixVectorProductComp(ExplicitComponent):
             partials[b_name, x_name] = A.ravel()
 
 
-class MatrixVectorProductCompOptions(ExplicitComponentOptions):
+class _MatrixVectorProductCompOptions(_ExplicitComponentOptions):
     vec_size: int = \
         Field(default=1,
               desc='The number of points at which the matrix vector product is to be computed')
@@ -238,5 +238,6 @@ class MatrixVectorProductCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(MatrixVectorProductComp)
-class MatrixVectorProductCompModel(ExplicitComponentModel):
-    options: MatrixVectorProductCompOptions = Field(default_factory=MatrixVectorProductCompOptions)
+class _MatrixVectorProductCompModel(_ExplicitComponentModel):
+    options: _MatrixVectorProductCompOptions = \
+        Field(default_factory=_MatrixVectorProductCompOptions)

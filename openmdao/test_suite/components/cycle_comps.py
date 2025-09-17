@@ -6,7 +6,7 @@ from pydantic import Field, ConfigDict
 
 import unittest
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -292,7 +292,7 @@ class ExplicitCycleComp(ExplicitComponent):
             partials[theta_out, theta] = self.make_jacobian_entry(dtheta, pd_type)
 
 
-class ExplicitCycleCompOptions(ExplicitComponentOptions):
+class ExplicitCycleCompOptions(_ExplicitComponentOptions):
     jacobian_type: str = Field(default='matvec', desc='method of assembling derivatives')
     partial_type: str = Field(default='array', desc='type of partial derivatives')
     num_var: int = Field(default=1, desc='Number of variables per component')
@@ -304,7 +304,7 @@ class ExplicitCycleCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(ExplicitCycleComp)
-class ExplicitCycleCompModel(ExplicitComponentModel):
+class ExplicitCycleCompModel(_ExplicitComponentModel):
     options: ExplicitCycleCompOptions = Field(default_factory=ExplicitCycleCompOptions)
 
 
@@ -339,7 +339,7 @@ class ExplicitFirstCompOptions(ExplicitCycleCompOptions):
 
 
 @dmm.register(ExplicitFirstComp)
-class ExplicitFirstCompModel(ExplicitComponentModel):
+class ExplicitFirstCompModel(_ExplicitComponentModel):
     options: ExplicitFirstCompOptions = Field(default_factory=ExplicitFirstCompOptions)
 
 
@@ -442,5 +442,5 @@ class ExplicitLastCompOptions(ExplicitCycleCompOptions):
 
 
 @dmm.register(ExplicitLastComp)
-class ExplicitLastCompModel(ExplicitComponentModel):
+class ExplicitLastCompModel(_ExplicitComponentModel):
     options: ExplicitLastCompOptions = Field(default_factory=ExplicitLastCompOptions)

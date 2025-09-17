@@ -10,8 +10,8 @@ from pydantic import Field
 
 import openmdao.api as om
 from openmdao.api import Problem, Group, IndepVarComp, ExecComp, ExplicitComponent
-from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.components.exec_comp import ExecCompOptions, ExecCompModel
+from openmdao.core.group import _GroupOptions, _GroupModel
+from openmdao.components.exec_comp import _ExecCompOptions, _ExecCompModel
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_warnings
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.file_utils import _get_work_dir
@@ -29,25 +29,25 @@ from openmdao.test_suite.components.sellar import SellarNoDerivatives
 class MyOptionsGroup(om.Group):
     pass
 
-class MyOptionsGroupOptions(GroupOptions):
+class MyOptionsGroupOptions(_GroupOptions):
     foo: int = 0
     bar: float = 0.0
     baz: str = ''
 
 @dmm.register(MyOptionsGroup)
-class MyOptionsGroupModel(GroupModel):
+class MyOptionsGroupModel(_GroupModel):
     options: MyOptionsGroupOptions = Field(default_factory=MyOptionsGroupOptions)
 
 class MyOptionsExecComp(ExecComp):
     pass
 
-class MyOptionsExecCompOptions(ExecCompOptions):
+class MyOptionsExecCompOptions(_ExecCompOptions):
     foo: int = 0
     bar: float = 0.0
     baz: str = ''
 
 @dmm.register(MyOptionsExecComp)
-class MyOptionsExecCompModel(ExecCompModel):
+class MyOptionsExecCompModel(_ExecCompModel):
     options: MyOptionsExecCompOptions = Field(default_factory=MyOptionsExecCompOptions)
 
 

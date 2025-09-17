@@ -5,8 +5,8 @@ import numpy as np
 from typing import Optional
 from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -149,7 +149,7 @@ class VectorMagnitudeComp(ExplicitComponent):
                 a.ravel() / np.repeat(np.sqrt(np.einsum('ni,ni->n', a, a)), magnitude['length'])
 
 
-class VectorMagnitudeCompOptions(ExplicitComponentOptions):
+class _VectorMagnitudeCompOptions(_ExplicitComponentOptions):
     vec_size: int = \
         Field(default=1, desc='The number of points at which the vector magnitude is computed')
     length: int = Field(default=3, desc='The length of the input vector at each point')
@@ -159,5 +159,5 @@ class VectorMagnitudeCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(VectorMagnitudeComp)
-class VectorMagnitudeCompModel(ExplicitComponentModel):
-    options: VectorMagnitudeCompOptions = Field(default_factory=VectorMagnitudeCompOptions)
+class _VectorMagnitudeCompModel(_ExplicitComponentModel):
+    options: _VectorMagnitudeCompOptions = Field(default_factory=_VectorMagnitudeCompOptions)

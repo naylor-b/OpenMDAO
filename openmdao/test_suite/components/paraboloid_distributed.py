@@ -7,7 +7,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.mpi import MPI
 from openmdao.utils.array_utils import evenly_distrib_idxs
 from openmdao.utils.validation import DataModelManager as dmm
@@ -141,29 +141,29 @@ class DistParabDeprecated(om.ExplicitComponent):
         partials['f_xy', 'offset'] = 2.0 * a + 2.0 * x
 
 
-class DistParabOptions(ExplicitComponentOptions):
+class DistParabOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
     deriv_type: str = Field(default='dense', desc="Method for computing derivatives.")
 
 
-class DistParabFeatureOptions(ExplicitComponentOptions):
+class DistParabFeatureOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
 
-class DistParabDeprecatedOptions(ExplicitComponentOptions):
+class DistParabDeprecatedOptions(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
 
 @dmm.register(DistParab)
-class DistParabModel(ExplicitComponentModel):
+class DistParabModel(_ExplicitComponentModel):
     options: DistParabOptions = Field(default_factory=DistParabOptions)
 
 
 @dmm.register(DistParabFeature)
-class DistParabFeatureModel(ExplicitComponentModel):
+class DistParabFeatureModel(_ExplicitComponentModel):
     options: DistParabFeatureOptions = Field(default_factory=DistParabFeatureOptions)
 
 
 @dmm.register(DistParabDeprecated)
-class DistParabDeprecatedModel(ExplicitComponentModel):
+class DistParabDeprecatedModel(_ExplicitComponentModel):
     options: DistParabDeprecatedOptions = Field(default_factory=DistParabDeprecatedOptions)

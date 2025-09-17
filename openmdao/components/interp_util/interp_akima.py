@@ -7,7 +7,7 @@ import numpy as np
 from pydantic import Field
 
 from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
-    InterpAlgorithmSemi, InterpAlgorithmFixed, InterpAlgorithmOptions, InterpAlgorithmModel
+    InterpAlgorithmSemi, InterpAlgorithmFixed, _InterpAlgorithmOptions, _InterpAlgorithmModel
 from openmdao.utils.array_utils import abs_complex, dv_abs_complex, shape_to_len
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -1709,7 +1709,7 @@ class Interp1DAkima(InterpAlgorithmFixed):
 
 # Pydantic Models for InterpAkima Components
 
-class InterpAkimaOptions(InterpAlgorithmOptions):
+class _InterpAkimaOptions(_InterpAlgorithmOptions):
     delta_x: float = \
         Field(default=0.0,
               desc="half-width of the smoothing interval added in the valley of absolute-value "
@@ -1719,7 +1719,7 @@ class InterpAkimaOptions(InterpAlgorithmOptions):
     eps: float = Field(default=1e-30, desc='Value that triggers division-by-zero safeguard.')
 
 
-class InterpAkimaSemiOptions(InterpAlgorithmOptions):
+class _InterpAkimaSemiOptions(_InterpAlgorithmOptions):
     delta_x: float = \
         Field(default=0.0,
               desc="half-width of the smoothing interval added in the valley of absolute-value "
@@ -1729,7 +1729,7 @@ class InterpAkimaSemiOptions(InterpAlgorithmOptions):
     eps: float = Field(default=1e-30, desc='Value that triggers division-by-zero safeguard.')
 
 
-class InterpAkimaFixedOptions(InterpAlgorithmOptions):
+class _InterpAkimaFixedOptions(_InterpAlgorithmOptions):
     delta_x: float = \
         Field(default=0.0,
               desc="half-width of the smoothing interval added in the valley of absolute-value "
@@ -1741,15 +1741,15 @@ class InterpAkimaFixedOptions(InterpAlgorithmOptions):
 
 # Register the models
 @dmm.register(InterpAkima)
-class InterpAkimaModel(InterpAlgorithmModel):
-    options: InterpAkimaOptions = Field(default_factory=InterpAkimaOptions)
+class _InterpAkimaModel(_InterpAlgorithmModel):
+    options: _InterpAkimaOptions = Field(default_factory=_InterpAkimaOptions)
 
 
 @dmm.register(InterpAkimaSemi)
-class InterpAkimaSemiModel(InterpAlgorithmModel):
-    options: InterpAkimaSemiOptions = Field(default_factory=InterpAkimaSemiOptions)
+class _InterpAkimaSemiModel(_InterpAlgorithmModel):
+    options: _InterpAkimaSemiOptions = Field(default_factory=_InterpAkimaSemiOptions)
 
 
 @dmm.register(Interp1DAkima)
-class InterpAkimaFixedModel(InterpAlgorithmModel):
-    options: InterpAkimaFixedOptions = Field(default_factory=InterpAkimaFixedOptions)
+class _InterpAkimaFixedModel(_InterpAlgorithmModel):
+    options: _InterpAkimaFixedOptions = Field(default_factory=_InterpAkimaFixedOptions)

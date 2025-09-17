@@ -9,17 +9,17 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
+from openmdao.utils.validation import DataModelManager as dmm, _OptionsBaseModel
 
 
 # check that pyoptsparse is installed
 OPT, OPTIMIZER = set_pyoptsparse_opt('SLSQP')
 
 
-class TrajDesignParameterOptions(OptionsBaseModel):
+class TrajDesignParameterOptions(_OptionsBaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     # name: str = Field(default='', desc='Name of the design parameter')
     val: Union[np.ndarray, float] = Field(default=np.zeros(1), desc='Value of the design parameter')
@@ -27,7 +27,7 @@ class TrajDesignParameterOptions(OptionsBaseModel):
     shape: tuple = Field(default=(1,), desc='Shape of the design parameter')
 
 
-class StateOptions(OptionsBaseModel):
+class StateOptions(_OptionsBaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     name: str = Field(default='', desc='Name of the state')
     val: Union[np.ndarray, float] = Field(default=np.zeros(1), desc='Value of the state')
@@ -109,12 +109,12 @@ class CollocationComp(om.ExplicitComponent):
             partials[var_names['defect'], var_names['f_computed']] = -k
 
 
-class CollocationCompOptions(ExplicitComponentOptions):
+class CollocationCompOptions(_ExplicitComponentOptions):
     state_options: dict = Field(default_factory=dict, desc='State options dictionary')
 
 
 @dmm.register(CollocationComp)
-class CollocationCompModel(ExplicitComponentModel):
+class CollocationCompModel(_ExplicitComponentModel):
     options: CollocationCompOptions = Field(default_factory=CollocationCompOptions)
 
 
@@ -248,12 +248,12 @@ class StateInterpComp(om.ExplicitComponent):
             partials[xdotc_name, xd_name] = (self.jacs['Ad'][name])[r_nz, c_nz]
 
 
-class StateInterpCompOptions(ExplicitComponentOptions):
+class StateInterpCompOptions(_ExplicitComponentOptions):
     state_options: dict = Field(default_factory=dict, desc='State options dictionary')
 
 
 @dmm.register(StateInterpComp)
-class StateInterpCompModel(ExplicitComponentModel):
+class StateInterpCompModel(_ExplicitComponentModel):
     options: StateInterpCompOptions = Field(default_factory=StateInterpCompOptions)
 
 
@@ -288,12 +288,12 @@ class StateIndependentsComp(om.ImplicitComponent):
                                   rows=row_col, cols=row_col, val=-1.0)
 
 
-class StateIndependentsCompOptions(ImplicitComponentOptions):
+class StateIndependentsCompOptions(_ImplicitComponentOptions):
     state_options: dict = Field(default_factory=dict, desc='State options dictionary')
 
 
 @dmm.register(StateIndependentsComp)
-class StateIndependentsCompModel(ImplicitComponentModel):
+class StateIndependentsCompModel(_ImplicitComponentModel):
     options: StateIndependentsCompOptions = Field(default_factory=StateIndependentsCompOptions)
 
 
@@ -338,7 +338,7 @@ class Trajectory(om.Group):
             g.linear_solver = om.DirectSolver()
 
 
-class PhaseOptions(GroupOptions):
+class PhaseOptions(_GroupOptions):
     ode_class: object = Field(default=None, desc='ODE class')
     transcription: object = Field(default=None, desc='Transcription method')
 
@@ -438,11 +438,11 @@ class GaussLobatto(object):
 
 
 @dmm.register(Phase)
-class PhaseModel(GroupModel):
+class PhaseModel(_GroupModel):
     options: PhaseOptions = Field(default_factory=PhaseOptions)
 
 
-class FiniteBurnODEOptions(ExplicitComponentOptions):
+class FiniteBurnODEOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
 
 
@@ -465,7 +465,7 @@ class FiniteBurnODE(om.ExplicitComponent):
 
 
 @dmm.register(FiniteBurnODE)
-class FiniteBurnODEModel(ExplicitComponentModel):
+class FiniteBurnODEModel(_ExplicitComponentModel):
     options: FiniteBurnODEOptions = Field(default_factory=FiniteBurnODEOptions)
 
 

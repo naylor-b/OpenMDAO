@@ -22,7 +22,7 @@ from scipy.optimize import minimize
 from scipy.spatial.distance import squareform
 
 from openmdao.surrogate_models.surrogate_model import MultiFiSurrogateModel, \
-    SurrogateModelOptions, SurrogateModelModel
+    _SurrogateModelOptions, _SurrogateModelModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 import logging
@@ -980,7 +980,7 @@ class MultiFiCoKrigingSurrogate(MultiFiSurrogateModel):
         return (X, Y)
 
 
-class MultiFiCoKrigingSurrogateOptions(SurrogateModelOptions):
+class _MultiFiCoKrigingSurrogateOptions(_SurrogateModelOptions):
     normalize: bool = \
         Field(default=True, desc="When true, normalize X and Y so that the mean is at zero.")
     regr: Any = \
@@ -1034,6 +1034,6 @@ class MultiFiCoKrigingSurrogateOptions(SurrogateModelOptions):
 
 
 @dmm.register(MultiFiCoKrigingSurrogate)
-class MultiFiCoKrigingSurrogateModel(SurrogateModelModel):
-    options: MultiFiCoKrigingSurrogateOptions = \
-        Field(default_factory=MultiFiCoKrigingSurrogateOptions)
+class _MultiFiCoKrigingSurrogateModel(_SurrogateModelModel):
+    options: _MultiFiCoKrigingSurrogateOptions = \
+        Field(default_factory=_MultiFiCoKrigingSurrogateOptions)

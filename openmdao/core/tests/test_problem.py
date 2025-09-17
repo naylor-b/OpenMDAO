@@ -14,7 +14,7 @@ from pydantic import Field
 from typing import Union, Literal
 
 import openmdao.api as om
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.core.problem import _default_prob_name
 from openmdao.core.driver import Driver
@@ -1575,7 +1575,7 @@ class TestProblem(unittest.TestCase):
     def test_configure_add_indep_var(self):
         # add outputs to an IndepVarComp in Group configure
 
-        class ModelOptions(GroupOptions):
+        class ModelOptions(_GroupOptions):
             where_to_add: Union[Literal['setup'], Literal['configure']] = Field(default='setup', values=('setup', 'configure'), desc='Where to add')
 
         class Model(om.Group):
@@ -1605,7 +1605,7 @@ class TestProblem(unittest.TestCase):
                     self.connect('comp2.b', 'comp3.b')
 
         @dmm.register(Model)
-        class ModelModel(GroupModel):
+        class ModelModel(_GroupModel):
             options: ModelOptions = Field(default_factory=ModelOptions)
 
         for where in ('setup', 'configure'):
@@ -1641,7 +1641,7 @@ class TestProblem(unittest.TestCase):
                 if 'b' in inputs:
                     outputs['b2'] = inputs['b'] * 2.
 
-        class ModelOptions2(GroupOptions):
+        class ModelOptions2(_GroupOptions):
             add_b2: bool = Field(default=False, desc='Whether to add b2')
 
         class Model(om.Group):
@@ -1666,7 +1666,7 @@ class TestProblem(unittest.TestCase):
                     self.sub.mcomp.add_output('b2', val=0.)
 
         @dmm.register(Model)
-        class ModelModel2(GroupModel):
+        class ModelModel2(_GroupModel):
             options: ModelOptions2 = Field(default_factory=ModelOptions2)
 
         # add inputs/outputs in setup only

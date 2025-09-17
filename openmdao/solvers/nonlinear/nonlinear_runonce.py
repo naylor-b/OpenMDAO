@@ -9,7 +9,7 @@ from pydantic import Field
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions
 from openmdao.utils.mpi import multi_proc_fail_check
-from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.solvers.solver import _NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -53,10 +53,10 @@ class NonlinearRunOnce(NonlinearSolver):
             rec.rel = 0.0
 
 
-class NonlinearRunOnceOptions(_NonIterNonlinearSolverOptions):
+class _NonlinearRunOnceOptions(_NonIterNonlinearSolverOptions):
     pass
 
 
 @dmm.register(NonlinearRunOnce)
-class NonlinearRunOnceModel(NonlinearSolverModel):
-    options: NonlinearRunOnceOptions = Field(default_factory=NonlinearRunOnceOptions)
+class _NonlinearRunOnceModel(_NonlinearSolverModel):
+    options: _NonlinearRunOnceOptions = Field(default_factory=_NonlinearRunOnceOptions)

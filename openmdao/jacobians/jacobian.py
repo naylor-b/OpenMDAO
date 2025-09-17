@@ -1141,7 +1141,7 @@ class GroupJacobianUpdateContext:
             else:
                 self.jac = self.group._jacobian = self.group._get_jacobian()
 
-        else:
+        elif not self.group.matrix_free:
             self.jac = self.group._get_assembled_jac()
 
         if self.jac is not None:

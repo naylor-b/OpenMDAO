@@ -1,25 +1,14 @@
+"""
+Validation utilities for OpenMDAO.
+"""
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic_core import core_schema
 from typing import List, Dict, Optional, Type, Any, Iterator, Tuple
 import importlib
-import enum
+import inspect
 
 from openmdao.core.constants import _UNDEFINED
 from openmdao.visualization.tables.table_builder import generate_table
-
-
-def make_enum(name: str, **kwargs):
-    """
-    Make a new Enum class dynamically.
-
-    Parameters
-    ----------
-    name : str
-        The name of the Enum class.
-    kwargs : dict
-        The keyword arguments to pass to the Enum class.
-    """
-    return enum.Enum(name, kwargs)
 
 
 def _class_to_type(cls):
@@ -27,7 +16,11 @@ def _class_to_type(cls):
     return f"{prefix}{cls.__qualname__}"
 
 
-class TypeBaseModel(BaseModel):
+class _TypeBaseModel(BaseModel):
+    """
+    Base class for 'polymorphic' data models.
+    """
+
     # This will catch typos. Otherwise, by default extra fields are silently ignored.
     # This behavior can be overridden in subclasses.
     model_config = ConfigDict(extra="forbid")
@@ -58,30 +51,49 @@ def _poly_validate(value: Any) -> BaseModel:
 # Custom Pydantic type
 # -------------------
 class PolymorphicModel:
-    """A pydantic-compatible type that auto-dispatches to registered models."""
+    """
+    A pydantic-compatible type that auto-dispatches to registered _TypeBaseModels.
+    """
 
     @classmethod
     def __get_pydantic_core_schema__(cls, _source_type: Any,
                                      _handler: Any) -> core_schema.CoreSchema:
+        """
+        Get the pydantic core schema for the PolymorphicModel type.
+
+        Parameters
+        ----------
+        _source_type : Any
+            The source type.
+        _handler : Any
+            The handler.
+
+        Returns
+        -------
+        core_schema.CoreSchema
+            The pydantic core schema.
+        """
         return core_schema.no_info_after_validator_function(
             _poly_validate,
             core_schema.any_schema(),
         )
 
 
-class ValidateOnAssignModel(BaseModel):
+class _ValidateOnAssignModel(BaseModel):
     """
     BaseModel that validates on assignment.
 
     This is used to ensure that options are validated on assignment, not just on initialization.
     """
+
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
 
-class VOIModel(ValidateOnAssignModel):
+class _VOIModel(_ValidateOnAssignModel):
     """
     BaseModel for Variables of Interest (Design Variables, Constraints, and Objectives).
     """
+
     name: str
     lower: float = Field(default=None, desc="Lower bound.")
     upper: float = Field(default=None, desc="Upper bound.")
@@ -98,14 +110,15 @@ class VOIModel(ValidateOnAssignModel):
     flat_indices: bool = Field(default=None, desc="Assume indices into a flat source array.")
 
 
-class DesignVariableModel(VOIModel):
+class _DesignVariableModel(_VOIModel):
     """
     BaseModel for design variables.
     """
+
     pass
 
 
-class ResponseModel(VOIModel):
+class _ResponseModel(_VOIModel):
     """
     BaseModel for responses.
     """
@@ -116,24 +129,27 @@ class ResponseModel(VOIModel):
     alias: str = Field(default=None, desc="Alias for the response.")
 
 
-class ConstraintModel(ResponseModel):
+class _ConstraintModel(_ResponseModel):
     """
     BaseModel for constraints.
     """
+
     pass
 
 
-class ObjectiveModel(ResponseModel):
+class _ObjectiveModel(_ResponseModel):
     """
     BaseModel for objectives.
     """
+
     pass
 
 
-class OptionsBaseModel(ValidateOnAssignModel):
+class _OptionsBaseModel(_ValidateOnAssignModel):
     """
     BaseModel for options that attempts to mimic OptionsDictionary behavior.
     """
+
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
     def __getitem__(self, name: str) -> Any:
@@ -160,12 +176,23 @@ class OptionsBaseModel(ValidateOnAssignModel):
         """
         return iter(self.model_fields)
 
-    def items(self) -> Iterator[Tuple[str, Any]]:
+    def items(self, recordable_only=False) -> Iterator[Tuple[str, Any]]:
         """
         Iterate over the options in the model.
+
+        Parameters
+        ----------
+        recordable_only : bool
+            If True, only return recordable options.
+
+        Returns
+        -------
+        Iterator[Tuple[str, Any]]
+            An iterator over the options in the model.
         """
         for key, meta in self.model_fields.items():
-            yield key, getattr(self, key)
+            if not recordable_only or not meta.exclude:
+                yield key, getattr(self, key)
 
     def values(self) -> Iterator[Any]:
         """
@@ -345,6 +372,10 @@ class OptionsBaseModel(ValidateOnAssignModel):
 
 
 class DataModelManager:
+    """
+    Manager of the mapping between pydantic models and their corresponding classes.
+    """
+
     # type path --> (class, Pydantic model)
     MODELS: Dict[str, Tuple[Type[Any], Type[BaseModel]]] = {}
 
@@ -355,6 +386,16 @@ class DataModelManager:
 
         Both the class and the Pydantic model will then be retrievable using the type path.
         This should wrap the *data model* class, not the corresponding OpenMDAO class.
+
+        Parameters
+        ----------
+        class_ : Type[BaseModel]
+            The class to bind the Pydantic model to.
+
+        Returns
+        -------
+        Type[BaseModel]
+            The Pydantic model.
         """
         def decorator(pydantic_model: Type):
             type_path = _class_to_type(class_)
@@ -366,7 +407,17 @@ class DataModelManager:
     @classmethod
     def type_to_info(cls, model_type: str) -> Tuple[Type[Any], Type[BaseModel]]:
         """
-        Retrieves a class and Pydantic model from the registry using the type path.
+        Retrieve a class and Pydantic model from the registry using the type path.
+
+        Parameters
+        ----------
+        model_type : str
+            The type path to retrieve the class and Pydantic model for.
+
+        Returns
+        -------
+        Tuple[Type[Any], Type[BaseModel]]
+            The class and Pydantic model.
         """
         if model_type not in cls.MODELS:
             try:
@@ -394,12 +445,37 @@ class DataModelManager:
     @classmethod
     def type_to_class(cls, model_type: str) -> Type[Any]:
         """
-        Retrieves a class from the registry using the type path.
+        Retrieve a class from the registry using the type path.
+
+        Parameters
+        ----------
+        model_type : str
+            The type path to retrieve the class for.
+
+        Returns
+        -------
+        Type[Any]
+            The class.
         """
         return cls.type_to_info(model_type)[0]
 
     @classmethod
     def get_from_base(cls, klass: Type[Any], model_type: str):
+        """
+        Retrieve a base class' Pydantic model when this class is not registered.
+
+        Parameters
+        ----------
+        klass : Type[Any]
+            The class to retrieve the Pydantic model for.
+        model_type : str
+            The type path to retrieve the Pydantic model for.
+
+        Returns
+        -------
+        Tuple[Type[Any], Type[BaseModel]]
+            The class and Pydantic model.
+        """
         MODELS = cls.MODELS
         for base in klass.__mro__[1:]:
             class_path = _class_to_type(base)
@@ -413,14 +489,34 @@ class DataModelManager:
     @classmethod
     def type_to_data_model(cls, model_type: str) -> Type[BaseModel]:
         """
-        Retrieves a Pydantic model classfrom the registry using the type path.
+        Retrieve a Pydantic model classfrom the registry using the type path.
+
+        Parameters
+        ----------
+        model_type : str
+            The type path to retrieve the Pydantic model for.
+
+        Returns
+        -------
+        Type[BaseModel]
+            The Pydantic model class.
         """
         return cls.type_to_info(model_type)[1]
 
     @classmethod
     def type_to_class_instance(cls, type_path: str) -> str:
         """
-        Retrieves the type path from the registry using the type path.
+        Retrieve the type path from the registry using the type path.
+
+        Parameters
+        ----------
+        type_path : str
+            The type path to retrieve the type path for.
+
+        Returns
+        -------
+        str
+            The type path.
         """
         class_, data_model = cls.type_to_info(type_path)
         return class_.from_data_model(data_model)
@@ -428,7 +524,17 @@ class DataModelManager:
     @classmethod
     def class_to_data_model(cls, klass: Type[Any]) -> Type[BaseModel]:
         """
-        Given a class, returns the associated Pydantic model.
+        Given a class, return the associated Pydantic model.
+
+        Parameters
+        ----------
+        klass : Type[Any]
+            The class to retrieve the Pydantic model for.
+
+        Returns
+        -------
+        Type[BaseModel]
+            The Pydantic model class.
         """
         type_path = _class_to_type(klass)
         if type_path not in cls.MODELS:
@@ -438,7 +544,19 @@ class DataModelManager:
     @classmethod
     def class_to_data_model_instance(cls, klass: Type[Any], **kwargs) -> BaseModel:
         """
-        Given a class, returns an instance of the associated Pydantic model instance.
+        Given a class, return an instance of the associated Pydantic model instance.
+
+        Parameters
+        ----------
+        klass : Type[Any]
+            The class to retrieve the Pydantic model for.
+        **kwargs : dict
+            The keyword arguments to pass to the Pydantic model.
+
+        Returns
+        -------
+        Type[BaseModel]
+            The Pydantic model instance.
         """
         type_path = _class_to_type(klass)
         dm = cls.class_to_data_model(klass)
@@ -448,19 +566,45 @@ class DataModelManager:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Any:
-        """Create an instance from a dictionary."""
+        """
+        Create an instance from a dictionary.
+
+        Parameters
+        ----------
+        data : Dict[str, Any]
+            The dictionary to create an instance from.
+
+        Returns
+        -------
+        Any
+            An instance of the given class.
+        """
         try:
             type_path = data['type']
         except KeyError:
             raise ValueError("Missing 'type' field in data.")
 
-        class_, data_model_class = cls.type_to_info(type_path)
+        _, data_model_class = cls.type_to_info(type_path)
         dm_instance = data_model_class.model_validate(data)
         return cls.from_data_model(dm_instance)
 
     @classmethod
-    def from_data_model(cls, data_model: TypeBaseModel, orig: Any = None) -> Any:
-        """Create an instance from a data model."""
+    def from_data_model(cls, data_model: _TypeBaseModel, orig: Any = None) -> Any:
+        """
+        Create an instance from a data model.
+
+        Parameters
+        ----------
+        data_model : _TypeBaseModel
+            The data model to create an instance from.
+        orig : Any, optional
+            The original instance to update from the data model.
+
+        Returns
+        -------
+        Any
+            An instance of the given class.
+        """
         class_, _ = cls.type_to_info(data_model.type)
         if orig is not None and isinstance(orig, class_):
             orig.update_from_data_model(data_model)
@@ -468,7 +612,7 @@ class DataModelManager:
         return cls.inst_from_type_model(class_, data_model)
 
     @staticmethod
-    def inst_from_type_model(klass: Type[Any], data_model: TypeBaseModel):
+    def inst_from_type_model(klass: Type[Any], data_model: _TypeBaseModel):
         """
         Create an instance of the given class, passing args and kwargs from the data model.
 
@@ -476,7 +620,7 @@ class DataModelManager:
         ----------
         klass : Type[Any]
             The class to instantiate.
-        data_model : TypeBaseModel
+        data_model : _TypeBaseModel
             The data model to use for the instance.
 
         Returns
@@ -492,6 +636,16 @@ class DataModelManager:
 
     @staticmethod
     def setup_data_model(inst: Any, kwargs: Dict[str, Any]):
+        """
+        Ensure the data model for an instance is fully initialized.
+
+        Parameters
+        ----------
+        inst : Any
+            The instance to setup the data model for.
+        kwargs : Dict[str, Any]
+            The keyword arguments to use for the instance.
+        """
         data_model = kwargs.pop('data_model', None)
         if data_model is None:
             data_model = inst.init_data_model()
@@ -501,3 +655,71 @@ class DataModelManager:
 
         if 'options' in data_model.__class__.model_fields:
             inst.data_model.options.update(kwargs)
+
+    @staticmethod
+    def field(annotation: Any, **field_kwargs):
+        """
+        Create an annotated field tuple.
+
+        Used when creating a data model class dynamically.
+
+        Parameters
+        ----------
+        annotation : Any
+            The annotation for the field.
+        **field_kwargs : dict
+            The keyword arguments to pass to the Field factory function.
+
+        Returns
+        -------
+        Tuple[Any, Field]
+            The annotated field tuple.
+        """
+        return (annotation, Field(**field_kwargs))
+
+    @staticmethod
+    def create_class(class_name: str, model_config: ConfigDict = None, base=None,
+                    **kwargs) -> Type[BaseModel]:
+        """
+        Create a Pydantic model class from fields and annotations.
+
+        Parameters
+        ----------
+        class_name : str
+            The name of the class to create.
+        model_config : ConfigDict, optional
+            The model configuration to use for the class.
+        base : Type[BaseModel], optional
+            The base class to inherit from.
+        **kwargs : Dict[str, Any]
+            Each named argument should be either a type or the return value of a call to
+            field(annotation_type, **field_kwargs).  **field_kwargs are passed to the
+            Field factory function.
+
+        Returns
+        -------
+        Type[BaseModel]
+            The created Pydantic model class.
+        """
+        # pydantic needs an attribute dict with a specific format
+        # fieldinfo is the return value of the Field factory function
+        attrs = {
+            '__annotations__': {},
+            'model_config': model_config,
+            '__module__': inspect.currentframe().f_back.f_globals['__name__']
+        }
+        for field_name, info in kwargs.items():
+            if isinstance(info, tuple):
+                annotation, fieldinfo = info
+                attrs[field_name] = fieldinfo
+                attrs['__annotations__'][field_name] = annotation
+            elif isinstance(info, type):
+                attrs[field_name] = None
+                attrs['__annotations__'][field_name] = info
+            else:
+                raise ValueError(f"Invalid argument: {field_name} = {info}")
+
+        if base is None:
+            base = BaseModel
+
+        return type(class_name, (base,), attrs)

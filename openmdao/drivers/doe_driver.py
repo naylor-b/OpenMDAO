@@ -9,8 +9,8 @@ from pydantic import Field
 
 import numpy as np
 
-from openmdao.core.driver import Driver, RecordingDebugging, DriverOptions, DriverModel, \
-    DriverSupports
+from openmdao.core.driver import Driver, RecordingDebugging, _DriverOptions, _DriverModel, \
+    _DriverSupports
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.drivers.doe_generators import DOEGenerator, ListGenerator
 
@@ -273,7 +273,7 @@ class DOEDriver(Driver):
         super()._setup_recording()
 
 
-class DOEDriverOptions(DriverOptions):
+class _DOEDriverOptions(_DriverOptions):
     generator: Any = \
         Field(default=DOEGenerator(),
               desc='The case generator. If default, no cases are generated.')
@@ -282,13 +282,13 @@ class DOEDriverOptions(DriverOptions):
         Field(default=1, desc='Number of processors to give each model under MPI.')
 
 
-class DOEDriverSupports(DriverSupports):
+class _DOEDriverSupports(_DriverSupports):
     integer_design_vars: bool = Field(default=True, frozen=True)
     distributed_design_vars: bool = Field(default=False, frozen=True)
     optimization: bool = Field(default=False, frozen=True)
 
 
 @dmm.register(DOEDriver)
-class DOEDriverModel(DriverModel):
-    options: DOEDriverOptions = Field(default_factory=DOEDriverOptions)
-    supports: DOEDriverSupports = Field(default_factory=DOEDriverSupports)
+class _DOEDriverModel(_DriverModel):
+    options: _DOEDriverOptions = Field(default_factory=_DOEDriverOptions)
+    supports: _DOEDriverSupports = Field(default_factory=_DOEDriverSupports)

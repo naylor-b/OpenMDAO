@@ -9,7 +9,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -59,12 +59,12 @@ class MultiStressComp(om.ExplicitComponent):
             partials['stress_%d' % j, 'displacements_%d' % j] = J
 
 
-class MultiStressCompOptions(ExplicitComponentOptions):
+class MultiStressCompOptions(_ExplicitComponentOptions):
     num_elements: int = Field(default=0, desc='Number of beam elements')
     num_rhs: int = Field(default=0, desc='Number of right-hand sides')
     E: float = Field(default=0.0, desc='Young\'s modulus of the beam material')
 
 
 @dmm.register(MultiStressComp)
-class MultiStressCompModel(ExplicitComponentModel):
+class MultiStressCompModel(_ExplicitComponentModel):
     options: MultiStressCompOptions = Field(default_factory=MultiStressCompOptions)

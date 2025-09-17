@@ -6,7 +6,7 @@ from pydantic import Field
 from openmdao.api import Problem
 from openmdao.api import ExplicitComponent
 from openmdao.api import NonlinearRunOnce, LinearRunOnce
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 try:
@@ -15,7 +15,7 @@ except ImportError:
     PETScVector = None
 
 
-class CompOptions(ExplicitComponentOptions):
+class CompOptions(_ExplicitComponentOptions):
     node_size: int = Field(default=0, desc='Node size')
 
 
@@ -32,7 +32,7 @@ class Comp(ExplicitComponent):
 
 
 @dmm.register(Comp)
-class CompModel(ExplicitComponentModel):
+class CompModel(_ExplicitComponentModel):
     options: CompOptions = Field(default_factory=CompOptions)
 
 

@@ -6,15 +6,15 @@ import numpy as np
 from pydantic import Field, ConfigDict, field_validator
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2, SellarDerivativesGrouped
 from openmdao.error_checking.check_config import get_sccs_topo, _all_non_redundant_checks
 from openmdao.utils.assert_utils import assert_warning, assert_no_warning
 from openmdao.utils.logger_utils import TestLogger
 from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.solvers.nonlinear.newton import _NewtonSolverOptions, NewtonSolverModel
-from openmdao.solvers.linesearch.backtracking import _LinesearchSolverOptions, LinesearchSolverModel
-from openmdao.solvers.linear.scipy_iter_solver import _ScipyKrylovOptions, ScipyKrylovModel
+from openmdao.solvers.nonlinear.newton import _NewtonSolverOptions, _NewtonSolverModel
+from openmdao.solvers.linesearch.backtracking import _LinesearchSolverOptions, _LinesearchSolverModel
+from openmdao.solvers.linear.scipy_iter_solver import _ScipyKrylovOptions, _ScipyKrylovModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -497,7 +497,7 @@ class TestCheckConfig(unittest.TestCase):
             def compute(self, inputs, outputs):
                 outputs['y'] = inputs['x']
 
-        class TestCompOptions(ExplicitComponentOptions):
+        class TestCompOptions(_ExplicitComponentOptions):
             model_config = ConfigDict(arbitrary_types_allowed=True)
 
             file1: io.BufferedIOBase = Field(default=None, desc='File 1')
@@ -518,7 +518,7 @@ class TestCheckConfig(unittest.TestCase):
                 return v
 
         @dmm.register(TestComp)
-        class TestCompModel(ExplicitComponentModel):
+        class TestCompModel(_ExplicitComponentModel):
             options: TestCompOptions = Field(default_factory=TestCompOptions)
 
         class TestNewton(om.NewtonSolver):
@@ -536,7 +536,7 @@ class TestCheckConfig(unittest.TestCase):
                 return v
 
         @dmm.register(TestNewton)
-        class TestNewtonModel(NewtonSolverModel):
+        class TestNewtonModel(_NewtonSolverModel):
             options: TestNewtonOptions = Field(default_factory=TestNewtonOptions)
 
         class TestLinesearch(om.BoundsEnforceLS):
@@ -554,7 +554,7 @@ class TestCheckConfig(unittest.TestCase):
                 return v
 
         @dmm.register(TestLinesearch)
-        class TestLinesearchModel(LinesearchSolverModel):
+        class TestLinesearchModel(_LinesearchSolverModel):
             options: TestLinesearchOptions = Field(default_factory=TestLinesearchOptions)
 
         class TestKrylov(om.ScipyKrylov):
@@ -573,7 +573,7 @@ class TestCheckConfig(unittest.TestCase):
                 return v
 
         @dmm.register(TestKrylov)
-        class TestKrylovModel(ScipyKrylovModel):
+        class TestKrylovModel(_ScipyKrylovModel):
             options: TestKrylovOptions = Field(default_factory=TestKrylovOptions)
 
         prob = om.Problem()

@@ -40,13 +40,13 @@ class TestNonlinearRunOnceSolver(unittest.TestCase):
         # Test that using options that should not exist in class cause an error
         solver = om.NonlinearRunOnce()
 
-        msg = "\"NonlinearRunOnce: Option '%s' cannot be set because it has not been declared.\""
+        msg = "Object has no attribute '%s'"
 
         for option in ['atol', 'rtol', 'maxiter', 'err_on_non_converge']:
-            with self.assertRaises(KeyError) as context:
+            with self.assertRaises(Exception) as context:
                 solver.options[option] = 1
 
-            self.assertEqual(str(context.exception), msg % option)
+            self.assertTrue( msg % option in str(context.exception))
 
     def test_feature_solver(self):
 

@@ -4,8 +4,8 @@ import numpy as np
 from typing import Optional
 from pydantic import Field
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -201,7 +201,7 @@ class CrossProductComp(ExplicitComponent):
                 np.einsum('...j,ji->...i', a, self._k).ravel()
 
 
-class CrossProductCompOptions(ExplicitComponentOptions):
+class _CrossProductCompOptions(_ExplicitComponentOptions):
     vec_size: int = Field(default=1,
                           desc='The number of points at which the cross product is computed')
     a_name: str = Field(default='a', desc='The variable name for vector a.')
@@ -213,5 +213,5 @@ class CrossProductCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(CrossProductComp)
-class CrossProductCompModel(ExplicitComponentModel):
-    options: CrossProductCompOptions = Field(default_factory=CrossProductCompOptions)
+class _CrossProductCompModel(_ExplicitComponentModel):
+    options: _CrossProductCompOptions = Field(default_factory=_CrossProductCompOptions)

@@ -4,8 +4,8 @@ from itertools import chain
 from pydantic import Field
 
 from openmdao.core.constants import _SetupStatus
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.general_utils import pattern_filter
 from openmdao.utils.reports_system import clear_reports
@@ -599,11 +599,11 @@ class SubmodelComp(ExplicitComponent):
         self._sub_outs_idxs = ranges2indexer(sub_out_ranges, src_shape=(len(submod._outputs),))
 
 
-class SubmodelCompOptions(ExplicitComponentOptions):
+class _SubmodelCompOptions(_ExplicitComponentOptions):
     do_coloring: bool = \
         Field(default=False, desc='If True, attempt to compute a total coloring for the submodel.')
 
 
 @dmm.register(SubmodelComp)
-class SubmodelCompModel(ExplicitComponentModel):
-    options: SubmodelCompOptions = Field(default_factory=SubmodelCompOptions)
+class _SubmodelCompModel(_ExplicitComponentModel):
+    options: _SubmodelCompOptions = Field(default_factory=_SubmodelCompOptions)

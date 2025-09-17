@@ -25,10 +25,10 @@ import numpy as np
 
 from openmdao.core.constants import _SetupStatus
 from openmdao.core.component import Component
-from openmdao.core.driver import Driver, record_iteration, DriverModel
+from openmdao.core.driver import Driver, record_iteration, _DriverModel
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.system import System, _iter_derivs
-from openmdao.core.group import Group, GroupModel
+from openmdao.core.group import Group, _GroupModel
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import _DEFAULT_COLORING_DIR, _DEFAULT_OUT_STREAM, \
     _UNDEFINED
@@ -59,7 +59,7 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.file_utils import _get_outputs_dir, text2html, _get_work_dir
 from openmdao.utils.testing_utils import _fix_comp_check_data
 from openmdao.utils.name_maps import DISTRIBUTED
-from openmdao.utils.validation import DataModelManager as dmm, TypeBaseModel, OptionsBaseModel, \
+from openmdao.utils.validation import DataModelManager as dmm, _TypeBaseModel, _OptionsBaseModel, \
     PolymorphicModel
 
 try:
@@ -257,6 +257,8 @@ class Problem(object, metaclass=ProblemMetaclass):
             raise TypeError(self.msginfo +
                             ": The value provided for 'driver' is not a valid Driver.")
 
+        self._update_reports(driver)
+
         # can't use driver property here without causing a lint error, so just do it manually
         self._driver = driver
 
@@ -273,7 +275,6 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         dmm.setup_data_model(self, kwargs)
 
-        self._update_reports(self._driver)
 
         # Options passed to models
         self.model_options = {}
@@ -2606,6 +2607,19 @@ class Problem(object, metaclass=ProblemMetaclass):
             return coloring
 
     def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _ProblemModel
+            The data model to update from.
+
+        Returns
+        -------
+        Problem
+            The updated instance.
+        """
         self.name = data_model.name
         self.model = dmm.from_data_model(data_model.model, orig=self.model)
         self.driver = dmm.from_data_model(data_model.driver, orig=self.driver)
@@ -2619,6 +2633,14 @@ class Problem(object, metaclass=ProblemMetaclass):
         return self
 
     def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _ProblemModel
+            The data model.
+        """
         self.data_model = dmm.class_to_data_model_instance(self.__class__,
                                                            name=self._name,
                                                            model=self.model.data_model,
@@ -2627,7 +2649,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         return self.data_model
 
 
-class ProblemOptions(OptionsBaseModel):
+class _ProblemOptions(_OptionsBaseModel):
     work_dir: str = Field(default='', desc="Working directory for the problem.")
     coloring_dir: str = Field(default='',
                               desc="Directory containing coloring files (if any) for this Problem.")
@@ -2647,7 +2669,7 @@ class ProblemOptions(OptionsBaseModel):
               "regardless of the value of the 'auto_order' option.")
 
 
-class ProblemRecordingOptions(OptionsBaseModel):
+class _ProblemRecordingOptions(_OptionsBaseModel):
 
     record_desvars: bool = \
         Field(default=True, desc="Set to True to record design variables at the problem level.")
@@ -2671,7 +2693,7 @@ class ProblemRecordingOptions(OptionsBaseModel):
                                   desc="Set to True to record coloring at the problem level")
     record_derivatives: bool = Field(default=False,
                                      desc="Set to True to record derivatives at the problem level")
-    record_inputs: bool = Field(default=True,
+    record_inputs: bool = Field(default=False,
                                 desc="Set to True to record inputs at the problem level")
     record_outputs: bool = Field(default=True,
                                  desc="Set to True to record outputs at the problem level")
@@ -2686,13 +2708,13 @@ class ProblemRecordingOptions(OptionsBaseModel):
 
 
 @dmm.register(Problem)
-class ProblemModel(TypeBaseModel):
+class _ProblemModel(_TypeBaseModel):
     name: str = Field(default=None, desc='The name of the problem.')
-    model: PolymorphicModel = Field(default_factory=GroupModel)
-    driver: PolymorphicModel = Field(default_factory=DriverModel)
+    model: PolymorphicModel = Field(default_factory=_GroupModel)
+    driver: PolymorphicModel = Field(default_factory=_DriverModel)
     reports: Union[str, bool, list[str], None] = Field(default=None)
-    options: ProblemOptions = Field(default_factory=ProblemOptions)
-    recording_options: ProblemRecordingOptions = Field(default_factory=ProblemRecordingOptions)
+    options: _ProblemOptions = Field(default_factory=_ProblemOptions)
+    recording_options: _ProblemRecordingOptions = Field(default_factory=_ProblemRecordingOptions)
 
 
 def _fix_check_data(data):

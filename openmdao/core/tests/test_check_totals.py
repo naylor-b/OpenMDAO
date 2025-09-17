@@ -9,8 +9,8 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.components.expl_comp_array import TestExplCompArrayDense
 from openmdao.test_suite.components.paraboloid import Paraboloid
@@ -751,7 +751,7 @@ class TestProblemCheckTotals(unittest.TestCase):
 
                 jacobian['time', 't_duration'] = 0.5 * (node_ptau + 33)
 
-        class CellCompOptions(ExplicitComponentOptions):
+        class CellCompOptions(_ExplicitComponentOptions):
             num_nodes: int = Field(default=0, desc='Number of nodes')
 
         class CellComp(om.ExplicitComponent):
@@ -774,10 +774,10 @@ class TestProblemCheckTotals(unittest.TestCase):
                 partials['zSOC', 'I_Li'] = -1./(3600.0)
 
         @dmm.register(CellComp)
-        class CellCompModel(ExplicitComponentModel):
+        class CellCompModel(_ExplicitComponentModel):
             options: CellCompOptions = Field(default_factory=CellCompOptions)
 
-        class GaussLobattoPhaseOptions(GroupOptions):
+        class GaussLobattoPhaseOptions(_GroupOptions):
             ode_class: object = Field(default=None, desc='System defining the ODE.')
 
         class GaussLobattoPhase(om.Group):
@@ -803,7 +803,7 @@ class TestProblemCheckTotals(unittest.TestCase):
                 super().__init__(**kwargs)
 
         @dmm.register(GaussLobattoPhase)
-        class GaussLobattoPhaseModel(GroupModel):
+        class GaussLobattoPhaseModel(_GroupModel):
             options: GaussLobattoPhaseOptions = Field(default_factory=GaussLobattoPhaseOptions)
 
         p = om.Problem(model=GaussLobattoPhase())
@@ -1549,7 +1549,7 @@ class TestProblemCheckTotals(unittest.TestCase):
         assert_near_equal(np.linalg.norm(dJfwd - dJfd), 0., tolerance=2e-15)
 
     def test_directional_dymosish(self):
-        class CollocationCompOptions(ExplicitComponentOptions):
+        class CollocationCompOptions(_ExplicitComponentOptions):
             state_options: dict = Field(default_factory=dict, desc='Dictionary of state names/options for the phase')
 
         class CollocationComp(om.ExplicitComponent):
@@ -1618,10 +1618,10 @@ class TestProblemCheckTotals(unittest.TestCase):
                     partials[var_names['defect'], var_names['f_approx']] = k
 
         @dmm.register(CollocationComp)
-        class CollocationCompModel(ExplicitComponentModel):
+        class CollocationCompModel(_ExplicitComponentModel):
             options: CollocationCompOptions = Field(default_factory=CollocationCompOptions)
 
-        class StateInterpCompOptions(ExplicitComponentOptions):
+        class StateInterpCompOptions(_ExplicitComponentOptions):
             state_options: dict = Field(default_factory=dict, desc='Dictionary of state names/options for the phase')
 
         class StateInterpComp(om.ExplicitComponent):
@@ -1676,10 +1676,10 @@ class TestProblemCheckTotals(unittest.TestCase):
                     outputs[xdotc_str] = np.dot(Ad, inputs[xd_str])
 
         @dmm.register(StateInterpComp)
-        class StateInterpCompModel(ExplicitComponentModel):
+        class StateInterpCompModel(_ExplicitComponentModel):
             options: StateInterpCompOptions = Field(default_factory=StateInterpCompOptions)
 
-        class TimeCompOptions(ExplicitComponentOptions):
+        class TimeCompOptions(_ExplicitComponentOptions):
             num_nodes: int = Field(default=1, desc='The total number of points at which times are required in the phase.')
 
         class TimeComp(om.ExplicitComponent):
@@ -1689,7 +1689,7 @@ class TestProblemCheckTotals(unittest.TestCase):
                 self.add_output('t_phase', val=np.ones(num_nodes))
 
         @dmm.register(TimeComp)
-        class TimeCompModel(ExplicitComponentModel):
+        class TimeCompModel(_ExplicitComponentModel):
             options: TimeCompOptions = Field(default_factory=TimeCompOptions)
 
         class PseudospectralBase:
@@ -1763,7 +1763,7 @@ class TestProblemCheckTotals(unittest.TestCase):
 
                     super(Phase, phase).add_objective(obj_path, index=obj_index, flat_indices=True)
 
-        class PhaseOptions(GroupOptions):
+        class PhaseOptions(_GroupOptions):
             transcription: object = Field(default=None, desc='Transcription method')
 
         class Phase(om.Group):
@@ -1823,7 +1823,7 @@ class TestProblemCheckTotals(unittest.TestCase):
                 transcription.configure_objective(self)
 
         @dmm.register(Phase)
-        class PhaseModel(GroupModel):
+        class PhaseModel(_GroupModel):
             options: PhaseOptions = Field(default_factory=PhaseOptions)
 
         p = om.Problem()

@@ -10,9 +10,9 @@ from pydantic import Field
 
 import openmdao.api as om
 from openmdao.components.external_code_comp import STDOUT
-from openmdao.core.explicitcomponent import ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponentModel
-from openmdao.components.external_code_comp import  ExternalCodeCompOptions,  ExternalCodeImplicitCompOptions
+from openmdao.core.explicitcomponent import _ExplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentModel
+from openmdao.components.external_code_comp import  _ExternalCodeCompOptions,  _ExternalCodeImplicitCompOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.assert_utils import assert_near_equal
@@ -247,14 +247,14 @@ class TestExternalCodeCompArgs(unittest.TestCase):
         self.assertTrue(extcode.options['poll_delay'] == 999)
 
         # check subclass kwargs are also passed to options
-        class MyCompOptions(ExternalCodeCompOptions):
+        class MyCompOptions(_ExternalCodeCompOptions):
             my_arg: str = Field(default='foo', desc='subclass option')
 
         class MyComp(om.ExternalCodeComp):
             pass
 
         @dmm.register(MyComp)
-        class MyCompModel(ExplicitComponentModel):
+        class MyCompModel(_ExplicitComponentModel):
             options: MyCompOptions = Field(default_factory=MyCompOptions)
 
         my_comp = MyComp(poll_delay=999, my_arg='bar')
@@ -546,7 +546,7 @@ class TestExternalCodeImplicitCompFeature(unittest.TestCase):
 
     def test_simple_external_code_implicit_comp(self):
 
-        class MachExternalCodeCompOptions(ExternalCodeImplicitCompOptions):
+        class MachExternalCodeCompOptions(_ExternalCodeImplicitCompOptions):
             super_sonic: bool = Field(default=False, desc='Whether the flow is supersonic')
 
         class MachExternalCodeComp(om.ExternalCodeImplicitComp):
@@ -605,7 +605,7 @@ class TestExternalCodeImplicitCompFeature(unittest.TestCase):
                 outputs['mach'] = mach
 
         @dmm.register(MachExternalCodeComp)
-        class MachExternalCodeCompModel(ImplicitComponentModel):
+        class MachExternalCodeCompModel(_ImplicitComponentModel):
             options: MachExternalCodeCompOptions = \
                 Field(default_factory=MachExternalCodeCompOptions)
 

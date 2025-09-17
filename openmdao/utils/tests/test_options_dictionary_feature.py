@@ -9,7 +9,7 @@ from openmdao.test_suite.components.options_feature_function import UnitaryFunct
 from openmdao.test_suite.components.options_feature_lincomb import LinearCombinationComp
 from openmdao.test_suite.components.options_feature_vector import VectorDoublingComp
 from openmdao.utils.assert_utils import assert_near_equal
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -74,7 +74,7 @@ class TestOptionsDictionary(unittest.TestCase):
 
     def test_simple_values(self):
 
-        class VectorDoublingCompOptions(ExplicitComponentOptions):
+        class VectorDoublingCompOptions(_ExplicitComponentOptions):
             size: int = Field(values=[2, 4, 6, 8], desc='Size of vector')
 
         class VectorDoublingComp(om.ExplicitComponent):
@@ -107,7 +107,7 @@ class TestOptionsDictionary(unittest.TestCase):
             if value % 2 != 0:
                 raise ValueError(f"Option '{name}' with value {value} must be an even number.")
 
-        class VectorDoublingCompOptions2(ExplicitComponentOptions):
+        class VectorDoublingCompOptions2(_ExplicitComponentOptions):
             size: int = Field(default=2, desc='Size of vector (must be even)')
 
             @field_validator('size')
@@ -136,7 +136,7 @@ class TestOptionsDictionary(unittest.TestCase):
             self.assertEqual(str(err), "Option 'size' with value 5 must be an even number.")
 
         @dmm.register(VectorDoublingComp)
-        class VectorDoublingCompModel(ExplicitComponentModel):
+        class VectorDoublingCompModel(_ExplicitComponentModel):
             options: VectorDoublingCompOptions2 = Field(default_factory=VectorDoublingCompOptions2)
 
 

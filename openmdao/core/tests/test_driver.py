@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver, DriverSupports, DriverModel
+from openmdao.core.driver import Driver, _DriverSupports, _DriverModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.units import convert_units
 from openmdao.utils.assert_utils import assert_near_equal, assert_warnings, assert_check_totals, assert_no_warning
@@ -965,11 +965,11 @@ class TestDriverMPI(unittest.TestCase):
             def __init__(self, generator=None, **kwargs):
                 super().__init__(**kwargs)
 
-        class MyDriverSupports(DriverSupports):
+        class MyDriverSupports(_DriverSupports):
             distributed_design_vars: bool = Field(default=False, frozen=True)
 
         @dmm.register(MyDriver)
-        class MyDriverModel(DriverModel):
+        class MyDriverModel(_DriverModel):
             supports: MyDriverSupports = Field(default_factory=MyDriverSupports)
 
         prob = om.Problem()
@@ -1024,9 +1024,19 @@ class TestDriverMPI(unittest.TestCase):
                 J['y', 'w'] = 2*(inputs['w']-10)
                 J['z', 'x'] = np.diag(2*x)
 
+        class DistSupportDriver(Driver):
+            pass
+
+        class DistSupportDriverSupports(_DriverSupports):
+            distributed_design_vars: bool = Field(default=True, frozen=True)
+
+        @dmm.register(DistSupportDriver)
+        class DistSupportDriverModel(_DriverModel):
+            supports: DistSupportDriverSupports = Field(default_factory=DistSupportDriverSupports)
+
         p = om.Problem()
         model = p.model
-        driver = p.driver
+        p.driver = driver = DistSupportDriver()
 
         # distributed indep var, 'x'
         d_ivc = model.add_subsystem('d_ivc', om.IndepVarComp(distributed=True),
@@ -1046,10 +1056,6 @@ class TestDriverMPI(unittest.TestCase):
         # distributed design var, 'x'
         model.add_design_var('x', lower=-100, upper=100)
         model.add_objective('y')
-
-        # driver that supports distributed design vars
-        driver.supports._read_only = False
-        driver.supports['distributed_design_vars'] = True
 
         p.setup()
         p.run_model()

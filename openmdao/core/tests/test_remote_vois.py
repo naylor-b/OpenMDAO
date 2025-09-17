@@ -4,7 +4,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.mpi import MPI
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.validation import DataModelManager as dmm
@@ -90,12 +90,12 @@ class RemoteVOITestCase(unittest.TestCase):
                         if 'x' in d_inputs:
                             d_inputs['x'] += self.options['a'] * d_outputs['y']
 
-        class DummyCompOptions(ExplicitComponentOptions):
+        class DummyCompOptions(_ExplicitComponentOptions):
             a: float = Field(default=0., desc='Parameter a')
             b: float = Field(default=0., desc='Parameter b')
 
         @dmm.register(DummyComp)
-        class DummyCompModel(ExplicitComponentModel):
+        class DummyCompModel(_ExplicitComponentModel):
             options: DummyCompOptions = Field(default_factory=DummyCompOptions)
 
         class DummyGroup(om.ParallelGroup):

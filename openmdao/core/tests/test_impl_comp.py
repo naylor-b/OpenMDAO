@@ -10,7 +10,7 @@ import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.general_utils import remove_whitespace
 from openmdao.test_suite.components.sellar import SellarImplicitDis1, SellarImplicitDis2
-from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -1564,7 +1564,7 @@ class CacheLinSolutionTestCase(unittest.TestCase):
             p.driver._compute_totals(of=['C1.y'], wrt=['indeps.x'])
 
 
-class LinearSystemCompPrimalOptions(ImplicitComponentOptions):
+class LinearSystemCompPrimalOptions(_ImplicitComponentOptions):
     size: int = Field(default=1, desc='Size of the linear system')
 
 
@@ -1625,7 +1625,7 @@ class LinearSystemCompPrimal(ImplicitComponent):
 
 
 @dmm.register(LinearSystemCompPrimal)
-class LinearSystemCompPrimalModel(ImplicitComponentModel):
+class LinearSystemCompPrimalModel(_ImplicitComponentModel):
     options: LinearSystemCompPrimalOptions = Field(default_factory=LinearSystemCompPrimalOptions)
 
 

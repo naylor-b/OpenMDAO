@@ -7,7 +7,7 @@ from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
     _IterSolverOptions
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.utils.mpi import check_mpi_env
-from openmdao.solvers.solver import LinearSolverModel, _LinearSolverSupports
+from openmdao.solvers.solver import _LinearSolverModel, _LinearSolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 use_mpi = check_mpi_env()
@@ -530,11 +530,11 @@ class _PETScKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
                                "solves.")
 
 
-class PETScKrylovSupports(_LinearSolverSupports):
+class _PETScKrylovSupports(_LinearSolverSupports):
     implicit_components: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(PETScKrylov)
-class PETScKrylovModel(LinearSolverModel):
+class _PETScKrylovModel(_LinearSolverModel):
     options: _PETScKrylovOptions = Field(default_factory=_PETScKrylovOptions)
-    supports: PETScKrylovSupports = Field(default_factory=PETScKrylovSupports)
+    supports: _PETScKrylovSupports = Field(default_factory=_PETScKrylovSupports)

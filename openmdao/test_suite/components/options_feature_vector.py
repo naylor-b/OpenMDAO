@@ -6,7 +6,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -29,10 +29,10 @@ class VectorDoublingComp(om.ExplicitComponent):
         outputs['y'] = 2 * inputs['x']
 
 
-class VectorDoublingCompOptions(ExplicitComponentOptions):
+class VectorDoublingCompOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc='Size of the vector')
 
 
 @dmm.register(VectorDoublingComp)
-class VectorDoublingCompModel(ExplicitComponentModel):
+class VectorDoublingCompModel(_ExplicitComponentModel):
     options: VectorDoublingCompOptions = Field(default_factory=VectorDoublingCompOptions)

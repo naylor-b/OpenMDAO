@@ -6,7 +6,7 @@ from packaging.version import Version
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
@@ -49,11 +49,11 @@ class DistributedAdder(om.ExplicitComponent):
 
         outputs['y'] = inputs['x'] + 10.
 
-class DistributedAdderOptions(ExplicitComponentOptions):
+class DistributedAdderOptions(_ExplicitComponentOptions):
     local_size: int = Field(default=1, desc="Local size of input and output vectors.")
 
 @dmm.register(DistributedAdder)
-class DistributedAdderModel(ExplicitComponentModel):
+class DistributedAdderModel(_ExplicitComponentModel):
     options: DistributedAdderOptions = Field(default_factory=DistributedAdderOptions)
 
 

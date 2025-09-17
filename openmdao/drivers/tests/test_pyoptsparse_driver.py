@@ -745,9 +745,9 @@ class TestPyoptSparse(unittest.TestCase):
 
         exception = raises_msg.exception
 
-        msg = "pyOptSparseDriver: Tried to set read-only option 'equality_constraints'."
+        msg = "equality_constraints\n  Field is frozen [type=frozen_field, input_value=False, input_type=bool]"
 
-        self.assertEqual(exception.args[0], msg)
+        self.assertTrue(msg in str(exception))
 
     def test_fan_out(self):
         # This tests sparse-response specification.

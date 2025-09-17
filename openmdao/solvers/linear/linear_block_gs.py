@@ -4,7 +4,7 @@ import numpy as np
 from pydantic import Field
 
 from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptions, \
-    _IterSolverOptions, LinearSolverModel
+    _IterSolverOptions, _LinearSolverModel, _SolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -221,6 +221,12 @@ class _LinearBlockGSOptions(_IterSolverOptions, _NonIterLinearBlockGSOptions):
     pass
 
 
+class _LinearBlockGSSupports(_SolverSupports):
+    assembled_jac: bool = Field(False, frozen=True,
+                                desc='whether the solver supports assembled jacobian')
+
+
 @dmm.register(LinearBlockGS)
-class LinearBlockGSModel(LinearSolverModel):
+class _LinearBlockGSModel(_LinearSolverModel):
     options: _LinearBlockGSOptions = Field(default_factory=_LinearBlockGSOptions)
+    supports: _LinearBlockGSSupports = Field(default_factory=_LinearBlockGSSupports)

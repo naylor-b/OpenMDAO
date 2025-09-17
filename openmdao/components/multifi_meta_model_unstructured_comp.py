@@ -5,7 +5,7 @@ from pydantic import Field
 import numpy as np
 
 from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp, \
-    MetaModelUnStructuredCompOptions, MetaModelUnStructuredCompModel
+    _MetaModelUnStructuredCompOptions, _MetaModelUnStructuredCompModel
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -153,7 +153,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         # Add train_<invar>_fi<n>
         for fi in range(self._nfi):
             if fi > 0:
-                train_name = 'train_' + _get_name_fi(name, fi)
+                train_name = _get_name_fi(name, fi)
                 self.options.training_data[train_name] = None
                 if self._static_mode:
                     self._static_input_sizes[fi] += input_size
@@ -179,7 +179,7 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         # Add train_<outvar>_fi<n>
         for fi in range(self._nfi):
             if fi > 0:
-                train_name = 'train_' + _get_name_fi(name, fi)
+                train_name = _get_name_fi(name, fi)
                 self.options.training_data[train_name] = None
 
     def _train(self):
@@ -252,11 +252,11 @@ class MultiFiMetaModelUnStructuredComp(MetaModelUnStructuredComp):
         self.train = False
 
 
-class MultiFiMetaModelUnStructuredCompOptions(MetaModelUnStructuredCompOptions):
+class _MultiFiMetaModelUnStructuredCompOptions(_MetaModelUnStructuredCompOptions):
     nfi: int = Field(default=1, desc='Number of levels of fidelity.')
 
 
 @dmm.register(MultiFiMetaModelUnStructuredComp)
-class MultiFiMetaModelUnStructuredCompModel(MetaModelUnStructuredCompModel):
-    options: MultiFiMetaModelUnStructuredCompOptions = \
-        Field(default_factory=MultiFiMetaModelUnStructuredCompOptions)
+class _MultiFiMetaModelUnStructuredCompModel(_MetaModelUnStructuredCompModel):
+    options: _MultiFiMetaModelUnStructuredCompOptions = \
+        Field(default_factory=_MultiFiMetaModelUnStructuredCompOptions)

@@ -2,8 +2,8 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 class Resistor(om.ExplicitComponent):
@@ -131,31 +131,31 @@ p.run_model()
 
 # Pydantic Models for Circuit Components
 
-class ResistorOptions(ExplicitComponentOptions):
+class ResistorOptions(_ExplicitComponentOptions):
     R: float = Field(default=1.0, desc='Resistance in Ohms')
 
 
-class DiodeOptions(ExplicitComponentOptions):
+class DiodeOptions(_ExplicitComponentOptions):
     Is: float = Field(default=1e-15, desc='Saturation current in Amps')
     Vt: float = Field(default=0.025875, desc='Thermal voltage in Volts')
 
 
-class NodeOptions(ImplicitComponentOptions):
+class NodeOptions(_ImplicitComponentOptions):
     n_in: int = Field(default=1, desc='number of connections with + assumed in')
     n_out: int = Field(default=1, desc='number of current connections + assumed out')
 
 
 # Register the models
 @dmm.register(Resistor)
-class ResistorModel(ExplicitComponentModel):
+class ResistorModel(_ExplicitComponentModel):
     options: ResistorOptions = Field(default_factory=ResistorOptions)
 
 
 @dmm.register(Diode)
-class DiodeModel(ExplicitComponentModel):
+class DiodeModel(_ExplicitComponentModel):
     options: DiodeOptions = Field(default_factory=DiodeOptions)
 
 
 @dmm.register(Node)
-class NodeModel(ImplicitComponentModel):
+class NodeModel(_ImplicitComponentModel):
     options: NodeOptions = Field(default_factory=NodeOptions)

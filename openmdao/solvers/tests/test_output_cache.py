@@ -7,7 +7,7 @@ import openmdao.api as om
 
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning
 from openmdao.utils.validation import DataModelManager as dmm
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 
 
 class SubComp1(om.ExplicitComponent):
@@ -76,7 +76,7 @@ class CoupledGroup(om.Group):
         self.linear_solver = om.DirectSolver(assemble_jac=True)
 
 
-class NLBGSGroupOptions(GroupOptions):
+class NLBGSGroupOptions(_GroupOptions):
     use_guess: bool = Field(default=False, desc='Whether to use guess')
 
 
@@ -102,7 +102,7 @@ class NLBGSGroup(om.Group):
 
 
 @dmm.register(NLBGSGroup)
-class NLBGSGroupModel(GroupModel):
+class NLBGSGroupModel(_GroupModel):
     options: NLBGSGroupOptions = Field(default_factory=NLBGSGroupOptions)
 
 

@@ -3,7 +3,7 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -79,25 +79,25 @@ class TestExplCompArrayJacVec(TestExplCompArray):
                 d_inputs['lengths'] += d_outputs['total_volume']*inputs['widths']
 
 
-class TestExplCompArrayOptions(ExplicitComponentOptions):
+class TestExplCompArrayOptions(_ExplicitComponentOptions):
     thickness: float = Field(default=1.0, desc='Thickness value')
 
 
 @dmm.register(TestExplCompArray)
-class TestExplCompArrayModel(ExplicitComponentModel):
+class TestExplCompArrayModel(_ExplicitComponentModel):
     options: TestExplCompArrayOptions = Field(default_factory=TestExplCompArrayOptions)
 
 
 @dmm.register(TestExplCompArrayDense)
-class TestExplCompArrayDenseModel(ExplicitComponentModel):
+class TestExplCompArrayDenseModel(_ExplicitComponentModel):
     options: TestExplCompArrayOptions = Field(default_factory=TestExplCompArrayOptions)
 
 
 @dmm.register(TestExplCompArraySparse)
-class TestExplCompArraySparseModel(ExplicitComponentModel):
+class TestExplCompArraySparseModel(_ExplicitComponentModel):
     options: TestExplCompArrayOptions = Field(default_factory=TestExplCompArrayOptions)
 
 
 @dmm.register(TestExplCompArrayJacVec)
-class TestExplCompArrayJacVecModel(ExplicitComponentModel):
+class TestExplCompArrayJacVecModel(_ExplicitComponentModel):
     options: TestExplCompArrayOptions = Field(default_factory=TestExplCompArrayOptions)

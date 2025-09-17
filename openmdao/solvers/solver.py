@@ -17,7 +17,7 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.record_util import create_local_meta, check_path
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 from openmdao.utils.general_utils import SolverMetaclass, is_undefined
-from openmdao.utils.validation import DataModelManager as dmm, TypeBaseModel, OptionsBaseModel
+from openmdao.utils.validation import DataModelManager as dmm, _TypeBaseModel, _OptionsBaseModel
 
 
 class SolverInfo(object):
@@ -101,11 +101,11 @@ class SolverInfo(object):
         self.prefix, self.stack = cache
 
 
-class _NonIterSolverOptions(OptionsBaseModel):
+class _NonIterSolverOptions(_OptionsBaseModel):
     iprint: int = Field(default=1, desc='whether to print output')
 
 
-class _IterSolverOptions(OptionsBaseModel):
+class _IterSolverOptions(_OptionsBaseModel):
     maxiter: int = Field(default=10, desc='maximum number of iterations')
     atol: float = Field(default=1e-10, desc='absolute error tolerance')
     rtol: float = Field(default=1e-10, desc='relative error tolerance')
@@ -114,7 +114,7 @@ class _IterSolverOptions(OptionsBaseModel):
                                       "don't converge.")
 
 
-class _SolverRecordingOptions(OptionsBaseModel):
+class _SolverRecordingOptions(_OptionsBaseModel):
     record_abs_error: bool = Field(default=True,
                                    desc='Set to True to record absolute error at the solver level')
     record_rel_error: bool = Field(default=True,
@@ -134,7 +134,7 @@ class _SolverRecordingOptions(OptionsBaseModel):
                                 "Paths are relative to solver's Group. Uses fnmatch wildcards")
 
 
-class _SolverSupports(OptionsBaseModel):
+class _SolverSupports(_OptionsBaseModel):
     gradients: bool = Field(default=False, frozen=True,
                             desc='Whether the solver supports gradients')
     implicit_components: bool = Field(default=False, frozen=True,
@@ -584,16 +584,37 @@ class Solver(object, metaclass=SolverMetaclass):
         """
         return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
 
-    def init_data_model(self):
-        self.data_model = dmm.class_to_data_model_instance(self.__class__)
-        self.update_from_data_model(self.data_model)
-        return self.data_model
+    def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
 
-    def update_from_data_model(self, data_model: TypeBaseModel):
+        Parameters
+        ----------
+        data_model : _SolverModel
+            The data model to update from.
+
+        Returns
+        -------
+        Solver
+            The updated instance.
+        """
         self.options = data_model.options
         self.recording_options = data_model.recording_options
         self.supports = data_model.supports
         return self
+
+    def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _SolverModel
+            The data model.
+        """
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
 
     def check_config(self, logger):
         """
@@ -608,7 +629,7 @@ class Solver(object, metaclass=SolverMetaclass):
 
 
 @dmm.register(Solver)
-class SolverModel(TypeBaseModel):
+class _SolverModel(_TypeBaseModel):
     options: _NonIterSolverOptions = Field(default_factory=_NonIterSolverOptions)
     recording_options: _SolverRecordingOptions = Field(default_factory=_SolverRecordingOptions)
     supports: _SolverSupports = Field(default_factory=_SolverSupports)
@@ -971,7 +992,7 @@ class NonlinearSolver(Solver):
 
 
 @dmm.register(NonlinearSolver)
-class NonlinearSolverModel(SolverModel):
+class _NonlinearSolverModel(_SolverModel):
     options: _NonIterNonlinearSolverOptions = Field(default_factory=_NonIterNonlinearSolverOptions)
 
 
@@ -1161,7 +1182,7 @@ class LinearSolver(Solver):
 
 
 @dmm.register(LinearSolver)
-class LinearSolverModel(SolverModel):
+class _LinearSolverModel(_SolverModel):
     options: _NonIterLinearSolverOptions = Field(default_factory=_NonIterLinearSolverOptions)
     supports: _LinearSolverSupports = Field(default_factory=_LinearSolverSupports)
 

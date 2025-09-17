@@ -13,7 +13,7 @@ import numpy as np
 from pydantic import Field
 
 from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
-    InterpAlgorithmOptions, InterpAlgorithmModel
+    _InterpAlgorithmOptions, _InterpAlgorithmModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 SCIPY_ORDERS = {
@@ -57,7 +57,6 @@ class InterpScipy(InterpAlgorithm):
         """
         Initialize table and subtables.
         """
-        self.initialize()
         dmm.setup_data_model(self, kwargs)
 
         self._vectorized = True
@@ -309,11 +308,11 @@ class InterpScipy(InterpAlgorithm):
         return val
 
 
-class InterpScipyOptions(InterpAlgorithmOptions):
+class _InterpScipyOptions(_InterpAlgorithmOptions):
     interp_method: str = \
         Field(default='scipy_slinear', desc='Interpolation method to use for scipy.')
 
 
 @dmm.register(InterpScipy)
-class InterpScipyModel(InterpAlgorithmModel):
-    options: InterpScipyOptions = Field(default_factory=InterpScipyOptions)
+class _InterpScipyModel(_InterpAlgorithmModel):
+    options: _InterpScipyOptions = Field(default_factory=_InterpScipyOptions)

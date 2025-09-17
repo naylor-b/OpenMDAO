@@ -5,7 +5,7 @@ import numpy as np
 from pydantic import Field, BaseModel
 
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
-from openmdao.utils.validation import OptionsBaseModel, DataModelManager as dmm
+from openmdao.utils.validation import _OptionsBaseModel, DataModelManager as dmm
 
 
 class InterpAlgorithm(object):
@@ -55,7 +55,6 @@ class InterpAlgorithm(object):
         """
         Initialize table and subtables.
         """
-        self.initialize()
         dmm.setup_data_model(self, kwargs)
 
         self.subtable = None
@@ -74,14 +73,6 @@ class InterpAlgorithm(object):
         self._compute_d_dx = True
         self._full_slice = None
         self._supports_d_dvalues = True
-
-    def initialize(self):
-        """
-        Declare options.
-
-        Override to add options.
-        """
-        pass
 
     def check_config(self):
         """
@@ -258,28 +249,51 @@ class InterpAlgorithm(object):
         raise NotImplementedError()
 
     def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _InterpAlgorithmModel
+            The data model to update from.
+
+        Returns
+        -------
+        InterpAlgorithm
+            The updated instance.
+        """
         self.options = data_model.options
         return self
 
     def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _InterpAlgorithmModel
+            The data model.
+        """
         self.data_model = dmm.class_to_data_model_instance(self.__class__)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
 
-class InterpAlgorithmOptions(OptionsBaseModel):
+class _InterpAlgorithmOptions(_OptionsBaseModel):
     """
     Options for the InterpAlgorithm class.
     """
+
     pass
 
 
 @dmm.register(InterpAlgorithm)
-class InterpAlgorithmModel(BaseModel):
+class _InterpAlgorithmModel(BaseModel):
     """
     Model for the InterpAlgorithm class.
     """
-    options: InterpAlgorithmOptions = Field(default_factory=InterpAlgorithmOptions)
+
+    options: _InterpAlgorithmOptions = Field(default_factory=_InterpAlgorithmOptions)
 
 
 class InterpAlgorithmFixed(object):
@@ -327,7 +341,6 @@ class InterpAlgorithmFixed(object):
         """
         Initialize interp algorithm.
         """
-        self.initialize()
         dmm.setup_data_model(self, {})
 
         self.grid = grid
@@ -341,9 +354,6 @@ class InterpAlgorithmFixed(object):
         self._compute_d_dvalues = False
         self._supports_d_dvalues = False
         self._compute_d_dx = True
-
-    def initialize(self):
-        pass
 
     def check_config(self):
         """
@@ -578,28 +588,51 @@ class InterpAlgorithmFixed(object):
         raise NotImplementedError()
 
     def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _InterpAlgorithmFixedModel
+            The data model to update from.
+
+        Returns
+        -------
+        InterpAlgorithmFixed
+            The updated instance.
+        """
         self.options = data_model.options
         return self
 
     def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _InterpAlgorithmFixedModel
+            The data model.
+        """
         self.data_model = dmm.class_to_data_model_instance(self.__class__)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
 
-class InterpAlgorithmFixedOptions(OptionsBaseModel):
+class _InterpAlgorithmFixedOptions(_OptionsBaseModel):
     """
-    Options for the InterpAlgorithm class.
+    Options for the InterpAlgorithmFixed class.
     """
+
     pass
 
 
 @dmm.register(InterpAlgorithmFixed)
-class InterpAlgorithmFixedModel(BaseModel):
+class _InterpAlgorithmFixedModel(BaseModel):
     """
-    Model for the InterpFixedAlgorithm class.
+    Model for the InterpAlgorithmFixed class.
     """
-    options: InterpAlgorithmFixedOptions = Field(default_factory=InterpAlgorithmFixedOptions)
+
+    options: _InterpAlgorithmFixedOptions = Field(default_factory=_InterpAlgorithmFixedOptions)
 
 
 class InterpAlgorithmSemi(object):
@@ -664,7 +697,6 @@ class InterpAlgorithmSemi(object):
         """
         Initialize table and subtables.
         """
-        self.initialize()
         dmm.setup_data_model(self, kwargs)
 
         self.values = values
@@ -720,14 +752,6 @@ class InterpAlgorithmSemi(object):
         self.last_index = 0
         self.k = None
         self._name = None
-
-    def initialize(self):
-        """
-        Declare options.
-
-        Override to add options.
-        """
-        pass
 
     def check_config(self):
         """
@@ -867,25 +891,48 @@ class InterpAlgorithmSemi(object):
         raise NotImplementedError()
 
     def update_from_data_model(self, data_model):
+        """
+        Update the instance from the data model.
+
+        Parameters
+        ----------
+        data_model : _InterpAlgorithmSemiModel
+            The data model to update from.
+
+        Returns
+        -------
+        InterpAlgorithmSemi
+            The updated instance.
+        """
         self.options = data_model.options
         return self
 
     def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _InterpAlgorithmSemiModel
+            The data model.
+        """
         self.data_model = dmm.class_to_data_model_instance(self.__class__)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
 
-class InterpAlgorithmSemiOptions(OptionsBaseModel):
+class _InterpAlgorithmSemiOptions(_OptionsBaseModel):
     """
     Options for the InterpAlgorithmSemi class.
     """
+
     pass
 
 
 @dmm.register(InterpAlgorithmSemi)
-class InterpAlgorithmSemiModel(BaseModel):
+class _InterpAlgorithmSemiModel(BaseModel):
     """
     Model for the InterpAlgorithmSemi class.
     """
-    options: InterpAlgorithmSemiOptions = Field(default_factory=InterpAlgorithmSemiOptions)
+
+    options: _InterpAlgorithmSemiOptions = Field(default_factory=_InterpAlgorithmSemiOptions)

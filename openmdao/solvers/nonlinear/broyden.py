@@ -12,7 +12,7 @@ from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOpti
     _IterNonlinearSolverOptions
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.om_warnings import issue_warning, SetupWarning
-from openmdao.solvers.solver import NonlinearSolverModel, _SolverSupports
+from openmdao.solvers.solver import _NonlinearSolverModel, _SolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -655,6 +655,6 @@ class _BroydenSolverSupports(_SolverSupports):
 
 
 @dmm.register(BroydenSolver)
-class BroydenSolverModel(NonlinearSolverModel):
+class _BroydenSolverModel(_NonlinearSolverModel):
     options: _BroydenSolverOptions = Field(default_factory=_BroydenSolverOptions)
     supports: _BroydenSolverSupports = Field(default_factory=_BroydenSolverSupports)

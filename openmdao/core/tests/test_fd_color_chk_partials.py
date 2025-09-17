@@ -5,7 +5,7 @@ from pydantic import Field
 
 import openmdao.api as om
 import numpy as np
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -59,12 +59,12 @@ class FlightDynamics2DComp(om.ExplicitComponent):
         outputs['dXdt:r'] = v * c_gamma
 
 
-class FlightDynamics2DCompOptions(ExplicitComponentOptions):
+class FlightDynamics2DCompOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
     g: float = Field(default=9.80665, desc='Gravitational acceleration (m/s**2)')
 
 @dmm.register(FlightDynamics2DComp)
-class FlightDynamics2DCompModel(ExplicitComponentModel):
+class FlightDynamics2DCompModel(_ExplicitComponentModel):
     options: FlightDynamics2DCompOptions = Field(default_factory=FlightDynamics2DCompOptions)
 
 

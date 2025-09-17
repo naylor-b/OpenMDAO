@@ -2,8 +2,8 @@
 from pydantic import Field
 
 from openmdao.solvers.solver import BlockLinearSolver, _NonIterLinearSolverOptions, \
-    _IterSolverOptions
-from openmdao.solvers.solver import LinearSolverModel
+    _IterSolverOptions, _SolverSupports
+from openmdao.solvers.solver import _LinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -74,6 +74,12 @@ class _LinearBlockJacOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
     pass
 
 
+class _LinearBlockJacSupports(_SolverSupports):
+    assembled_jac: bool = Field(False, frozen=True,
+                                desc='whether the solver supports assembled jacobian')
+
+
 @dmm.register(LinearBlockJac)
-class LinearBlockJacModel(LinearSolverModel):
+class _LinearBlockJacModel(_LinearSolverModel):
     options: _LinearBlockJacOptions = Field(default_factory=_LinearBlockJacOptions)
+    supports: _LinearBlockJacSupports = Field(default_factory=_LinearBlockJacSupports)

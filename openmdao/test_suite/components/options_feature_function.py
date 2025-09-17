@@ -7,7 +7,7 @@ from types import FunctionType
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -26,12 +26,12 @@ class UnitaryFunctionComp(om.ExplicitComponent):
         outputs['y'] = func(inputs['x'])
 
 
-class UnitaryFunctionCompOptions(ExplicitComponentOptions):
+class UnitaryFunctionCompOptions(_ExplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     func: FunctionType = Field(default=None, desc='Function to apply to input')
 
 
 @dmm.register(UnitaryFunctionComp)
-class UnitaryFunctionCompModel(ExplicitComponentModel):
+class UnitaryFunctionCompModel(_ExplicitComponentModel):
     options: UnitaryFunctionCompOptions = Field(default_factory=UnitaryFunctionCompOptions)

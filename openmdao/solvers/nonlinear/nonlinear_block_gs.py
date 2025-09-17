@@ -5,7 +5,7 @@ from pydantic import Field
 
 from openmdao.solvers.solver import NonlinearSolver, _NonIterNonlinearSolverOptions, \
     _IterNonlinearSolverOptions
-from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.solvers.solver import _NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -258,5 +258,5 @@ class _NonlinearBlockGSOptions(_NonIterNonlinearSolverOptions, _IterNonlinearSol
 
 
 @dmm.register(NonlinearBlockGS)
-class NonlinearBlockGSModel(NonlinearSolverModel):
+class _NonlinearBlockGSModel(_NonlinearSolverModel):
     options: _NonlinearBlockGSOptions = Field(default_factory=_NonlinearBlockGSOptions)

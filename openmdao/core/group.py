@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import List, Any
 
 from openmdao.core.configinfo import _ConfigInfo
-from openmdao.core.system import System, collect_errors, SystemModel, ImplicitSystemOptions
+from openmdao.core.system import System, collect_errors, _SystemModel, _ImplicitSystemOptions
 from openmdao.core.component import Component, _DictValues
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.core.constants import _UNDEFINED, INT_DTYPE, _SetupStatus
@@ -25,7 +25,7 @@ from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.nonlinear.nonlinear_runonce import NonlinearRunOnce
 from openmdao.solvers.linear.linear_runonce import LinearRunOnce
 from openmdao.solvers.linear.direct import DirectSolver
-from openmdao.solvers.solver import LinearSolverModel, NonlinearSolverModel
+from openmdao.solvers.solver import _LinearSolverModel, _NonlinearSolverModel
 from openmdao.utils.array_utils import array_connection_compatible, _flatten_src_indices, \
     shape_to_len, ValueRepeater, evenly_distrib_idxs
 from openmdao.utils.general_utils import convert_src_inds, shape2tuple, get_connection_owner, \
@@ -45,7 +45,7 @@ from openmdao.utils.class_util import overrides_method
 from openmdao.utils.jax_utils import jax
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.utils.name_maps import LOCAL, CONTINUOUS, DISTRIBUTED
-from openmdao.utils.validation import DataModelManager as dmm, PolymorphicModel, TypeBaseModel
+from openmdao.utils.validation import DataModelManager as dmm, PolymorphicModel
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.jacobians.subjac import Subjac
 from openmdao.jacobians.jacobian import GroupJacobianUpdateContext
@@ -4218,7 +4218,7 @@ class Group(System):
                 self._jacobian = DictionaryJacobian(system=self)
                 self._get_static_wrt_matches()
 
-            if self._jacobian is None:
+            if self._jacobian is None and not self.matrix_free:
                 self._jacobian = self._get_assembled_jac()
 
         return self._jacobian
@@ -5617,8 +5617,20 @@ class Group(System):
 
         return self._key_owner
 
-    def update_from_data_model(self, data_model: TypeBaseModel):
-        """Populate instance data using the data model."""
+    def update_from_data_model(self, data_model):
+        """
+        Populate instance data using the data model.
+
+        Parameters
+        ----------
+        data_model : _GroupModel
+            The data model to update from.
+
+        Returns
+        -------
+        Group
+            The updated instance.
+        """
         super().update_from_data_model(data_model)
 
         for sub_model in data_model.subsystems:
@@ -5645,12 +5657,19 @@ class Group(System):
         return self
 
     def update_data_model(self):
-        """Update the data model with current instance attributes."""
+        """
+        Update the data model with current instance attributes.
+
+        Returns
+        -------
+        _GroupModel
+            The data model.
+        """
         super().update_data_model()
         self.data_model.subsystems = [subsys.update_data_model() for subsys in self.subsystems]
         self.data_model.connections = \
-            [ConnectionData(src=src, tgt=tgt, src_indices=src_indices,
-                            flat_src_indices=flat_src_indices)
+            [_ConnectionModel(src=src, tgt=tgt, src_indices=src_indices,
+                              flat_src_indices=flat_src_indices)
              for tgt, (src, src_indices, flat_src_indices) in self._manual_connections.items()]
 
         if self._group_inputs:
@@ -5659,21 +5678,21 @@ class Group(System):
             ginputs = self._static_group_inputs
 
         for name, meta in ginputs.items():
-            self.data_model.input_defaults.append(InputDefaultData(name=name, val=meta['val'],
-                                                                   units=meta['units'],
-                                                                   src_shape=meta['src_shape']))
+            self.data_model.input_defaults.append(_InputDefaultModel(name=name, val=meta['val'],
+                                                                     units=meta['units'],
+                                                                     src_shape=meta['src_shape']))
 
         return self.data_model
 
 
-class GroupOptions(ImplicitSystemOptions):
+class _GroupOptions(_ImplicitSystemOptions):
     auto_order: bool = Field(default=False,
                              desc='If True the order of subsystems is determined automatically '
                              'based on the dependency graph.  It will not break or reorder '
                              'cycles.')
 
 
-class ConnectionData(BaseModel):
+class _ConnectionModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     src: str = Field(default="", desc="Source variable name")
@@ -5683,7 +5702,7 @@ class ConnectionData(BaseModel):
     flat_src_indices: bool = Field(default=None, desc="If True, src is treated as a flat array.")
 
 
-class InputDefaultData(BaseModel):
+class _InputDefaultModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(default="", desc="Name of the input default")
     val: Any = Field(default=None, desc="Value of the input default")
@@ -5693,20 +5712,20 @@ class InputDefaultData(BaseModel):
 
 
 @dmm.register(Group)
-class GroupModel(SystemModel):
-    options: GroupOptions = Field(default_factory=GroupOptions)
-    connections: List[ConnectionData] = Field(default_factory=list)
+class _GroupModel(_SystemModel):
+    options: _GroupOptions = Field(default_factory=_GroupOptions)
+    connections: List[_ConnectionModel] = Field(default_factory=list)
     subsystems: List[PolymorphicModel] = Field(default_factory=list)
-    input_defaults: List[InputDefaultData] = Field(default_factory=list)
-    linear_solver: LinearSolverModel = Field(default_factory=LinearSolverModel)
-    nonlinear_solver: NonlinearSolverModel = Field(default_factory=NonlinearSolverModel)
+    input_defaults: List[_InputDefaultModel] = Field(default_factory=list)
+    linear_solver: _LinearSolverModel = Field(default_factory=_LinearSolverModel)
+    nonlinear_solver: _NonlinearSolverModel = Field(default_factory=_NonlinearSolverModel)
 
     @field_validator("subsystems", mode="after")
-    def validate_subsystem(cls, values):
+    def _validate_subsystem(cls, values):
         subs = []
         for sub in values:
-            if not isinstance(sub, SystemModel):
-                raise ValueError(f"Subsystem model '{sub.type}' is not a SystemModel.")
+            if not isinstance(sub, _SystemModel):
+                raise ValueError(f"Subsystem model '{sub.type}' is not a _SystemModel.")
 
             subs.append(sub)
         return subs

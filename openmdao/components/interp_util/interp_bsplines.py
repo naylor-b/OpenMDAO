@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import Field
 
 from openmdao.components.interp_util.interp_algorithm import InterpAlgorithm, \
-    InterpAlgorithmOptions, InterpAlgorithmModel
+    _InterpAlgorithmOptions, _InterpAlgorithmModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 CITATIONS = """
@@ -224,7 +224,7 @@ class InterpBSplines(InterpAlgorithm):
         return csr_matrix((data, (rows, cols)), shape=(num_pt, num_cp))
 
 
-class InterpBSplinesOptions(InterpAlgorithmOptions):
+class _InterpBSplinesOptions(_InterpAlgorithmOptions):
     order: int = Field(default=4, desc='B-spline order.')
     x_cp_start: Optional[float] = \
         Field(default=None,
@@ -235,5 +235,5 @@ class InterpBSplinesOptions(InterpAlgorithmOptions):
 
 
 @dmm.register(InterpBSplines)
-class InterpBSplinesModel(InterpAlgorithmModel):
-    options: InterpBSplinesOptions = Field(default_factory=InterpBSplinesOptions)
+class _InterpBSplinesModel(_InterpAlgorithmModel):
+    options: _InterpBSplinesOptions = Field(default_factory=_InterpBSplinesOptions)

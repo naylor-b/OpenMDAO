@@ -2,8 +2,8 @@ import numpy as np
 from pydantic import Field, ConfigDict
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupModel, GroupOptions
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupModel, _GroupOptions
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -144,19 +144,19 @@ class CannonballODE(om.Group):
         self.connect('aero.f_lift', 'L')
 
 
-class LiftDragForceCompOptions(ExplicitComponentOptions):
+class LiftDragForceCompOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
 
 
-class FlightPathEOM2DOptions(ExplicitComponentOptions):
+class FlightPathEOM2DOptions(_ExplicitComponentOptions):
     num_nodes: int = Field(default=1, desc='Number of nodes')
 
 
 @dmm.register(LiftDragForceComp)
-class LiftDragForceCompModel(ExplicitComponentModel):
+class LiftDragForceCompModel(_ExplicitComponentModel):
     options: LiftDragForceCompOptions = Field(default_factory=LiftDragForceCompOptions)
 
 
 @dmm.register(FlightPathEOM2D)
-class FlightPathEOM2DModel(ExplicitComponentModel):
+class FlightPathEOM2DModel(_ExplicitComponentModel):
     options: FlightPathEOM2DOptions = Field(default_factory=FlightPathEOM2DOptions)

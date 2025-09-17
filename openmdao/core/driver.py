@@ -19,7 +19,7 @@ from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
 from openmdao.utils.general_utils import _src_name_iter, DriverMetaclass
-from openmdao.utils.validation import TypeBaseModel, OptionsBaseModel, \
+from openmdao.utils.validation import _TypeBaseModel, _OptionsBaseModel, \
     DataModelManager as dmm
 from openmdao.utils.mpi import MPI
 import openmdao.utils.coloring as coloring_mod
@@ -2376,25 +2376,43 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return not self.result.success
 
-    def init_data_model(self):
-        self.data_model = dmm.class_to_data_model_instance(self.__class__)
-        self.update_from_data_model(self.data_model)
-        return self.data_model
-
-    def update_from_data_model(self, data_model: TypeBaseModel):
+    def update_from_data_model(self, data_model):
         """
         Populate instance data using the data model.
+
+        Parameters
+        ----------
+        data_model : _DriverModel
+            The data model to update from.
+
+        Returns
+        -------
+        Driver
+            The updated instance.
         """
         self.options = data_model.options
         self.recording_options = data_model.recording_options
         self.supports = data_model.supports
         return self
 
+    def init_data_model(self):
+        """
+        Initialize the data model.
+
+        Returns
+        -------
+        _DriverModel
+            The data model.
+        """
+        self.data_model = dmm.class_to_data_model_instance(self.__class__)
+        self.update_from_data_model(self.data_model)
+        return self.data_model
+
 
 _allowed_debug_print_options = {'desvars', 'nl_cons', 'ln_cons', 'objs', 'totals'}
 
 
-class DriverOptions(OptionsBaseModel):
+class _DriverOptions(_OptionsBaseModel):
     debug_print: list[str] = \
         Field(default_factory=list,
               desc="List of what type of Driver variables to print at each iteration.")
@@ -2404,7 +2422,7 @@ class DriverOptions(OptionsBaseModel):
 
     @field_validator('debug_print')
     @classmethod
-    def validate_debug_print(cls, v):
+    def _validate_debug_print(cls, v):
         if v is not None and not isinstance(v, list):
             raise ValueError("debug_print must be a list.")
         for item in v:
@@ -2414,7 +2432,7 @@ class DriverOptions(OptionsBaseModel):
         return v
 
 
-class DriverRecordingOptions(OptionsBaseModel):
+class _DriverRecordingOptions(_OptionsBaseModel):
     record_desvars: bool = Field(default=True,
                                  desc="Set to True to record design variables at the driver level.")
     record_responses: bool = Field(default=False,
@@ -2442,7 +2460,7 @@ class DriverRecordingOptions(OptionsBaseModel):
                                    desc="Set True to record residuals at the driver level.")
 
 
-class DriverSupports(OptionsBaseModel):
+class _DriverSupports(_OptionsBaseModel):
     optimization: bool = Field(default=False, frozen=True)
     inequality_constraints: bool = Field(default=False, frozen=True)
     equality_constraints: bool = Field(default=False, frozen=True)
@@ -2459,12 +2477,12 @@ class DriverSupports(OptionsBaseModel):
 
 
 @dmm.register(Driver)
-class DriverModel(TypeBaseModel):
+class _DriverModel(_TypeBaseModel):
     type: str = Field(default='openmdao.core.driver.Driver',
                       desc='The class path of the type to be instantiated.')
-    options: DriverOptions = Field(default_factory=DriverOptions)
-    recording_options: DriverRecordingOptions = Field(default_factory=DriverRecordingOptions)
-    supports: DriverSupports = Field(default_factory=DriverSupports)
+    options: _DriverOptions = Field(default_factory=_DriverOptions)
+    recording_options: _DriverRecordingOptions = Field(default_factory=_DriverRecordingOptions)
+    supports: _DriverSupports = Field(default_factory=_DriverSupports)
 
 
 class SaveOptResult(object):

@@ -455,7 +455,7 @@ class TestReportsSystem(unittest.TestCase):
             for pre_or_post in ['pre', 'post']:
                 if (method, pre_or_post) == ('setup', 'pre'):
                     continue
-                repname = f"User defined report {method} {pre_or_post}"
+                repname = f"User_defined_report_{method}_{pre_or_post}"
                 register_report(repname, user_defined_report,
                                 "user defined report", 'Problem', method, pre_or_post,
                                 report_filename=user_report_filename)

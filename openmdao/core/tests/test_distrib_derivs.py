@@ -7,9 +7,9 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
-from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
+from openmdao.utils.validation import DataModelManager as dmm, _OptionsBaseModel
 from openmdao.test_suite.components.distributed_components import DistribCompDerivs, SummerDerivs
 from openmdao.test_suite.components.paraboloid_distributed import DistParab, DistParabFeature, \
     DistParabDeprecated
@@ -1137,7 +1137,7 @@ class MPITests2(unittest.TestCase):
 
     def test_distrib_voi_multiple_con(self):
         # This test contains 2 distributed constraints and 2 global ones.
-        class NonDistCompOptions(ExplicitComponentOptions):
+        class NonDistCompOptions(_ExplicitComponentOptions):
             arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
         class NonDistComp(om.ExplicitComponent):
@@ -1158,7 +1158,7 @@ class MPITests2(unittest.TestCase):
                 outputs['g'] = x * self.mat
 
         @dmm.register(NonDistComp)
-        class NonDistCompModel(ExplicitComponentModel):
+        class NonDistCompModel(_ExplicitComponentModel):
             options: NonDistCompOptions = Field(default_factory=NonDistCompOptions)
 
         size = 7
@@ -1419,7 +1419,7 @@ class DistribStateImplicit(om.ImplicitComponent):
                 d_i['a'] -= np.sum(d_r['states'])
 
 
-class DistParab2Options(ExplicitComponentOptions):
+class DistParab2Options(_ExplicitComponentOptions):
     arr_size: int = Field(default=10, desc="Size of input and output vectors.")
 
 
@@ -1459,7 +1459,7 @@ class DistParab2(om.ExplicitComponent):
 
 
 @dmm.register(DistParab2)
-class DistParab2Model(ExplicitComponentModel):
+class DistParab2Model(_ExplicitComponentModel):
     options: DistParab2Options = Field(default_factory=DistParab2Options)
 
 
@@ -1647,7 +1647,7 @@ class MPITests3(unittest.TestCase):
                           1e-11)
 
 
-class StateOptions(OptionsBaseModel):
+class StateOptions(_OptionsBaseModel):
     name: str = Field(default='', desc='Name of the state')
     shape: tuple = Field(default=(1,), desc='Shape of the state')
     targets: tuple = Field(default=None, desc='Targets of the state')
@@ -1693,14 +1693,14 @@ class MPITestsBug(unittest.TestCase):
                     self.connect('states:{0}'.format(name),
                                   ['rhs_disc.{0}'.format(tgt) for tgt in options['targets']])
 
-        class PhaseOptions(GroupOptions):
+        class PhaseOptions(_GroupOptions):
             ode_class: type = Field(default=None, desc='ODE class')
 
         @dmm.register(Phase)
-        class PhaseModel(GroupModel):
+        class PhaseModel(_GroupModel):
             options: PhaseOptions = Field(default_factory=PhaseOptions)
 
-        class vanderpol_ode_groupOptions(GroupOptions):
+        class vanderpol_ode_groupOptions(_GroupOptions):
             num_nodes: int = Field(default=1, desc='Number of nodes')
 
         class vanderpol_ode_group(om.Group):
@@ -1730,10 +1730,10 @@ class MPITestsBug(unittest.TestCase):
                              src_indices=om.slicer[:])
 
         @dmm.register(vanderpol_ode_group)
-        class vanderpol_ode_groupModel(GroupModel):
+        class vanderpol_ode_groupModel(_GroupModel):
             options: vanderpol_ode_groupOptions = Field(default_factory=vanderpol_ode_groupOptions)
 
-        class vanderpol_ode_delayOptions(ExplicitComponentOptions):
+        class vanderpol_ode_delayOptions(_ExplicitComponentOptions):
             num_nodes: int = Field(default=1, desc='Number of nodes')
 
         class vanderpol_ode_delay(om.ExplicitComponent):
@@ -1761,10 +1761,10 @@ class MPITestsBug(unittest.TestCase):
                 jacobian['x0dot', 'x1'] = 10.0 * x1
 
         @dmm.register(vanderpol_ode_delay)
-        class vanderpol_ode_delayModel(ExplicitComponentModel):
+        class vanderpol_ode_delayModel(_ExplicitComponentModel):
             options: vanderpol_ode_delayOptions = Field(default_factory=vanderpol_ode_delayOptions)
 
-        class vanderpol_ode_rate_collectOptions(ExplicitComponentOptions):
+        class vanderpol_ode_rate_collectOptions(_ExplicitComponentOptions):
             num_nodes: int = Field(default=1, desc='Number of nodes')
 
         class vanderpol_ode_rate_collect(om.ExplicitComponent):
@@ -1786,7 +1786,7 @@ class MPITestsBug(unittest.TestCase):
                 outputs['x0dot'] = inputs['partx0dot']
 
         @dmm.register(vanderpol_ode_rate_collect)
-        class vanderpol_ode_rate_collectModel(ExplicitComponentModel):
+        class vanderpol_ode_rate_collectModel(_ExplicitComponentModel):
             options: vanderpol_ode_rate_collectOptions = Field(default_factory=vanderpol_ode_rate_collectOptions)
 
         p = om.Problem()
@@ -2092,7 +2092,7 @@ class ZeroLengthInputsOutputs(unittest.TestCase):
         assert(prob.check_partials(step_calc='rel_element', show_only_incorrect=True))
 
 
-class DistribCompDenseJacOptions(ExplicitComponentOptions):
+class DistribCompDenseJacOptions(_ExplicitComponentOptions):
     size: int = Field(default=7, desc='Size parameter')
 
 
@@ -2126,7 +2126,7 @@ class DistribCompDenseJac(om.ExplicitComponent):
 
 
 @dmm.register(DistribCompDenseJac)
-class DistribCompDenseJacModel(ExplicitComponentModel):
+class DistribCompDenseJacModel(_ExplicitComponentModel):
     options: DistribCompDenseJacOptions = Field(default_factory=DistribCompDenseJacOptions)
 
 
@@ -2640,7 +2640,7 @@ class TestDistribBugs(unittest.TestCase):
         assert_check_totals(prob.check_totals("ParallelSum.sum", "ivc.x"))
 
 
-class DummyCompOptions(ExplicitComponentOptions):
+class DummyCompOptions(_ExplicitComponentOptions):
     a: float = Field(default=0., desc='Parameter a')
     b: float = Field(default=0., desc='Parameter b')
 
@@ -2666,7 +2666,7 @@ class DummyComp(om.ExplicitComponent):
 
 
 @dmm.register(DummyComp)
-class DummyCompModel(ExplicitComponentModel):
+class DummyCompModel(_ExplicitComponentModel):
     options: DummyCompOptions = Field(default_factory=DummyCompOptions)
 
 

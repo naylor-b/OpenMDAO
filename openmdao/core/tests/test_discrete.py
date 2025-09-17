@@ -8,7 +8,7 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver, DriverSupports, DriverModel
+from openmdao.core.driver import Driver, _DriverSupports, _DriverModel
 from openmdao.devtools.debug import config_summary
 from openmdao.visualization.n2_viewer.n2_viewer import _get_viewer_data
 from openmdao.test_suite.components.sellar import StateConnection, \
@@ -128,12 +128,12 @@ class DiscreteDriver(Driver):
         self.get_design_var_values()
 
 
-class DiscreteDriverSupports(DriverSupports):
+class DiscreteDriverSupports(_DriverSupports):
     integer_design_vars: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(DiscreteDriver)
-class DiscreteDriverModel(DriverModel):
+class DiscreteDriverModel(_DriverModel):
 
     supports: DiscreteDriverSupports = Field(default_factory=DiscreteDriverSupports)
 

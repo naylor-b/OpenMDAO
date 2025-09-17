@@ -49,7 +49,7 @@ class TestBGSSolver(LinearSolverTests.LinearSolverTestCase):
         model.linear_solver = self.linear_solver_class(assemble_jac=True)
         prob.setup()
 
-        with self.assertRaises(RuntimeError) as context:
+        with self.assertRaises(Exception) as context:
             prob.run_model()
 
         self.assertEqual(str(context.exception),

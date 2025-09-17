@@ -11,8 +11,8 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.test_suite.groups.parallel_groups import FanOutGrouped, FanInGrouped, FanInGrouped2
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
@@ -484,7 +484,7 @@ class IndicesTestCase2(unittest.TestCase):
         assert_near_equal(J['G1.par1.c4.y', 'G1.par1.p.x'][0], np.array([8., 0.]), 1e-6)
 
     def test_src_indices_rev(self):
-        class DummyCompOptions(ExplicitComponentOptions):
+        class DummyCompOptions(_ExplicitComponentOptions):
             a: float = Field(default=0., desc='Parameter a')
             b: float = Field(default=0., desc='Parameter b')
 
@@ -506,7 +506,7 @@ class IndicesTestCase2(unittest.TestCase):
                     raise RuntimeError("fwd mode not supported")
 
         @dmm.register(DummyComp)
-        class DummyCompModel(ExplicitComponentModel):
+        class DummyCompModel(_ExplicitComponentModel):
             options: DummyCompOptions = Field(default_factory=DummyCompOptions)
 
         class DummyGroup(om.ParallelGroup):
@@ -804,12 +804,12 @@ class CheckParallelDerivColoringEfficiency(unittest.TestCase):
                         if 'y2' in d_outputs:
                             d_inputs['x'] += np.linspace(2, 4, size)*d_outputs['y2']
 
-        class DelayCompOptions(ExplicitComponentOptions):
+        class DelayCompOptions(_ExplicitComponentOptions):
             time: float = Field(default=3.0, desc='Time parameter')
             size: int = Field(default=1, desc='Size parameter')
 
         @dmm.register(DelayComp)
-        class DelayCompModel(ExplicitComponentModel):
+        class DelayCompModel(_ExplicitComponentModel):
             options: DelayCompOptions = Field(default_factory=DelayCompOptions)
 
         model = om.Group()
@@ -1096,7 +1096,7 @@ class TestAutoIVCParDerivBug(unittest.TestCase):
         assert_check_totals(prob.check_totals(method='cs', show_only_incorrect=True))
 
 
-class LinearCompOptions(ExplicitComponentOptions):
+class LinearCompOptions(_ExplicitComponentOptions):
     a: float = Field(default=0.0, desc="slope")
     b: float = Field(default=0.0, desc="y-intercept")
 
@@ -1117,11 +1117,11 @@ class LinearComp(om.ExplicitComponent):
 
 
 @dmm.register(LinearComp)
-class LinearCompModel(ExplicitComponentModel):
+class LinearCompModel(_ExplicitComponentModel):
     options: LinearCompOptions = Field(default_factory=LinearCompOptions)
 
 
-class LinearGroupOptions(GroupOptions):
+class LinearGroupOptions(_GroupOptions):
     a: float = Field(default=0.0, desc="slope")
     b: float = Field(default=0.0, desc="y-intercept")
 
@@ -1138,7 +1138,7 @@ class LinearGroup(om.Group):
 
 
 @dmm.register(LinearGroup)
-class LinearGroupModel(GroupModel):
+class LinearGroupModel(_GroupModel):
     options: LinearGroupOptions = Field(default_factory=LinearGroupOptions)
 
 

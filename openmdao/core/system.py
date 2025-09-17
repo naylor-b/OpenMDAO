@@ -15,7 +15,7 @@ import warnings
 
 from fnmatch import fnmatchcase
 from numbers import Integral
-from pydantic import Field, BaseModel, ConfigDict
+from pydantic import Field
 
 import numpy as np
 
@@ -42,8 +42,8 @@ from openmdao.utils.general_utils import determine_adder_scaler, is_undefined, \
     ensure_compatible, env_truthy, make_traceback, _is_slicer_op, _wrap_comm, _unwrap_comm, \
     _om_dump, SystemMetaclass
 from openmdao.utils.file_utils import _get_outputs_dir
-from openmdao.utils.validation import TypeBaseModel, DataModelManager as dmm, OptionsBaseModel, \
-    DesignVariableModel, ResponseModel, ConstraintModel, ObjectiveModel
+from openmdao.utils.validation import _TypeBaseModel, DataModelManager as dmm, _OptionsBaseModel, \
+    _DesignVariableModel, _ResponseModel, _ConstraintModel, _ObjectiveModel
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 from openmdao.jacobians.jacobian import DenseJacobian, CSCJacobian, CSRJacobian
@@ -7166,14 +7166,29 @@ class System(object, metaclass=SystemMetaclass):
     def init_data_model(self):
         """
         Create a new data model for this instance.
+
+        Returns
+        -------
+        SystemModel
+            The data model.
         """
         self.data_model = dmm.class_to_data_model_instance(self.__class__, name=self.name)
         self.update_from_data_model(self.data_model)
         return self.data_model
 
-    def update_from_data_model(self, data_model: TypeBaseModel):
+    def update_from_data_model(self, data_model):
         """
         Populate instance data using the data model.
+
+        Parameters
+        ----------
+        data_model : SystemModel
+            The data model to update from.
+
+        Returns
+        -------
+        System
+            The updated instance.
         """
         self.name = data_model.name
         self.options = data_model.options
@@ -7216,24 +7231,29 @@ class System(object, metaclass=SystemMetaclass):
     def update_data_model(self):
         """
         Get the data model updated with current instance attributes.
+
+        Returns
+        -------
+        _SystemModel
+            The data model.
         """
         self.data_model.name = self.name
         return self.data_model
 
 
-class SystemOptions(OptionsBaseModel):
+class _SystemOptions(_OptionsBaseModel):
     derivs_method: Union[Literal['jax'], Literal['cs'], Literal['fd'], None] = \
         Field(default=None, desc='The method to use for computing derivatives.')
 
 
-class ImplicitSystemOptions(SystemOptions):
+class _ImplicitSystemOptions(_SystemOptions):
     assembled_jac_type: Union[Literal['csc'], Literal['csr'], Literal['dense'], None] = \
         Field(default=None,
               desc='Linear solver(s) in this group or implicit component, if using an assembled '
               'jacobian, will use this type.')
 
 
-class SystemRecordingOptions(OptionsBaseModel):
+class _SystemRecordingOptions(_OptionsBaseModel):
     record_inputs: bool = Field(default=True,
                                 desc='Set to True to record inputs at the system level')
     record_outputs: bool = Field(default=True,
@@ -7250,81 +7270,22 @@ class SystemRecordingOptions(OptionsBaseModel):
                                         desc='User-defined metadata to exclude in recording')
 
 
-class ObjectiveData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(desc="Name of the objective")
-    ref: float = Field(default=None)
-    ref0: float = Field(default=None)
-    index: int = Field(default=None, desc="Index for the objective")
-    units: str = Field(default=None, desc="Units for the objective")
-    adder: float = Field(default=None, desc="Adder for the objective")
-    scaler: float = Field(default=None, desc="Scaler for the objective")
-    parallel_deriv_color: str = Field(default=None,
-                                      desc="Parallel derivative color for the objective")
-    cache_linear_solution: bool = Field(default=False,
-                                        desc="Cache linear solution for the objective")
-    flat_indices: bool = Field(default=False, desc="Flat indices for the objective")
-    alias: str = Field(default=None, desc="Alias for the objective")
-
-
-class ConstraintData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(desc="Name of the constraint")
-    lower: float = Field(default=None, desc="Lower bound for the constraint")
-    upper: float = Field(default=None, desc="Upper bound for the constraint")
-    equals: float = Field(default=None, desc="Equality value for the constraint")
-    ref: float = Field(default=None)
-    ref0: float = Field(default=None)
-    adder: float = Field(default=None, desc="Adder for the constraint")
-    scaler: float = Field(default=None, desc="Scaler for the constraint")
-    units: str = Field(default=None, desc="Units for the constraint")
-    indices: List[int] = Field(default=None, desc="Indices for the constraint")
-    linear: bool = Field(default=False, desc="Linear for the constraint")
-    parallel_deriv_color: str = Field(default=None,
-                                      desc="Parallel derivative color for the constraint")
-    cache_linear_solution: bool = Field(default=False,
-                                        desc="Cache linear solution for the constraint")
-    flat_indices: bool = Field(default=False, desc="Flat indices for the constraint")
-    alias: str = Field(default=None, desc="Alias for the constraint")
-
-
-class DesignVariableData(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(desc="Name of the design variable")
-    lower: float = Field(default=None, desc="Lower bound for the design variable")
-    upper: float = Field(default=None, desc="Upper bound for the design variable")
-    ref: float = Field(default=None)
-    ref0: float = Field(default=None)
-    indices: List[int] = Field(default=None, desc="Indices for the design variable")
-    adder: float = Field(default=None, desc="Adder for the design variable")
-    scaler: float = Field(default=None, desc="Scaler for the design variable")
-    units: str = Field(default=None, desc="Units for the design variable")
-    parallel_deriv_color: str = Field(default=None,
-                                      desc="Parallel derivative color for the design variable")
-    cache_linear_solution: bool = Field(default=False,
-                                        desc="Cache linear solution for the design variable")
-    flat_indices: bool = Field(default=False, desc="Flat indices for the design variable")
-
-
 @dmm.register(System)
-class SystemModel(TypeBaseModel):
+class _SystemModel(_TypeBaseModel):
     name: str = Field(default='', desc='The name of the system.')
-    options: SystemOptions = Field(default_factory=SystemOptions)
-    recording_options: SystemRecordingOptions = Field(default_factory=SystemRecordingOptions)
+    options: _SystemOptions = Field(default_factory=_SystemOptions)
+    recording_options: _SystemRecordingOptions = Field(default_factory=_SystemRecordingOptions)
     promotes: List[Union[str, Tuple[str, str]]] = \
         Field(default_factory=list, desc='List of promoted variables.')
     promotes_inputs: List[Union[str, Tuple[str, str]]] = \
         Field(default_factory=list, desc='List of promoted input variables.')
     promotes_outputs: List[Union[str, Tuple[str, str]]] = \
         Field(default_factory=list, desc='List of promoted output variables.')
-    design_variables: List[DesignVariableModel] = Field(default_factory=list,
-                                                        desc='List of design variables.')
-    responses: List[ResponseModel] = Field(default_factory=list, desc='List of responses.')
-    constraints: List[ConstraintModel] = Field(default_factory=list, desc='List of constraints.')
-    objectives: List[ObjectiveModel] = Field(default_factory=list, desc='List of objectives.')
+    design_variables: List[_DesignVariableModel] = Field(default_factory=list,
+                                                         desc='List of design variables.')
+    responses: List[_ResponseModel] = Field(default_factory=list, desc='List of responses.')
+    constraints: List[_ConstraintModel] = Field(default_factory=list, desc='List of constraints.')
+    objectives: List[_ObjectiveModel] = Field(default_factory=list, desc='List of objectives.')
 
 
 class _ErrorData(object):

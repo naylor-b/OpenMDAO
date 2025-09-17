@@ -7,7 +7,7 @@ from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
 from openmdao.solvers.solver import NonlinearSolver, _SolverSupports
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.solver import _NonIterNonlinearSolverOptions, _IterNonlinearSolverOptions
-from openmdao.solvers.solver import NonlinearSolverModel
+from openmdao.solvers.solver import _NonlinearSolverModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -288,6 +288,6 @@ class _NewtonSolverSupports(_SolverSupports):
 
 
 @dmm.register(NewtonSolver)
-class NewtonSolverModel(NonlinearSolverModel):
+class _NewtonSolverModel(_NonlinearSolverModel):
     options: _NewtonSolverOptions = Field(default_factory=_NewtonSolverOptions)
     supports: _NewtonSolverSupports = Field(default_factory=_NewtonSolverSupports)

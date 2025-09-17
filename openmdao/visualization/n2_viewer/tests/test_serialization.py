@@ -9,12 +9,13 @@ import numpy as np
 from pydantic import Field
 
 import openmdao.api as om
-from openmdao.core.driver import Driver, DriverOptions, DriverModel
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponentOptions, ImplicitComponentModel
+from openmdao.core.driver import Driver, _DriverOptions, _DriverModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.implicitcomponent import _ImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.testing_utils import use_tempdirs
-from openmdao.solvers.nonlinear.nonlinear_run_once import NonlinearRunOnceOptions
+from openmdao.solvers.nonlinear.nonlinear_runonce import _NonlinearRunOnceOptions
+from openmdao.solvers.linear.linear_block_gs import _NonIterLinearBlockGSOptions
 
 
 class BadOpt(object):
@@ -34,7 +35,7 @@ class NonSerComp(om.ExplicitComponent):
         self.add_discrete_output('dy', [{('Discrete_o', BadOpt): (2, {((1, ), (2, )): 'stuff'})}])
         self.add_discrete_input('dcomplex', 3 + 5j)
 
-class NonSerCompOptions(ExplicitComponentOptions):
+class NonSerCompOptions(_ExplicitComponentOptions):
     good: str = Field(default='good_string', desc='Good option')
     bad: list = Field(default=[{(1, BadOpt): (2, 3)}], desc='Bad option')
     bad2: dict = Field(default={((1, ), (2, )): 'stuff'}, desc='Bad option 2')
@@ -42,7 +43,7 @@ class NonSerCompOptions(ExplicitComponentOptions):
     cx: complex = Field(default=3 + 7j, desc='Complex option')
 
 @dmm.register(NonSerComp)
-class NonSerCompModel(ExplicitComponentModel):
+class NonSerCompModel(_ExplicitComponentModel):
     options: NonSerCompOptions = Field(default_factory=NonSerCompOptions)
 
 
@@ -54,7 +55,7 @@ class NonSerIComp(om.ImplicitComponent):
 
         self.add_discrete_input('problem', None)
 
-class NonSerICompOptions(ImplicitComponentOptions):
+class NonSerICompOptions(_ImplicitComponentOptions):
     good: str = Field(default='good_string', desc='Good option')
     bad: list = Field(default=[{(1, BadOpt): (2, 3)}], desc='Bad option')
     bad2: dict = Field(default={((1, ), (2, )): 'stuff'}, desc='Bad option 2')
@@ -62,28 +63,28 @@ class NonSerICompOptions(ImplicitComponentOptions):
     problem: object = Field(default=None, desc='Problem option')
 
 @dmm.register(NonSerIComp)
-class NonSerICompModel(ImplicitComponentModel):
+class NonSerICompModel(_ImplicitComponentModel):
     options: NonSerICompOptions = Field(default_factory=NonSerICompOptions)
 
 
-class _NonSerNLOptions(NonlinearRunOnceOptions):
+class _NonSerNLOptions(_NonlinearRunOnceOptions):
     bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
     bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
     nonrec: float = Field(3.0, exclude=True)
 
 class NonSerNL(om.NonlinearRunOnce):
-    options = _NonSerNLOptions
+    options: _NonSerNLOptions = Field(default_factory=_NonSerNLOptions)
 
 
 
-class _NonSerLNOptions(om.LinearRunOnce.options):
+class _NonSerLNOptions(_NonIterLinearBlockGSOptions):
     bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
     bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
     nonrec: float = Field(3.0, exclude=True)
 
 
 class NonSerLN(om.LinearRunOnce):
-    options = _NonSerLNOptions
+    options: _NonSerLNOptions = Field(default_factory=_NonSerLNOptions)
 
 
 
@@ -91,14 +92,14 @@ class NonSerDriver(Driver):
     pass
 
 
-class NonSerDriverOptions(DriverOptions):
+class NonSerDriverOptions(_DriverOptions):
     bad: list[tuple] = Field([{(1, BadOpt): (2, 3)}])
     bad2: dict[tuple, str] = Field({((1, ), (2, )): 'stuff'})
     nonrec: float = Field(3.0, exclude=True)
 
 
 @dmm.register(NonSerDriver)
-class NonSerDriverModel(DriverModel):
+class NonSerDriverModel(_DriverModel):
     options: NonSerDriverOptions = Field(default_factory=NonSerDriverOptions)
 
 

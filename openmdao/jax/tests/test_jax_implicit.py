@@ -11,8 +11,8 @@ from openmdao.utils.jax_utils import jax
 from openmdao.utils.testing_utils import parameterized_name
 from openmdao.utils.validation import DataModelManager as dmm
 
-from openmdao.components.jax_implicit_comp import JaxImplicitComponentOptions, \
-    JaxImplicitComponentModel
+from openmdao.components.jax_implicit_comp import _JaxImplicitComponentOptions, \
+    _JaxImplicitComponentModel
 
 try:
     from parameterized import parameterized
@@ -67,7 +67,7 @@ class JaxQuadraticCompPrimal(om.JaxImplicitComponent):
         return a * x ** 2 + b * x + c
 
 
-class JaxLinearSystemCompPrimalOptions(JaxImplicitComponentOptions):
+class JaxLinearSystemCompPrimalOptions(_JaxImplicitComponentOptions):
     size: int = Field(default=1, desc='Size of the linear system')
 
 
@@ -95,12 +95,12 @@ class JaxLinearSystemCompPrimal(om.JaxImplicitComponent):
 
 
 @dmm.register(JaxLinearSystemCompPrimal)
-class JaxLinearSystemCompPrimalModel(JaxImplicitComponentModel):
+class JaxLinearSystemCompPrimalModel(_JaxImplicitComponentModel):
     options: JaxLinearSystemCompPrimalOptions = Field(default_factory=JaxLinearSystemCompPrimalOptions)
 
 
 
-class JaxLinearSystemCompPrimalwOptionOptions(JaxImplicitComponentOptions):
+class JaxLinearSystemCompPrimalwOptionOptions(_JaxImplicitComponentOptions):
     size: int = Field(default=1, desc='Size of the linear system')
     adder: float = Field(default=1., desc='Adder value')
 
@@ -132,12 +132,12 @@ class JaxLinearSystemCompPrimalwOption(om.JaxImplicitComponent):
 
 
 @dmm.register(JaxLinearSystemCompPrimalwOption)
-class JaxLinearSystemCompPrimalwOptionModel(JaxImplicitComponentModel):
+class JaxLinearSystemCompPrimalwOptionModel(_JaxImplicitComponentModel):
     options: JaxLinearSystemCompPrimalwOptionOptions = Field(default_factory=JaxLinearSystemCompPrimalwOptionOptions)
 
 
 
-class JaxLinearSystemCompPrimalwDiscreteOptions(JaxImplicitComponentOptions):
+class JaxLinearSystemCompPrimalwDiscreteOptions(_JaxImplicitComponentOptions):
     size: int = Field(default=1, desc='Size of the linear system')
 
 
@@ -166,7 +166,7 @@ class JaxLinearSystemCompPrimalwDiscrete(om.JaxImplicitComponent):
 
 
 @dmm.register(JaxLinearSystemCompPrimalwDiscrete)
-class JaxLinearSystemCompPrimalwDiscreteModel(JaxImplicitComponentModel):
+class JaxLinearSystemCompPrimalwDiscreteModel(_JaxImplicitComponentModel):
     options: JaxLinearSystemCompPrimalwDiscreteOptions = Field(default_factory=JaxLinearSystemCompPrimalwDiscreteOptions)
 
 

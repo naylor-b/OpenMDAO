@@ -3,7 +3,7 @@ import numpy as np
 from pydantic import Field
 
 from openmdao.api import ExplicitComponent, Problem, IndepVarComp, slicer
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 from openmdao.utils.array_utils import evenly_distrib_idxs
@@ -17,7 +17,7 @@ except ImportError:
 from openmdao.utils.assert_utils import assert_near_equal
 
 
-class DistributedAdderOptions(ExplicitComponentOptions):
+class DistributedAdderOptions(_ExplicitComponentOptions):
     local_size: int = Field(default=1, desc="Local size of input and output vectors.")
 
 
@@ -44,7 +44,7 @@ class DistributedAdder(ExplicitComponent):
         outputs['y'] = inputs['x'] + 10.
 
 
-class SummerOptions(ExplicitComponentOptions):
+class SummerOptions(_ExplicitComponentOptions):
     size: int = Field(default=1, desc="Size of input and output vectors.")
 
 
@@ -65,12 +65,12 @@ class Summer(ExplicitComponent):
 
 
 @dmm.register(DistributedAdder)
-class DistributedAdderModel(ExplicitComponentModel):
+class DistributedAdderModel(_ExplicitComponentModel):
     options: DistributedAdderOptions = Field(default_factory=DistributedAdderOptions)
 
 
 @dmm.register(Summer)
-class SummerModel(ExplicitComponentModel):
+class SummerModel(_ExplicitComponentModel):
     options: SummerOptions = Field(default_factory=SummerOptions)
 
 

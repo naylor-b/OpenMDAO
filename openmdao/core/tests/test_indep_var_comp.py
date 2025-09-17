@@ -5,7 +5,7 @@ from pydantic import Field
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -169,12 +169,10 @@ class TestIndepVarComp(unittest.TestCase):
         self.assertEqual(p.get_val('x'), p.get_val('y'))
 
     def test_invalid_tags(self):
-        with self.assertRaises(TypeError) as cm:
+        with self.assertRaises(Exception) as cm:
             om.IndepVarComp('indep_var', tags=99)
-
-        self.assertEqual(str(cm.exception),
-            "IndepVarComp: Value (99) of option 'tags' has type 'int', "
-            "but one of types ('str', 'list') was expected.")
+            
+        self.assertTrue("The tags argument should be str, set, or list: 99" in str(cm.exception))
 
     def test_simple_with_tags(self):
         """Define one independent variable and set its value. Try filtering with tag"""
@@ -297,7 +295,7 @@ class TestIndepVarComp(unittest.TestCase):
         assert_near_equal(prob.get_val('p.x1')[0], 0.5)
 
     def test_options(self):
-        class ParametersOptions(ExplicitComponentOptions):
+        class ParametersOptions(_ExplicitComponentOptions):
             num_x: int = Field(default=0, desc='Number of x values')
             val_y: float = Field(default=0., desc='Value of y')
 
@@ -307,7 +305,7 @@ class TestIndepVarComp(unittest.TestCase):
                 self.add_output('val_y',val = self.options['val_y'])
 
         @dmm.register(Parameters)
-        class ParametersModel(ExplicitComponentModel):
+        class ParametersModel(_ExplicitComponentModel):
             options: ParametersOptions = Field(default_factory=ParametersOptions)
 
         prob = om.Problem()

@@ -4,8 +4,8 @@ import numpy as np
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from pydantic import Field
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
-from openmdao.core.group import GroupOptions, GroupModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
+from openmdao.core.group import _GroupOptions, _GroupModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 step = 1e-6
@@ -199,7 +199,7 @@ class TestSemiTotals(unittest.TestCase):
         assert_check_totals(data, atol=1e-6, rtol=1e-6)
 
 
-class FakeGeomCompOptions(ExplicitComponentOptions):
+class FakeGeomCompOptions(_ExplicitComponentOptions):
     n: int = Field(default=1, desc='Number of points')
     declare_partials: bool = Field(default=True, desc='Whether to declare partials')
 
@@ -225,7 +225,7 @@ class FakeGeomComp(om.ExplicitComponent):
         outputs["x"][:] = 3*np.sin(feather_rad + 0.2)*x0 + 3*feather_rad**2
 
 
-class FakeAeroCompOptions(ExplicitComponentOptions):
+class FakeAeroCompOptions(_ExplicitComponentOptions):
     n: int = Field(default=1, desc='Number of points')
     declare_partials: bool = Field(default=True, desc='Whether to declare partials')
 
@@ -255,7 +255,7 @@ class FakeAeroComp(om.ExplicitComponent):
         outputs["CP"][0] = 0.1*omega**3 + np.sum(x**2)
 
 
-class GeometryAndAero2Options(GroupOptions):
+class GeometryAndAero2Options(_GroupOptions):
     n: int = Field(default=1, desc='Number of points')
     rho: float = Field(default=1.0, desc='Density')
     vinf: float = Field(default=1.0, desc='Velocity')
@@ -367,17 +367,17 @@ class TestSemiTotalsNumCalls(unittest.TestCase):
 
 
 @dmm.register(FakeGeomComp)
-class FakeGeomCompModel(ExplicitComponentModel):
+class FakeGeomCompModel(_ExplicitComponentModel):
     options: FakeGeomCompOptions = Field(default_factory=FakeGeomCompOptions)
 
 
 @dmm.register(FakeAeroComp)
-class FakeAeroCompModel(ExplicitComponentModel):
+class FakeAeroCompModel(_ExplicitComponentModel):
     options: FakeAeroCompOptions = Field(default_factory=FakeAeroCompOptions)
 
 
 @dmm.register(GeometryAndAero2)
-class GeometryAndAero2Model(GroupModel):
+class GeometryAndAero2Model(_GroupModel):
     options: GeometryAndAero2Options = Field(default_factory=GeometryAndAero2Options)
 
 

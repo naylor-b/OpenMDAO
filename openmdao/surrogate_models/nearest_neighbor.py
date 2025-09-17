@@ -5,10 +5,10 @@ https://github.com/SMarone/NDInterp
 """
 
 from collections import OrderedDict
-from pydantic import Field
+from pydantic import Field, field_validator
 
-from openmdao.surrogate_models.surrogate_model import SurrogateModel, SurrogateModelModel, \
-    SurrogateModelOptions
+from openmdao.surrogate_models.surrogate_model import SurrogateModel, _SurrogateModelModel, \
+    _SurrogateModelOptions
 from openmdao.surrogate_models.nn_interpolators.linear_interpolator import \
     LinearInterpolator
 from openmdao.surrogate_models.nn_interpolators.weighted_interpolator import \
@@ -113,11 +113,19 @@ class NearestNeighbor(SurrogateModel):
         return jac
 
 
-class NearestNeighborOptions(SurrogateModelOptions):
+class _NearestNeighborOptions(_SurrogateModelOptions):
     interpolant_type: str = \
         Field(default='rbf', desc="Type of interpolant, must be 'linear', 'weighted', or 'rbf'")
 
+    @field_validator('interpolant_type')
+    @classmethod
+    def _validate_interpolant_type(cls, v):
+        if v not in _interpolators:
+            raise ValueError(f"Interpolant type '{v}' is not one of "
+                             f"{sorted(_interpolators.keys())}")
+        return v
+
 
 @dmm.register(NearestNeighbor)
-class NearestNeighborModel(SurrogateModelModel):
-    options: NearestNeighborOptions = Field(default_factory=NearestNeighborOptions)
+class _NearestNeighborModel(_SurrogateModelModel):
+    options: _NearestNeighborOptions = Field(default_factory=_NearestNeighborOptions)

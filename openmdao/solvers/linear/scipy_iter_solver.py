@@ -10,7 +10,7 @@ from typing import Union, Dict
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
 from openmdao.solvers.solver import LinearSolver, _NonIterLinearSolverOptions, \
     _IterSolverOptions
-from openmdao.solvers.solver import LinearSolverModel, _LinearSolverSupports
+from openmdao.solvers.solver import _LinearSolverModel, _LinearSolverSupports
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -346,11 +346,11 @@ class _ScipyKrylovOptions(_NonIterLinearSolverOptions, _IterSolverOptions):
                                             f"{LinearRHSChecker.options}")
 
 
-class ScipyKrylovSupports(_LinearSolverSupports):
+class _ScipyKrylovSupports(_LinearSolverSupports):
     implicit_components: bool = Field(default=True, frozen=True)
 
 
 @dmm.register(ScipyKrylov)
-class ScipyKrylovModel(LinearSolverModel):
+class _ScipyKrylovModel(_LinearSolverModel):
     options: _ScipyKrylovOptions = Field(default_factory=_ScipyKrylovOptions)
-    supports: ScipyKrylovSupports = Field(default_factory=ScipyKrylovSupports)
+    supports: _ScipyKrylovSupports = Field(default_factory=_ScipyKrylovSupports)

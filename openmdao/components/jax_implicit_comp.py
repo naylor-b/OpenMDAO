@@ -10,7 +10,7 @@ from functools import partial
 from pydantic import Field
 
 from openmdao.core.implicitcomponent import ImplicitComponent, \
-    NonDistributedImplicitComponentOptions, ImplicitComponentModel
+    _NonDistributedImplicitComponentOptions, _ImplicitComponentModel
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.validation import DataModelManager as dmm
 from openmdao.utils.jax_utils import jax, jit, _jax_register_pytree_class, \
@@ -533,7 +533,7 @@ class JaxImplicitComponent(ImplicitComponent):
         return self._output_shapes[name]
 
 
-class JaxImplicitComponentOptions(NonDistributedImplicitComponentOptions):
+class _JaxImplicitComponentOptions(_NonDistributedImplicitComponentOptions):
 
     default_to_dyn_shapes: bool = \
         Field(default=False,
@@ -543,5 +543,5 @@ class JaxImplicitComponentOptions(NonDistributedImplicitComponentOptions):
 
 
 @dmm.register(JaxImplicitComponent)
-class JaxImplicitComponentModel(ImplicitComponentModel):
-    options: JaxImplicitComponentOptions = Field(default_factory=JaxImplicitComponentOptions)
+class _JaxImplicitComponentModel(_ImplicitComponentModel):
+    options: _JaxImplicitComponentOptions = Field(default_factory=_JaxImplicitComponentOptions)

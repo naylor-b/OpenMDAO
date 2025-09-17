@@ -7,9 +7,9 @@ from typing import Optional, Union
 from pydantic import Field, ConfigDict
 from scipy.optimize import minimize
 
-from openmdao.surrogate_models.surrogate_model import SurrogateModel, SurrogateModelModel
+from openmdao.surrogate_models.surrogate_model import SurrogateModel, _SurrogateModelModel
 from openmdao.utils.om_warnings import issue_warning, CacheWarning
-from openmdao.utils.validation import DataModelManager as dmm, OptionsBaseModel
+from openmdao.utils.validation import DataModelManager as dmm, _OptionsBaseModel
 
 MACHINE_EPSILON = np.finfo(np.double).eps
 
@@ -345,7 +345,7 @@ class KrigingSurrogate(SurrogateModel):
         return jac
 
 
-class KrigingSurrogateOptions(OptionsBaseModel):
+class _KrigingSurrogateOptions(_OptionsBaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     eval_rmse: bool = \
@@ -369,5 +369,5 @@ class KrigingSurrogateOptions(OptionsBaseModel):
 
 
 @dmm.register(KrigingSurrogate)
-class KrigingSurrogateModel(SurrogateModelModel):
-    options: KrigingSurrogateOptions = Field(default_factory=KrigingSurrogateOptions)
+class _KrigingSurrogateModel(_SurrogateModelModel):
+    options: _KrigingSurrogateOptions = Field(default_factory=_KrigingSurrogateOptions)

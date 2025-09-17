@@ -3,7 +3,7 @@ from pydantic import Field
 
 from openmdao.core.problem import Problem
 from openmdao.core.indepvarcomp import IndepVarComp
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 
@@ -47,7 +47,7 @@ class ManyVarComp(ExplicitComponent):
             outputs[f'out{i}'] = inputs[f'inp{i}'] + 1.0
 
 
-class ManyVarCompOptions(ExplicitComponentOptions):
+class ManyVarCompOptions(_ExplicitComponentOptions):
     ndiscrete_ins: int = Field(default=0, desc='Number of discrete inputs')
     ndiscrete_outs: int = Field(default=0, desc='Number of discrete outputs')
     nins: int = Field(default=0, desc='Number of continuous inputs')
@@ -55,7 +55,7 @@ class ManyVarCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(ManyVarComp)
-class ManyVarCompModel(ExplicitComponentModel):
+class ManyVarCompModel(_ExplicitComponentModel):
     options: ManyVarCompOptions = Field(default_factory=ManyVarCompOptions)
 
 

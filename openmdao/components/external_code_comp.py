@@ -8,10 +8,10 @@ from pydantic import Field
 from shutil import which
 
 from openmdao.core.analysis_error import AnalysisError
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
-from openmdao.core.implicitcomponent import ImplicitComponent, ImplicitComponentOptions, \
-    ImplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
+from openmdao.core.implicitcomponent import ImplicitComponent, _ImplicitComponentOptions, \
+    _ImplicitComponentModel
 from openmdao.utils.shell_proc import STDOUT, DEV_NULL, ShellProc  # noqa: F401
 from openmdao.utils.validation import DataModelManager as dmm
 
@@ -357,7 +357,7 @@ class ExternalCodeImplicitComp(ImplicitComponent):
             self._external_code_runner.run_component(command=command)
 
 
-class ExternalCodeCompOptions(ExplicitComponentOptions):
+class _ExternalCodeCompOptions(_ExplicitComponentOptions):
     command: Union[List[str], str] = \
         Field(default_factory=list,
               desc="Command to be executed. If it is a string, then this is the command line to "
@@ -389,7 +389,7 @@ class ExternalCodeCompOptions(ExplicitComponentOptions):
               desc="List of return codes that are considered successful.")
 
 
-class ExternalCodeImplicitCompOptions(ImplicitComponentOptions):
+class _ExternalCodeImplicitCompOptions(_ImplicitComponentOptions):
     command_apply: Union[List[str], str] = Field(default_factory=list,
                                                  desc='Command to be executed for apply_nonlinear')
     command_solve: Union[List[str], str] = \
@@ -428,11 +428,11 @@ class ExternalCodeImplicitCompOptions(ImplicitComponentOptions):
 
 
 @dmm.register(ExternalCodeComp)
-class ExternalCodeCompModel(ExplicitComponentModel):
-    options: ExternalCodeCompOptions = Field(default_factory=ExternalCodeCompOptions)
+class _ExternalCodeCompModel(_ExplicitComponentModel):
+    options: _ExternalCodeCompOptions = Field(default_factory=_ExternalCodeCompOptions)
 
 
 @dmm.register(ExternalCodeImplicitComp)
-class ExternalCodeImplicitCompModel(ImplicitComponentModel):
-    options: ExternalCodeImplicitCompOptions = \
-        Field(default_factory=ExternalCodeImplicitCompOptions)
+class _ExternalCodeImplicitCompModel(_ImplicitComponentModel):
+    options: _ExternalCodeImplicitCompOptions = \
+        Field(default_factory=_ExternalCodeImplicitCompOptions)

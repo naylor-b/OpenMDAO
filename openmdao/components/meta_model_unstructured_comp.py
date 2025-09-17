@@ -6,8 +6,8 @@ from pydantic import Field, ConfigDict
 
 import numpy as np
 
-from openmdao.core.explicitcomponent import ExplicitComponent, ExplicitComponentOptions, \
-    ExplicitComponentModel
+from openmdao.core.explicitcomponent import ExplicitComponent, _ExplicitComponentOptions, \
+    _ExplicitComponentModel
 from openmdao.surrogate_models.surrogate_model import SurrogateModel
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.name_maps import rel_key2abs_key
@@ -590,7 +590,7 @@ class MetaModelUnStructuredComp(ExplicitComponent):
         return self._var_rel2meta[name]
 
 
-class MetaModelUnStructuredCompOptions(ExplicitComponentOptions):
+class _MetaModelUnStructuredCompOptions(_ExplicitComponentOptions):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     default_surrogate: Optional[SurrogateModel] = \
@@ -605,6 +605,6 @@ class MetaModelUnStructuredCompOptions(ExplicitComponentOptions):
 
 
 @dmm.register(MetaModelUnStructuredComp)
-class MetaModelUnStructuredCompModel(ExplicitComponentModel):
-    options: MetaModelUnStructuredCompOptions = \
-        Field(default_factory=MetaModelUnStructuredCompOptions)
+class _MetaModelUnStructuredCompModel(_ExplicitComponentModel):
+    options: _MetaModelUnStructuredCompOptions = \
+        Field(default_factory=_MetaModelUnStructuredCompOptions)

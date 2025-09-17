@@ -15,7 +15,7 @@ from openmdao.components.interp_util.interp_semi import InterpNDSemi
 from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
 from openmdao.utils.assert_utils import assert_near_equal, assert_equal_arrays, assert_check_partials
 from openmdao.utils.testing_utils import force_check_partials
-from openmdao.core.explicitcomponent import ExplicitComponentOptions, ExplicitComponentModel
+from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
 
 def rel_error(actual, computed):
@@ -880,7 +880,7 @@ class TestInterpNDPython(unittest.TestCase):
         x[:, 0] = X1.ravel()
         x[:, 1] = X2.ravel()
 
-        class CompUsesInterpOptions(ExplicitComponentOptions):
+        class CompUsesInterpOptions(_ExplicitComponentOptions):
             interp: object = Field(default=None, desc='Interpolation method')
 
         class CompUsesInterp(om.ExplicitComponent):
@@ -914,7 +914,7 @@ class TestInterpNDPython(unittest.TestCase):
                 outputs['df'] = df_dx
 
         @dmm.register(CompUsesInterp)
-        class CompUsesInterpModel(ExplicitComponentModel):
+        class CompUsesInterpModel(_ExplicitComponentModel):
             options: CompUsesInterpOptions = Field(default_factory=CompUsesInterpOptions)
 
 
