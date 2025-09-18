@@ -31,25 +31,25 @@ class TestOptions(unittest.TestCase):
 
         self.assertEqual(MyOptions(long_desc='', test='').__str__(width=89).strip(), """
 =========  ============  ================================================================
-Option     Default       Description
+Option     Default       Description                                                     
 =========  ============  ================================================================
-comp       MyComp
-flag       False
-long_desc  **Required**  This description is long and verbose, so it takes up multiple
-                         lines in the options table.
-test       **Required**  Test integer value
+comp       MyComp                                                                        
+flag       False                                                                         
+long_desc  **Required**  This description is long and verbose, so it takes up multiple   
+                         lines in the options table.                                     
+test       **Required**  Test integer value                                              
 =========  ============  ================================================================
 """.strip())
 
         # if the table can't be represented in specified width, then we get the full width version
         self.assertEqual(MyOptions(long_desc='', test='').__str__(width=30).strip(), """
 =========  ============  =========================================================================================
-Option     Default       Description
+Option     Default       Description                                                                              
 =========  ============  =========================================================================================
-comp       MyComp
-flag       False
+comp       MyComp                                                                                                 
+flag       False                                                                                                  
 long_desc  **Required**  This description is long and verbose, so it takes up multiple lines in the options table.
-test       **Required**  Test integer value
+test       **Required**  Test integer value                                                                       
 =========  ============  =========================================================================================
 """.strip())
 
