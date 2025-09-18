@@ -6,8 +6,8 @@ from pydantic_core import core_schema
 from typing import List, Dict, Optional, Type, Any, Iterator, Tuple
 import importlib
 import inspect
+import contextlib
 
-from openmdao.core.constants import _UNDEFINED
 from openmdao.visualization.tables.table_builder import generate_table
 
 
@@ -212,11 +212,36 @@ class _OptionsBaseModel(_ValidateOnAssignModel):
         """
         return len(self.model_fields)
 
+    def __str__(self, width=100):
+        """
+        Generate text string representation of the options table.
+
+        Parameters
+        ----------
+        width : int
+            The maximum allowed width of the text.
+
+        Returns
+        -------
+        str
+            A text representation of the options table.
+        """
+        return self.to_table(fmt='rst', max_width=width, display=False)
+
     def update(self, dct: Dict[str, Any]):
         for name, value in dct.items():
             setattr(self, name, value)
 
     def set(self, **kwargs):
+        """
+        Set one or more options in the model.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments where the option names in the _OptionsBaseModel are the keywords
+            and the associated values are the values for those options.
+        """
         self.update(kwargs)
 
     def get_meta(self, key):
@@ -308,19 +333,21 @@ class _OptionsBaseModel(_ValidateOnAssignModel):
         str
             A string representation of the table in the requested format.
         """
-        hdrs = ['Option', 'Default', 'Acceptable Values', 'Acceptable Types', 'Description']
+        # hdrs = ['Option', 'Default', 'Acceptable Values', 'Acceptable Types', 'Description']
+        hdrs = ['Option', 'Default', 'Description']
         rows = []
 
-        # deprecations = False
-        # for meta in self._dict.values():
-        #     if meta['deprecation'] is not None:
-        #         deprecations = True
-        #         hdrs.append('Deprecation')
-        #         break
+        deprecations = False
+        for key, info in sorted(self.__class__.model_fields.items(), key=lambda x: x[0]):
+            if info.deprecated:
+                deprecations = True
+                hdrs.append('Deprecation')
+                break
 
-        for key in sorted(self.model_fields.keys()):
+        for key, info in sorted(self.__class__.model_fields.items(), key=lambda x: x[0]):
+
             option = getattr(self, key)
-            default = option if option is not _UNDEFINED else '**Required**'
+            default = '**Required**' if info.is_required() else option
             default_str = str(default)
 
             # if the default is an object instance, replace with the (unqualified) object type
@@ -341,17 +368,17 @@ class _OptionsBaseModel(_ValidateOnAssignModel):
             #         acceptable_types = (acceptable_types,)
             #     acceptable_types = [type_.__name__ for type_ in acceptable_types]
 
-            desc = option['desc']
+            if info.json_schema_extra is None:
+                desc = ''
+            else:
+                desc = info.json_schema_extra.get('desc')
 
-            # deprecation = option['deprecation']
-            # if deprecation is not None:
-            #     deprecation = deprecation[0]
+            deprecation = info.deprecated
 
-            # if deprecations:
-            #     rows.append([key, default, acceptable_values, acceptable_types, desc,
-            #                  deprecation])
-            # else:
-            rows.append([key, default, desc])  # acceptable_values, acceptable_types, desc])
+            if deprecations:
+                rows.append([key, default, desc, deprecation])
+            else:
+                rows.append([key, default, desc])
 
         kwargs = {
             'tablefmt': fmt,
@@ -369,6 +396,33 @@ class _OptionsBaseModel(_ValidateOnAssignModel):
             tab.display()
 
         return str(tab)
+
+    @contextlib.contextmanager
+    def temporary(self, **kwargs):
+        """
+        Provide a context manager for temporary option values within the context.
+
+        Parameters
+        ----------
+        **kwargs
+            Keyword arguments where the option names in the _OptionsBaseModel are the keywords
+            and the associated values are the temporary values for those options.
+
+        Yields
+        ------
+        None
+        """
+        context_cache = {}
+        for option, val in kwargs.items():
+            if option not in context_cache:
+                context_cache[option] = []
+            context_cache[option].append(self[option])
+            self[option] = val
+        yield
+        for option in kwargs:
+            self[option] = context_cache[option].pop()
+            if len(context_cache[option]) == 0:
+                context_cache.pop(option)
 
 
 class DataModelManager:
@@ -679,7 +733,7 @@ class DataModelManager:
 
     @staticmethod
     def create_class(class_name: str, model_config: ConfigDict = None, base=None,
-                    **kwargs) -> Type[BaseModel]:
+                     **kwargs) -> Type[BaseModel]:
         """
         Create a Pydantic model class from fields and annotations.
 

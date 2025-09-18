@@ -91,7 +91,7 @@ def display_source(reference, hide_doc_string=False):
         display(get_code(reference, hide_doc_string))
 
 
-def show_options_table(reference, recording_options=False, options_dict='options'):
+def show_options_table(reference, recording_options=False, options='options'):
     """
     Return the options table of the given reference path.
 
@@ -101,9 +101,9 @@ def show_options_table(reference, recording_options=False, options_dict='options
         Dot path of desired class or function or an instance.
     recording_options : bool
         If True, display recording options instead of options.
-    options_dict : str
+    options : str
         The string name of the attribute of the reference object
-        that provides to OptionsDictionary.
+        that provides options.
 
     Returns
     -------
@@ -118,15 +118,14 @@ def show_options_table(reference, recording_options=False, options_dict='options
     if ipy:
         if recording_options:
             warn_deprecation('Argument `recording_options` is deprecated. Use '
-                             '`options_dict="recording_options" to remove this '
-                             'warning.')
+                             '`options="recording_options" to remove this warning.')
             opt = obj.recording_options
         elif isinstance(obj, _OptionsBaseModel):
             opt = obj
-        elif hasattr(obj, options_dict):
-            opt = getattr(obj, options_dict)
+        elif hasattr(obj, options):
+            opt = getattr(obj, options)
         else:
-            raise AttributeError(f'Object {reference} has no attribute {options_dict}.')
+            raise AttributeError(f'Object {reference} has no attribute {options}.')
 
         return display(HTML(str(opt.to_table(fmt='html', display=False))))
     else:

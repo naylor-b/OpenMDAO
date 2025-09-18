@@ -222,8 +222,8 @@ class _IndepVarCompOptions(_ExplicitComponentOptions):
                            "res_units of this output's residual when the scaled value is 1. "
                            "Default is None, which means residual scaling matches output scaling.")
     tags: Set[str] = Field(default_factory=set,
-                            desc="User defined tags that can be used to filter what gets "
-                            "listed when calling list_outputs.")
+                           desc="User defined tags that can be used to filter what gets "
+                           "listed when calling list_outputs.")
 
     @field_validator('tags', mode='before')
     @classmethod

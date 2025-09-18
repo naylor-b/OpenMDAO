@@ -275,7 +275,6 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         dmm.setup_data_model(self, kwargs)
 
-
         # Options passed to models
         self.model_options = {}
 

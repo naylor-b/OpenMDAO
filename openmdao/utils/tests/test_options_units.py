@@ -1,38 +1,11 @@
 import unittest
+from pydantic import Field, field_validator
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal
 from openmdao.utils.units import convert_units
-from pydantic import Field
 from openmdao.core.explicitcomponent import _ExplicitComponentOptions, _ExplicitComponentModel
 from openmdao.utils.validation import DataModelManager as dmm
-
-
-def units_setter(opt_meta, value):
-    """
-    Check and convert new units tuple into
-
-    Parameters
-    ----------
-    opt_meta : dict
-        Dictionary of entries for the option.
-    value : any
-        New value for the option.
-
-    Returns
-    -------
-    any
-        Post processed value to set into the option.
-    """
-    new_val, new_units = value
-    old_val, units = opt_meta['val']
-
-    converted_val = convert_units(new_val, new_units, units)
-    return (converted_val, units)
-
-
-class AviaryCompOptions(_ExplicitComponentOptions):
-    length: tuple = Field(default=(12.0, 'inch'), desc='Length with units')
 
 
 class AviaryComp(om.ExplicitComponent):
@@ -49,13 +22,32 @@ class AviaryComp(om.ExplicitComponent):
         outputs['y'] = length * x
 
 
+class AviaryCompOptions(_ExplicitComponentOptions):
+    length: tuple = Field(default=(12.0, 'inch'), desc='Length with units')
+    
+    @field_validator('length')
+    @classmethod
+    def _validate_length(cls, v):
+        _, units = cls.model_fields['length'].default
+        new_val, new_units = v
+        return (convert_units(new_val, new_units, units), units)
+
+
+
+@dmm.register(AviaryComp)
+class AviaryCompModel(_ExplicitComponentModel):
+    options: AviaryCompOptions = Field(default_factory=AviaryCompOptions)
+
+
+
 class Fakeviary(om.Group):
 
     def setup(self):
         self.add_subsystem('mass', AviaryComp())
 
 
-class TestOptionsDictionaryUnits(unittest.TestCase):
+
+class TestOptionsUnits(unittest.TestCase):
 
     def test_simple(self):
         prob = om.Problem()
@@ -72,9 +64,6 @@ class TestOptionsDictionaryUnits(unittest.TestCase):
         assert_near_equal(y, 72, 1e-6)
 
 
-@dmm.register(AviaryComp)
-class AviaryCompModel(_ExplicitComponentModel):
-    options: AviaryCompOptions = Field(default_factory=AviaryCompOptions)
 
 
 if __name__ == "__main__":

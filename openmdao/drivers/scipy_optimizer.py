@@ -195,13 +195,13 @@ class ScipyOptimizeDriver(Driver):
                                                     frozen=True)),
                              inequality_constraints=(bool,
                                                      Field(default=opt in _constraint_optimizers,
-                                                     frozen=True)),
+                                                           frozen=True)),
                              two_sided_constraints=(bool,
                                                     Field(default=opt in _constraint_optimizers,
-                                                    frozen=True)),
+                                                          frozen=True)),
                              equality_constraints=(bool,
                                                    Field(default=opt in _eq_constraint_optimizers,
-                                                   frozen=True)))()
+                                                         frozen=True)))()
 
         self._check_jac = self.options['singular_jac_behavior'] in ['error', 'warn']
 

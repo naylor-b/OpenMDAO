@@ -1,6 +1,7 @@
 """ Unit tests for the notebook_utils."""
 
 import unittest
+from pydantic import Field, BaseModel
 
 try:
     import IPython
@@ -9,21 +10,15 @@ except ImportError:
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_warning
+from openmdao.utils.validation import _OptionsBaseModel
 
-class StateOptionsDictionary(om.OptionsDictionary):
-    """
-    An OptionsDictionary specific to states.
+class _StateOptions(_OptionsBaseModel):
+    name: str = Field(default='foo', desc='name of ODE state variable')
 
-    Parameters
-    ----------
-    read_only : bool
-        If True, setting (via __setitem__ or update) is not permitted.
-    """
-    def __init__(self, read_only=False):
-        super(StateOptionsDictionary, self).__init__(read_only)
 
-        self.declare(name='name', types=str,
-                     desc='name of ODE state variable')
+class _StateModel(BaseModel):
+    options: _StateOptions = Field(default_factory=_StateOptions)
+
 
 @unittest.skipUnless(IPython, "IPython is required")
 class TestNotebookUtils(unittest.TestCase):
@@ -33,7 +28,7 @@ class TestNotebookUtils(unittest.TestCase):
         from openmdao.utils import notebook_utils
         notebook_utils.ipy = True
         try:
-            om.show_options_table("openmdao.utils.tests.test_notebook_utils.StateOptionsDictionary")
+            om.show_options_table("openmdao.utils.tests.test_notebook_utils._StateModel")
         except Exception as e:
             self.fail('show_options_table raised the following exception:\n' + str(e))
 
