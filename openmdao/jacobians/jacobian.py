@@ -2,7 +2,6 @@
 import numpy as np
 
 from openmdao.utils.iter_utils import meta2range_iter
-from openmdao.jacobians.subjac import Subjac
 from openmdao.utils.rangemapper import TwoWayRangeMapper
 from openmdao.utils.general_utils import do_nothing_context
 from openmdao.utils.coloring import _ColSparsityJac
@@ -38,7 +37,9 @@ class Jacobian(object):
     Attributes
     ----------
     _subjacs : dict
-        Dictionary of the sub-Jacobian objects keyed by absolute names.
+        Dictionary of the relevant sub-Jacobian objects keyed by absolute names.
+    _irrelevant_subjacs : dict
+        Dictionary of the irrelevant sub-Jacobian objects keyed by absolute names.
     _under_complex_step : bool
         When True, this Jacobian is under complex step, using a complex jacobian.
     _col_mapper : TwoWayRangeMapper
@@ -116,39 +117,49 @@ class Jacobian(object):
         """
         pass
 
-    def create_subjac(self, abs_key, meta, dtype):
+    def _get_abs_key(self, key):
+        try:
+            return self._abs_keys[key]
+        except KeyError:
+            abskey = self._resolver.any2abs_key(key)
+            if abskey is not None:
+                self._abs_keys[key] = abskey
+            return abskey
+
+    def get_metadata(self, key):
         """
-        Create a subjacobian.
+        Get metadata for the given key.
 
         Parameters
         ----------
-        abs_key : tuple
-            The absolute key for the subjacobian.
-        meta : dict
-            Metadata for the subjacobian.
-        dtype : dtype
-            The dtype of the subjacobian.
+        key : (str, str)
+            Promoted or relative name pair of sub-Jacobian.
 
         Returns
         -------
-        Subjac
-            The created subjacobian.
+        dict
+            Metadata dict for the given key.
         """
-        of, wrt = abs_key
-        row_slice = self._output_slices[of]
+        try:
+            return self._subjacs_info[self._get_abs_key(key)]
+        except KeyError:
+            raise KeyError(f'Variable name pair {key} not found.')
 
-        wrt_is_input = wrt in self._input_slices
-        if wrt_is_input:
-            col_slice = self._input_slices[wrt]
-        else:
-            col_slice = self._output_slices[wrt]
+    def __contains__(self, key):
+        """
+        Return whether there is a subjac for the given promoted or relative name pair.
 
-        return self._subjac_from_meta(abs_key, meta, row_slice, col_slice, wrt_is_input, dtype)
+        Parameters
+        ----------
+        key : (str, str)
+            Promoted or relative name pair of sub-Jacobian.
 
-    def _subjac_from_meta(self, key, meta, row_slice, col_slice, wrt_is_input, dtype,
-                          src_indices=None, factor=None, src=None):
-        return Subjac.get_subjac_class(meta)(key, meta, row_slice, col_slice, wrt_is_input,
-                                             dtype, src_indices, factor, src)
+        Returns
+        -------
+        bool
+            return whether sub-Jacobian has been defined.
+        """
+        return self._get_abs_key(key) in self._subjacs_info
 
     def __iter__(self):
         """
@@ -180,11 +191,6 @@ class Jacobian(object):
         """
         for key, subjac in self._subjacs.items():
             yield key, subjac.info['val']
-
-    @property
-    def _randgen(self):
-        if self._problem_meta['randomize_subjacs']:
-            return self._problem_meta['coloring_randgen']
 
     def _apply(self, system, d_inputs, d_outputs, d_residuals, mode):
         """
@@ -298,10 +304,11 @@ class Jacobian(object):
         """
         self._initialized = False
         self._subjacs = None
+        self._irrelevant_subjacs = {}
         self._get_subjacs(system)
         self._col_mapper = None  # force recompute of internal index maps on next set_col
 
-    def _get_ordered_subjac_keys(self, system, use_relevance=True):
+    def _get_ordered_subjac_keys(self, system):
         """
         Iterate over subjacs keyed by absolute names.
 
@@ -311,20 +318,18 @@ class Jacobian(object):
         ----------
         system : System
             System that is updating this jacobian.
-        use_relevance : bool
-            If True, only include subjacs where the wrt variable is relevant.
 
         Returns
         -------
         list
             List of keys matching this jacobian for the current system.
         """
+        relevance = None
         if self._ordered_subjac_keys is None:
-            if use_relevance and self._has_approx:
-                relevance = self._problem_meta['relevance']
-                is_relevant = relevance.is_relevant
-                active = system.linear_solver is None or system.linear_solver.use_relevance()
-            else:
+            relevance = self._problem_meta['relevance']
+            is_relevant = relevance.is_relevant
+            active = system.linear_solver is None or system.linear_solver.use_relevance()
+            if not active or not relevance._active:
                 relevance = None
 
             subjacs_info = self._subjacs_info
@@ -346,8 +351,10 @@ class Jacobian(object):
                             for wrt in wrtnames[type_]:
                                 key = (of, wrt)
                                 if key in subjacs_info:
-                                    if relevance is None or is_relevant(wrt):
-                                        keys.append(key)
+                                    if relevance is not None and (not is_relevant(wrt) or
+                                                                  not is_relevant(of)):
+                                        continue
+                                    keys.append(key)
 
             self._ordered_subjac_keys = keys
 

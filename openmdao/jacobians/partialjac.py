@@ -3,6 +3,7 @@ Partial Jacobian class.
 """
 
 from openmdao.jacobians.jacobian import Jacobian
+from openmdao.jacobians.subjac import Subjac
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.matrices.csc_matrix import CSCMatrix
 from openmdao.matrices.csr_matrix import CSRMatrix
@@ -43,15 +44,51 @@ class PartialJacobian(Jacobian):
         """
         super().__init__(system)
         self._subjacs_info = system._subjacs_info
+        self._irrelevant_subjacs = {}
         self._abs_keys = {}
         self._is_explicitcomp = system.is_explicit(is_comp=True)
         self.shape = (len(system._outputs), len(system._outputs) + len(system._inputs))
+
+    def create_subjac(self, abs_key, meta, dtype):
+        """
+        Create a subjacobian.
+
+        Parameters
+        ----------
+        abs_key : tuple
+            The absolute key for the subjacobian.
+        meta : dict
+            Metadata for the subjacobian.
+        dtype : dtype
+            The dtype of the subjacobian.
+
+        Returns
+        -------
+        Subjac
+            The created subjacobian.
+        """
+        of, wrt = abs_key
+        row_slice = self._output_slices[of]
+
+        wrt_is_input = wrt in self._input_slices
+        if wrt_is_input:
+            col_slice = self._input_slices[wrt]
+        else:
+            col_slice = self._output_slices[wrt]
+
+        return self._subjac_from_meta(abs_key, meta, row_slice, col_slice, wrt_is_input, dtype)
+
+    def _subjac_from_meta(self, key, meta, row_slice, col_slice, wrt_is_input, dtype,
+                          src_indices=None, factor=None, src=None):
+        return Subjac.get_subjac_class(meta)(key, meta, row_slice, col_slice, wrt_is_input,
+                                             dtype, src_indices, factor, src)
 
     def _get_subjacs(self, system=None):
         """
         Get the subjacs for the current system, creating them if necessary based on _subjacs_info.
 
         If approx derivs are being computed, only create subjacs where the wrt variable is relevant.
+        Relevant in this case means required to compute the current set of total derivatives.
 
         Parameters
         ----------
@@ -64,13 +101,61 @@ class PartialJacobian(Jacobian):
             Dictionary of subjacs keyed by absolute names.
         """
         if not self._initialized:
+            rel_subjacs, irrelevant_subjacs = self._get_relevant_subjacs_info(system)
             self._subjacs = {}
-            for key, meta, dtype in self._subjacs_info_iter(system):
+            for key, meta, dtype in rel_subjacs:
                 self._subjacs[key] = self.create_subjac(key, meta, dtype)
+            for key, meta, dtype in irrelevant_subjacs:
+                self._irrelevant_subjacs[key] = self.create_subjac(key, meta, dtype)
 
             self._initialized = True
 
         return self._subjacs
+
+    def _get_relevant_subjacs_info(self, system=None):
+        """
+        Iterate over subjacs info for the current system.
+
+        Irrelevant subjacs are skipped.
+
+        Parameters
+        ----------
+        system : System
+            System that is updating this jacobian.
+
+        Returns
+        -------
+        list
+            List of (key, meta, dtype) for all relevant subjacs.
+        """
+        relevance = None
+        try:
+            relevance = self._problem_meta['relevance']
+            is_relevant = relevance.is_relevant
+            active = system.linear_solver is None or system.linear_solver.use_relevance()
+            if not active or not relevance._active:
+                relevance = None
+        except Exception:
+            pass
+
+        dtype = system._outputs.dtype
+
+        relevant_subjacs = []
+        irrelevant_subjacs = []
+
+        with relevance.active(active) if relevance else do_nothing_context():
+            with relevance.all_seeds_active() if relevance else do_nothing_context():
+                out_slices = self._output_slices
+                in_slices = self._input_slices
+                for key, meta in self._subjacs_info.items():
+                    of, wrt = key
+                    if of in out_slices and (wrt in in_slices or wrt in out_slices):
+                        if relevance is not None and (not is_relevant(wrt) or not is_relevant(of)):
+                            irrelevant_subjacs.append((key, meta, dtype))
+                        else:
+                            relevant_subjacs.append((key, meta, dtype))
+
+        return relevant_subjacs, irrelevant_subjacs
 
     def _subjacs_info_iter(self, system=None):
         """
@@ -168,10 +253,18 @@ class PartialJacobian(Jacobian):
         ndarray or sparse matrix
             sub-Jacobian as an array or sparse matrix.
         """
-        try:
-            return self._subjacs[self._get_abs_key(key)].info['val']
-        except KeyError:
+        abs_key = self._get_abs_key(key)
+        if abs_key is None:
             raise KeyError(f'Variable name pair {key} not found.')
+
+        try:
+            return self._subjacs[abs_key].info['val']
+        except KeyError:
+            # key might exist in _subjacs_info but not in _subjacs because it's not relevant
+            if abs_key in self._irrelevant_subjacs:
+                return self._irrelevant_subjacs[abs_key].info['val']
+            else:
+                raise KeyError(f'Variable name pair {key} not found.')
 
     def __setitem__(self, key, subjac):
         """
@@ -192,9 +285,34 @@ class PartialJacobian(Jacobian):
         try:
             self._subjacs[abs_key].set_val(subjac)
         except KeyError:
-            raise KeyError(f'Variable name pair {key} must first be declared.')
+            # key might exist in _subjacs_info but not in _subjacs because it's not relevant
+            if abs_key in self._irrelevant_subjacs:
+                self._irrelevant_subjacs[abs_key].set_val(subjac)
+            else:
+                raise KeyError(f'Variable name pair {key} not found.')
         except ValueError as err:
             raise ValueError(f"For subjacobian {key}: {err}")
+
+    def is_relevant(self, key):
+        """
+        Return whether there is a relevant subjac for the given promoted or relative name pair.
+
+        Parameters
+        ----------
+        key : (str, str)
+            Promoted or relative name pair of sub-Jacobian.
+
+        Returns
+        -------
+        bool
+            Return whether sub-Jacobian has been defined.
+        """
+        return self._get_abs_key(key) in self._subjacs
+
+    @property
+    def _randgen(self):
+        if self._problem_meta['randomize_subjacs']:
+            return self._problem_meta['coloring_randgen']
 
 
 class SplitJacobian(PartialJacobian):

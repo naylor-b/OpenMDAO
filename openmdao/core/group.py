@@ -276,14 +276,14 @@ class Group(System):
                              desc='If True the order of subsystems is determined automatically '
                              'based on the dependency graph.  It will not break or reorder '
                              'cycles.')
-        self.options.declare('exported_inputs', types=(list, tuple), default=(),
-                             desc='Setting this will activate functional form. These inputs will '
-                             'be visible outside of this Group. Glob patterns are allowed. Use '
-                             'promoted names to specify the inputs.')
-        self.options.declare('exported_outputs', types=(list, tuple), default=(),
-                             desc='Setting this will activate functional form. These outputs will '
-                             'be visible outside of this Group. Glob patterns are allowed. Use '
-                             'promoted names to specify the outputs.')
+        # self.options.declare('exported_inputs', types=(list, tuple), default=(),
+        #                      desc='Setting this will activate functional form. These inputs will'
+        #                      ' be visible outside of this Group. Glob patterns are allowed. Use '
+        #                      'promoted names to specify the inputs.')
+        # self.options.declare('exported_outputs', types=(list, tuple), default=(),
+        #                      desc='Setting this will activate functional form. These outputs will'
+        #                      ' be visible outside of this Group. Glob patterns are allowed. Use '
+        #                      'promoted names to specify the outputs.')
 
     def setup(self):
         """
