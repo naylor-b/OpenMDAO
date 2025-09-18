@@ -4,7 +4,6 @@ from typing import Union
 from pydantic import Field, ConfigDict, field_validator
 
 from openmdao.utils.assert_utils import assert_warning, assert_no_warning
-from openmdao.utils.om_warnings import OMDeprecationWarning
 
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.utils.validation import _OptionsBaseModel
@@ -316,31 +315,37 @@ test       **Required**  Test integer value
         self.assertTrue(msg in str(context.exception))
 
     def test_deprecated_option(self):
+
+        # this is failing because I can't get pydantic to generate a DeprecationWarning...
+
         class MyOptions(_OptionsBaseModel):
             test1: float = Field(default=1.0, deprecated='Option "test1" is deprecated.')
+
+        class MyOptions2(_OptionsBaseModel):
+            test2: float = Field(default=1.0, deprecated='Option "test2" is deprecated.')
 
         options = MyOptions()
 
         msg =  'Option "test1" is deprecated.'
 
-        with warnings.catch_warnings():
-            warnings.simplefilter('error', DeprecationWarning)
+        with warnings.catch_warnings(record=True):
+            # warnings.simplefilter('error', DeprecationWarning)
+            warnings.filterwarnings('error', category=DeprecationWarning)
 
             # test double set
-            #with assert_warning(OMDeprecationWarning, msg):
-            options['test1'] = 2.
+            with assert_warning(DeprecationWarning, msg):
+                options['test1'] = 2.
             # Should only generate warning first time
-            with assert_no_warning(OMDeprecationWarning, msg):
+            with assert_no_warning(DeprecationWarning, msg):
                 options['test1'] = 2.
 
             # Also test set and then get
-            msg = 'Option "test2" is deprecated.'
-            options.declare('test2', deprecation=msg)
+            options = MyOptions2()
 
-            with assert_warning(OMDeprecationWarning, msg):
+            with assert_warning(DeprecationWarning, msg):
                 options['test2'] = None
             # Should only generate warning first time
-            with assert_no_warning(OMDeprecationWarning, msg):
+            with assert_no_warning(DeprecationWarning, msg):
                 options['test2']
 
 

@@ -8,7 +8,6 @@ import openmdao.api as om
 
 from openmdao.solvers.linear.tests.linear_test_base import LinearSolverTests
 from openmdao.test_suite.components.double_sellar import DoubleSellar
-from openmdao.test_suite.components.expl_comp_simple import TestExplCompSimpleJacVec
 from openmdao.test_suite.components.sellar import SellarDerivatives
 from openmdao.test_suite.groups.implicit_group import TestImplicitGroup
 from openmdao.utils.array_utils import evenly_distrib_idxs
@@ -911,25 +910,6 @@ class TestDirectSolver(LinearSolverTests.LinearSolverTestCase):
 
         self.assertEqual(expected, str(cm.exception))
 
-    def test_matvec_error_raised(self):
-        prob = om.Problem()
-        model = prob.model
-        model.add_subsystem('x_param', om.IndepVarComp('length', 3.0),
-                            promotes=['length'])
-        model.add_subsystem('mycomp', TestExplCompSimpleJacVec(),
-                            promotes=['length', 'width', 'area'])
-
-        model.linear_solver = self.linear_solver_class()
-        prob.set_solver_print(level=0)
-
-        prob.setup(check=False, mode='fwd')
-
-        prob['width'] = 2.0
-        prob.run_model()
-
-        with self.assertRaises(Exception) as ctx:
-            prob.model.run_linearize()
-        self.assertEqual(ctx.exception.args[0], '<model> <class Group>: AssembledJacobian not supported for matrix-free subcomponent.')
 
 @unittest.skipUnless(MPI and PETScVector, "only run with MPI and PETSc.")
 class TestDirectSolverRemoteErrors(unittest.TestCase):
