@@ -2820,7 +2820,7 @@ class Group(System):
                 compname = name.rpartition('.')[0]
                 component_io[compname, io].append(name)
 
-                has_prop_by_conn = meta.get(prop_by_conn)
+                has_prop_by_conn = getattr(meta, prop_by_conn)
                 has_copy_prop = meta.get(copy_prop)
                 has_compute_prop = meta.get(compute_prop)
 

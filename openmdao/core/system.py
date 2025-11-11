@@ -2368,24 +2368,18 @@ class System(object, metaclass=SystemMetaclass):
 
         for io in ('input', 'output'):
             # now set global sizes and shapes into metadata for distributed variables
-            sizes = self._var_sizes[io]
             for idx, (abs_name, mymeta) in enumerate(self._var_allprocs_abs2meta[io].items()):
                 local_shape = mymeta['shape']
                 if mymeta['distributed']:
-                    global_size = np.sum(sizes[:, idx])
-                    mymeta['global_size'] = global_size
-
                     # assume that all but the first dimension of the shape of a
                     # distributed variable is the same on all procs
                     mymeta['global_shape'] = self._get_full_dist_shape(abs_name, local_shape, io)
                 else:
                     # not distributed, just use local shape and size
-                    mymeta['global_size'] = mymeta['size']
                     mymeta['global_shape'] = local_shape
 
                 if abs_name in loc_meta[io]:
                     loc_meta[io][abs_name]['global_shape'] = mymeta['global_shape']
-                    loc_meta[io][abs_name]['global_size'] = mymeta['global_size']
 
     def _setup_driver_units(self, abs2meta=None):
         """
@@ -3841,7 +3835,6 @@ class System(object, metaclass=SystemMetaclass):
                         meta['size'] = sizes[model.comm.rank, abs2idx[src_name]]
                     else:
                         meta['size'] = sizes[model._owning_rank[src_name], abs2idx[src_name]]
-                    meta['global_size'] = vmeta['global_size']
             else:
                 meta['global_size'] = meta['size'] = 0  # discrete var
 
@@ -3974,7 +3967,6 @@ class System(object, metaclass=SystemMetaclass):
                         meta['size'] = sizes[self.comm.rank, abs2idx[src_name]]
                     else:
                         meta['size'] = sizes[owning_rank[src_name], abs2idx[src_name]]
-                    meta['global_size'] = out_meta['global_size']
             else:
                 meta['size'] = meta['global_size'] = 0  # discrete var, don't know size
 

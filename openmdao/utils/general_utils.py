@@ -24,6 +24,31 @@ from openmdao.utils.mpi import MPI
 
 
 _float_inf = float('inf')
+_forbidden_chars = {'.', '*', '?', '!', '[', ']'}
+
+
+def _valid_var_name(name):
+    """
+    Determine if the proposed name is a valid variable name.
+
+    Leading and trailing whitespace is illegal, and a specific list of characters
+    are illegal anywhere in the string.
+
+    Parameters
+    ----------
+    name : str
+        Proposed name.
+
+    Returns
+    -------
+    bool
+        True if the proposed name is a valid variable name, else False.
+    """
+    if not name:
+        return False
+    if _forbidden_chars.intersection(name):
+        return False
+    return name is name.strip()
 
 
 def ensure_compatible(name, value, shape=None, indices=None, default_shape=(1,)):
@@ -892,23 +917,22 @@ def make_set(str_data, name=None):
         return set()
     elif isinstance(str_data, str):
         return {str_data}
-    elif isinstance(str_data, (set, list)):
+    elif isinstance(str_data, Iterable):
 
         for item in str_data:
             if not isinstance(item, str):
-                typ = type(item).__name__
-                msg = f"Items in tags should be of type string, but type '{typ}' was found."
-                raise TypeError(msg)
+                raise TypeError("Items in tags should be of type string, but type "
+                                f"'{type(item).__name__}' was found.")
 
         if isinstance(str_data, set):
             return str_data
-        elif isinstance(str_data, list):
+        else:
             return set(str_data)
 
     elif name:
-        raise TypeError("The {} argument should be str, set, or list: {}".format(name, str_data))
+        raise TypeError(f"The {name} argument should be str, set, or list: {str_data}")
     else:
-        raise TypeError("The argument should be str, set, or list: {}".format(str_data))
+        raise TypeError(f"The argument should be str, set, or list: {str_data}")
 
 
 def match_includes_excludes(name, includes=None, excludes=None):
@@ -1222,19 +1246,19 @@ def shape2tuple(shape):
     tuple or None
         The shape as a tuple or None if shape is None.
     """
-    if isinstance(shape, tuple):
+    if shape is None:
         return shape
-    elif isinstance(shape, int):
-        return (shape,)
-    elif shape is None:
+    elif isinstance(shape, tuple):
         return shape
-    else:
+    elif isinstance(shape, Iterable):
         try:
             return tuple(shape)
         except TypeError:
-            if not isinstance(shape, Integral):
-                raise TypeError(f"{type(shape).__name__} is not a valid shape type.")
-            return (shape,)
+            raise TypeError(f"{type(shape).__name__} is not a valid shape type.")
+    elif isinstance(shape, Integral):
+        return (shape,)
+    else:
+        raise TypeError(f"{type(shape).__name__} is not a valid shape type.")
 
 
 def get_connection_owner(system, tgt):

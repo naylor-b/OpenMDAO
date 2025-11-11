@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from itertools import product, chain
 from io import StringIO
 
-from numbers import Integral
 import numpy as np
 from numpy import ndarray, isscalar, ndim, atleast_1d
 from scipy.sparse import issparse, coo_matrix, csr_matrix
@@ -15,54 +14,31 @@ from scipy.sparse import issparse, coo_matrix, csr_matrix
 from openmdao.core.system import System, _supported_methods, _DEFAULT_COLORING_META, \
     global_meta_names, collect_errors, _iter_derivs
 from openmdao.core.constants import INT_DTYPE, _DEFAULT_OUT_STREAM, _SetupStatus
+from openmdao.core.varinfo import ContinuousInputVariable, ContinuousOutputVariable, \
+    DiscreteVariable
 from openmdao.jacobians.subjac import Subjac
 from openmdao.jacobians.dictionary_jacobian import _CheckingJacobian
 from openmdao.utils.units import simplify_unit
 from openmdao.utils.name_maps import abs_key_iter, abs_key2rel_key, rel_key2abs_key
 from openmdao.utils.mpi import MPI
-from openmdao.utils.array_utils import shape_to_len, submat_sparsity_iter, sparsity_diff_viz
+from openmdao.utils.array_utils import submat_sparsity_iter, sparsity_diff_viz
 from openmdao.utils.deriv_display import _deriv_display, _deriv_display_compact
-from openmdao.utils.general_utils import format_as_float_or_array, ensure_compatible, \
-    find_matches, make_set, inconsistent_across_procs, LocalRangeIterable
+from openmdao.utils.general_utils import ensure_compatible, \
+    find_matches, make_set, inconsistent_across_procs, LocalRangeIterable, _valid_var_name
 from openmdao.utils.indexer import Indexer, indexer
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.om_warnings import issue_warning, MPIWarning, DistributedComponentWarning, \
     DerivativesWarning, warn_deprecation, OMInvalidCheckDerivativesOptionsWarning
-from openmdao.utils.code_utils import is_lambda, LambdaPickleWrapper, get_function_deps, \
+from openmdao.utils.code_utils import get_function_deps, \
     get_return_names
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
 
 
-_forbidden_chars = {'.', '*', '?', '!', '[', ']'}
 _whitespace = {' ', '\t', '\r', '\n'}
 _allowed_types = (list, tuple, ndarray, Iterable)
 
 _no_matvec_scope = (None, frozenset())
-
-
-def _valid_var_name(name):
-    """
-    Determine if the proposed name is a valid variable name.
-
-    Leading and trailing whitespace is illegal, and a specific list of characters
-    are illegal anywhere in the string.
-
-    Parameters
-    ----------
-    name : str
-        Proposed name.
-
-    Returns
-    -------
-    bool
-        True if the proposed name is a valid variable name, else False.
-    """
-    if not name:
-        return False
-    if _forbidden_chars.intersection(name):
-        return False
-    return name is name.strip()
 
 
 class Component(System):
@@ -300,9 +276,9 @@ class Component(System):
                     meta_name: metadata[meta_name]
                     for meta_name in global_meta_names[io]
                 }
-                if is_input and 'src_indices' in metadata:
+                if is_input:
                     allprocs_abs2meta[abs_name]['has_src_indices'] = \
-                        metadata['src_indices'] is not None
+                        metadata.src_indices is not None
 
             for prom_name, val in self._var_discrete[io].items():
                 abs_name = prefix + prom_name
@@ -584,45 +560,45 @@ class Component(System):
             Metadata for added variable.
         """
         # First, type check all arguments
-        if not isinstance(name, str):
-            raise TypeError('%s: The name argument should be a string.' % self.msginfo)
-        if not _valid_var_name(name):
-            raise NameError("%s: '%s' is not a valid input name." % (self.msginfo, name))
+        # if not isinstance(name, str):
+        #     raise TypeError('%s: The name argument should be a string.' % self.msginfo)
+        # if not _valid_var_name(name):
+        #     raise NameError("%s: '%s' is not a valid input name." % (self.msginfo, name))
 
         if not isscalar(val) and not isinstance(val, _allowed_types):
             raise TypeError('%s: The val argument should be a float, list, tuple, ndarray or '
                             'Iterable' % self.msginfo)
-        if shape is not None and not isinstance(shape, (Integral, tuple, list)):
-            raise TypeError("%s: The shape argument should be an int, tuple, or list but "
-                            "a '%s' was given" % (self.msginfo, type(shape)))
-        if units is not None:
-            if not isinstance(units, str):
-                raise TypeError('%s: The units argument should be a str or None.' % self.msginfo)
-            units = simplify_unit(units, msginfo=self.msginfo)
+        # if shape is not None and not isinstance(shape, (Integral, tuple, list)):
+        #     raise TypeError("%s: The shape argument should be an int, tuple, or list but "
+        #                     "a '%s' was given" % (self.msginfo, type(shape)))
+        # if units is not None:
+        #     if not isinstance(units, str):
+        #         raise TypeError('%s: The units argument should be a str or None.' % self.msginfo)
+        #     units = simplify_unit(units, msginfo=self.msginfo)
 
-        if tags is not None and not isinstance(tags, (str, list, set)):
-            raise TypeError('The tags argument should be a str, set, or list')
+        # if tags is not None and not isinstance(tags, (str, list, set)):
+        #     raise TypeError('The tags argument should be a str, set, or list')
 
-        if copy_shape and compute_shape:
-            raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "
-                             "be specified.")
-        if copy_units and compute_units:
-            raise ValueError(f"{self.msginfo}: Only one of 'copy_units' or 'compute_units' can "
-                             "be specified.")
+        # if copy_shape and compute_shape:
+        #     raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "
+        #                      "be specified.")
+        # if copy_units and compute_units:
+        #     raise ValueError(f"{self.msginfo}: Only one of 'copy_units' or 'compute_units' can "
+        #                      "be specified.")
 
-        if copy_shape and not isinstance(copy_shape, str):
-            raise TypeError(f"{self.msginfo}: The copy_shape argument should be a str or None but "
-                            f"a '{type(copy_shape).__name__}' was given.")
-        if copy_units and not isinstance(copy_units, str):
-            raise TypeError(f"{self.msginfo}: The copy_units argument should be a str or None but "
-                            f"a '{type(copy_units).__name__}' was given.")
+        # if copy_shape and not isinstance(copy_shape, str):
+        #     raise TypeError(f"{self.msginfo}: The copy_shape argument should be a str or None but "
+        #                     f"a '{type(copy_shape).__name__}' was given.")
+        # if copy_units and not isinstance(copy_units, str):
+        #     raise TypeError(f"{self.msginfo}: The copy_units argument should be a str or None but "
+        #                     f"a '{type(copy_units).__name__}' was given.")
 
-        if compute_shape and not callable(compute_shape):
-            raise TypeError(f"{self.msginfo}: The compute_shape argument should be callable but "
-                            f"a '{type(compute_shape).__name__}' was given.")
-        if compute_units and not callable(compute_units):
-            raise TypeError(f"{self.msginfo}: The compute_units argument should be callable but "
-                            f"a '{type(compute_units).__name__}' was given.")
+        # if compute_shape and not callable(compute_shape):
+        #     raise TypeError(f"{self.msginfo}: The compute_shape argument should be callable but "
+        #                     f"a '{type(compute_shape).__name__}' was given.")
+        # if compute_units and not callable(compute_units):
+        #     raise TypeError(f"{self.msginfo}: The compute_units argument should be callable but "
+        #                     f"a '{type(compute_units).__name__}' was given.")
 
         if shape_by_conn or copy_shape or compute_shape:
             if shape or ndim(val) > 0:
@@ -650,32 +626,39 @@ class Component(System):
             distributed = distributed or ('distributed' in self.options and
                                           self.options._dict['distributed']['val'])
 
-        if compute_shape is not None and is_lambda(compute_shape):
-            compute_shape = LambdaPickleWrapper(compute_shape)
-        if compute_units is not None and is_lambda(compute_units):
-            compute_units = LambdaPickleWrapper(compute_units)
+        # if compute_shape is not None and is_lambda(compute_shape):
+        #     compute_shape = LambdaPickleWrapper(compute_shape)
+        # if compute_units is not None and is_lambda(compute_units):
+        #     compute_units = LambdaPickleWrapper(compute_units)
 
         if primal_name is not None:
             self._valid_name_map[name] = primal_name
 
-        metadata = {
-            'val': val,
-            'shape': shape,
-            'size': shape_to_len(shape),
-            'src_indices': None,
-            'flat_src_indices': None,
-            'units': units,
-            'desc': desc,
-            'tags': make_set(tags),
-            'shape_by_conn': shape_by_conn,
-            'compute_shape': compute_shape,
-            'copy_shape': copy_shape,
-            'units_by_conn': units_by_conn,
-            'compute_units': compute_units,
-            'copy_units': copy_units,
-            'require_connection': require_connection,
-            'distributed': distributed,
-        }
+        variable = ContinuousInputVariable(name, 'input', val=val, shape=shape, units=units, desc=desc,
+                                      tags=tags, shape_by_conn=shape_by_conn, copy_shape=copy_shape,
+                                      compute_shape=compute_shape, units_by_conn=units_by_conn,
+                                      copy_units=copy_units, compute_units=compute_units,
+                                      require_connection=require_connection,
+                                      distributed=distributed)
+
+        # metadata = {
+        #     'val': val,
+        #     'shape': shape,
+        #     'size': shape_to_len(shape),
+        #     'src_indices': None,
+        #     'flat_src_indices': None,
+        #     'units': units,
+        #     'desc': desc,
+        #     'tags': make_set(tags),
+        #     'shape_by_conn': shape_by_conn,
+        #     'compute_shape': compute_shape,
+        #     'copy_shape': copy_shape,
+        #     'units_by_conn': units_by_conn,
+        #     'compute_units': compute_units,
+        #     'copy_units': copy_units,
+        #     'require_connection': require_connection,
+        #     'distributed': distributed,
+        # }
 
         # this will get reset later if comm size is 1
         self._has_distrib_vars |= distributed
@@ -691,12 +674,12 @@ class Component(System):
         if name in var_rel2meta:
             raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
 
-        var_rel2meta[name] = metadata
+        var_rel2meta[name] = variable
         var_rel_names['input'].append(name)
 
         self._var_added(name)
 
-        return metadata
+        return variable
 
     def add_discrete_input(self, name, val, desc='', tags=None, primal_name=None):
         """
@@ -723,27 +706,20 @@ class Component(System):
             Metadata for added variable.
         """
         # First, type check all arguments
-        if not isinstance(name, str):
-            raise TypeError('%s: The name argument should be a string.' % self.msginfo)
-        if not _valid_var_name(name):
-            raise NameError("%s: '%s' is not a valid input name." % (self.msginfo, name))
-        if tags is not None and not isinstance(tags, (str, list)):
-            raise TypeError('%s: The tags argument should be a str or list' % self.msginfo)
+        # if not isinstance(name, str):
+        #     raise TypeError('%s: The name argument should be a string.' % self.msginfo)
+        # if not _valid_var_name(name):
+        #     raise NameError("%s: '%s' is not a valid input name." % (self.msginfo, name))
+        # if tags is not None and not isinstance(tags, (str, list)):
+        #     raise TypeError('%s: The tags argument should be a str or list' % self.msginfo)
 
         if primal_name is not None:
             self._valid_name_map[name] = primal_name
 
-        metadata = {}
+        variable = DiscreteVariable(name, 'input', val=val, type=type(val), desc=desc, tags=tags)
 
-        metadata.update({
-            'val': val,
-            'type': type(val),
-            'desc': desc,
-            'tags': make_set(tags),
-        })
-
-        if metadata['type'] == np.ndarray:
-            metadata.update({'shape': val.shape})
+        # if metadata['type'] == np.ndarray:
+        #     metadata.update({'shape': val.shape})
 
         if self._static_mode:
             var_rel2meta = self._static_var_rel2meta
@@ -754,11 +730,11 @@ class Component(System):
         if name in var_rel2meta:
             raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
 
-        var_rel2meta[name] = self._var_discrete['input'][name] = metadata
+        var_rel2meta[name] = self._var_discrete['input'][name] = variable
 
         self._var_added(name)
 
-        return metadata
+        return variable
 
     def add_output(self, name, val=1.0, shape=None, units=None, res_units=None, desc='',
                    lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=None, tags=None,
@@ -848,14 +824,14 @@ class Component(System):
                              "units of '%s' was given for variable '%s'."
                              % (self.msginfo, units, name))
 
-        if not isinstance(name, str):
-            raise TypeError('%s: The name argument should be a string.' % self.msginfo)
-        if not _valid_var_name(name):
-            raise NameError("%s: '%s' is not a valid output name." % (self.msginfo, name))
+        # if not isinstance(name, str):
+        #     raise TypeError('%s: The name argument should be a string.' % self.msginfo)
+        # if not _valid_var_name(name):
+        #     raise NameError("%s: '%s' is not a valid output name." % (self.msginfo, name))
 
-        if shape is not None and not isinstance(shape, (int, tuple, list, np.integer)):
-            raise TypeError("%s: The shape argument should be an int, tuple, or list but "
-                            "a '%s' was given" % (self.msginfo, type(shape)))
+        # if shape is not None and not isinstance(shape, (int, tuple, list, np.integer)):
+        #     raise TypeError("%s: The shape argument should be an int, tuple, or list but "
+        #                     "a '%s' was given" % (self.msginfo, type(shape)))
         if res_units is not None:
             if not isinstance(res_units, str):
                 msg = '%s: The res_units argument should be a str or None' % self.msginfo
@@ -927,56 +903,64 @@ class Component(System):
             distributed = distributed or ('distributed' in self.options and
                                           self.options._dict['distributed']['val'])
 
-        if copy_shape and compute_shape:
-            raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "
-                             "be specified.")
-        if copy_units and compute_units:
-            raise ValueError(f"{self.msginfo}: Only one of 'copy_units' or 'compute_units' can "
-                             "be specified.")
+        # if copy_shape and compute_shape:
+        #     raise ValueError(f"{self.msginfo}: Only one of 'copy_shape' or 'compute_shape' can "
+        #                      "be specified.")
+        # if copy_units and compute_units:
+        #     raise ValueError(f"{self.msginfo}: Only one of 'copy_units' or 'compute_units' can "
+        #                      "be specified.")
 
-        if copy_shape and not isinstance(copy_shape, str):
-            raise TypeError(f"{self.msginfo}: The copy_shape argument should be a str or None but "
-                            f"a '{type(copy_shape).__name__}' was given.")
-        if copy_units and not isinstance(copy_units, str):
-            raise TypeError(f"{self.msginfo}: The copy_units argument should be a str or None but "
-                            f"a '{type(copy_units).__name__}' was given.")
+        # if copy_shape and not isinstance(copy_shape, str):
+        #     raise TypeError(f"{self.msginfo}: The copy_shape argument should be a str or None but "
+        #                     f"a '{type(copy_shape).__name__}' was given.")
+        # if copy_units and not isinstance(copy_units, str):
+        #     raise TypeError(f"{self.msginfo}: The copy_units argument should be a str or None but "
+        #                     f"a '{type(copy_units).__name__}' was given.")
 
-        if compute_shape and not callable(compute_shape):
-            raise TypeError(f"{self.msginfo}: The compute_shape argument should be callable but "
-                            f"a '{type(compute_shape).__name__}' was given.")
-        if compute_units and not callable(compute_units):
-            raise TypeError(f"{self.msginfo}: The compute_units argument should be callable but "
-                            f"a '{type(compute_units).__name__}' was given.")
+        # if compute_shape and not callable(compute_shape):
+        #     raise TypeError(f"{self.msginfo}: The compute_shape argument should be callable but "
+        #                     f"a '{type(compute_shape).__name__}' was given.")
+        # if compute_units and not callable(compute_units):
+        #     raise TypeError(f"{self.msginfo}: The compute_units argument should be callable but "
+        #                     f"a '{type(compute_units).__name__}' was given.")
 
-        if compute_shape is not None and is_lambda(compute_shape):
-            compute_shape = LambdaPickleWrapper(compute_shape)
-        if compute_units is not None and is_lambda(compute_units):
-            compute_units = LambdaPickleWrapper(compute_units)
+        # if compute_shape is not None and is_lambda(compute_shape):
+        #     compute_shape = LambdaPickleWrapper(compute_shape)
+        # if compute_units is not None and is_lambda(compute_units):
+        #     compute_units = LambdaPickleWrapper(compute_units)
 
         if primal_name is not None:
             self._valid_name_map[name] = primal_name
 
-        metadata = {
-            'val': val,
-            'shape': shape,
-            'size': shape_to_len(shape),
-            'units': units,
-            'res_units': res_units,
-            'desc': desc,
-            'distributed': distributed,
-            'tags': make_set(tags),
-            'ref': format_as_float_or_array('ref', ref, flatten=True),
-            'ref0': format_as_float_or_array('ref0', ref0, flatten=True),
-            'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True, val_if_none=None),
-            'lower': lower,
-            'upper': upper,
-            'shape_by_conn': shape_by_conn,
-            'compute_shape': compute_shape,
-            'copy_shape': copy_shape,
-            'units_by_conn': units_by_conn,
-            'compute_units': compute_units,
-            'copy_units': copy_units,
-        }
+        variable = ContinuousOutputVariable(name, 'output', val=val, shape=shape, units=units,
+                                            res_units=res_units, desc=desc, tags=tags, ref=ref,
+                                            ref0=ref0, res_ref=res_ref, lower=lower, upper=upper,
+                                            shape_by_conn=shape_by_conn, copy_shape=copy_shape,
+                                            compute_shape=compute_shape,
+                                            units_by_conn=units_by_conn, copy_units=copy_units,
+                                            compute_units=compute_units, distributed=distributed)
+
+        # metadata = {
+        #     'val': val,
+        #     'shape': shape,
+        #     'size': shape_to_len(shape),
+        #     'units': units,
+        #     'res_units': res_units,
+        #     'desc': desc,
+        #     'distributed': distributed,
+        #     'tags': make_set(tags),
+        #     'ref': format_as_float_or_array('ref', ref, flatten=True),
+        #     'ref0': format_as_float_or_array('ref0', ref0, flatten=True),
+        #     'res_ref': format_as_float_or_array('res_ref', res_ref, flatten=True, val_if_none=None),
+        #     'lower': lower,
+        #     'upper': upper,
+        #     'shape_by_conn': shape_by_conn,
+        #     'compute_shape': compute_shape,
+        #     'copy_shape': copy_shape,
+        #     'units_by_conn': units_by_conn,
+        #     'compute_units': compute_units,
+        #     'copy_units': copy_units,
+        # }
 
         # this will get reset later if comm size is 1
         self._has_distrib_vars |= distributed
@@ -994,12 +978,12 @@ class Component(System):
         if name in var_rel2meta:
             raise ValueError("{}: Variable name '{}' already exists.".format(self.msginfo, name))
 
-        var_rel2meta[name] = metadata
+        var_rel2meta[name] = variable
         var_rel_names['output'].append(name)
 
         self._var_added(name)
 
-        return metadata
+        return variable
 
     def add_discrete_output(self, name, val, desc='', tags=None, primal_name=None):
         """
