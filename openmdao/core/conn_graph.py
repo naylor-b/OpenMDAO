@@ -2771,9 +2771,12 @@ class AllConnGraph(nx.DiGraph):
 
             if src_indices is not None and src_shape is not None:
                 if src_indices._src_shape is None:
-                    src_indices.set_src_shape(src_shape)
+                    if src_meta.distributed:
+                        src_indices.set_src_shape(src_meta.global_shape)
+                    else:
+                        src_indices.set_src_shape(src_shape)
                 src_shape = src_indices.indexed_src_shape
-                if src_val is not None:
+                if src_val is not None and not skip_val_shape:
                     src_val = src_indices.indexed_val(np.atleast_1d(src_val))
 
             if src_shape is not None and not skip_val_shape:
