@@ -71,6 +71,8 @@ cmd_tests = [
     ('openmdao clean --dryrun {}'.format(scriptdir), {}),
     ('python -m openmdao clean --dryrun {}'.format(scriptdir), {}),
     ('openmdao compute_entry_points openmdao', {}),
+    ('openmdao dump_generic {}'.format(os.path.join(scriptdir, 'circle_opt.py')), {}),
+    ('openmdao dump_generic --system=circle {}'.format(os.path.join(scriptdir, 'circle_opt.py')), {}),
     ('openmdao graph --no-display {}'.format(os.path.join(scriptdir, 'circuit_analysis.py')), {'pydot': pydot, 'graphviz': graphviz}),
     ('openmdao graph --no-display --type=tree {}'.format(os.path.join(scriptdir, 'circuit_analysis.py')), {'pydot': pydot, 'graphviz': graphviz}),
     ('python -m openmdao graph --no-display --show-vars {}'.format(os.path.join(scriptdir, 'circuit_analysis.py')), {'pydot': pydot, 'graphviz': graphviz}),

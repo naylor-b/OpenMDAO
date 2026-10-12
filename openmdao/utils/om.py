@@ -53,6 +53,7 @@ from openmdao.devtools.iprof_mem import _mem_prof_exec, _mem_prof_setup_parser, 
 from openmdao.error_checking.check_config import _check_config_cmd, _check_config_setup_parser
 from openmdao.utils.mpi import MPI
 from openmdao.utils.file_utils import clean_outputs
+from openmdao.utils.generic_model import _dump_generic_setup_parser, _dump_generic_cmd
 from openmdao.utils.find_cite import print_citations
 from openmdao.utils.code_utils import _calltree_setup_parser, _calltree_exec
 from openmdao.utils.jax_utils import _to_compute_primal_setup_parser, \
@@ -666,6 +667,11 @@ _command_map = {
         _dist_conns_setup_parser,
         _dist_conns_cmd,
         "Display connection information for variables across multiple MPI processes.",
+    ),
+    "dump_generic": (
+        _dump_generic_setup_parser,
+        _dump_generic_cmd,
+        "Dump a generic JSON description of the model structure, viewable with om4 tools.",
     ),
     "find_repos": (
         _find_repos_setup_parser,
