@@ -429,6 +429,37 @@ class TestGenericModelDict(unittest.TestCase):
         self.assertNotIn('_auto_ivc', spec['subsystems'])
         self.assertEqual(list(spec['subsystems']), ['g', 'd'])
 
+    def test_no_auto_ivc_anywhere_in_spec(self):
+        # nothing in the emitted spec may name auto_ivc, since om4 has no equivalent
+        spec = generic_model_dict(self._build())
+        self.assertNotIn('_auto_ivc', json.dumps(spec))
+
+    def test_auto_ivc_sourced_connection_dropped(self):
+        # An input-to-input connect with no real source upstream is rewritten by OpenMDAO into
+        # a connection from the auto_ivc output that feeds it.  That connection cannot exist in
+        # om4, so it is dropped and the input is left unconnected.
+        class Simple(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('y', val=1.0)
+
+        p = om.Problem()
+        p.model.add_subsystem('c1', Simple())
+        p.model.add_subsystem('c2', Simple())
+        p.model.connect('c1.x', 'c2.x')
+        p.setup()
+        p.final_setup()
+
+        self.assertEqual(p.model._manual_connections, {'c1.x': ('_auto_ivc.v0', None)})
+
+        msg = ("'c1.x' is connected to the auto_ivc output '_auto_ivc.v0', which has no om4 "
+               "equivalent, so the connection was omitted and the input is left unconnected.")
+        with assert_warning(UserWarning, msg, contains_msg=True):
+            spec = generic_model_dict(p)
+
+        self.assertNotIn('connections', spec)
+        self.assertNotIn('_auto_ivc', json.dumps(spec))
+
     def test_no_auto_ivc_model(self):
         # a fully connected model has no _auto_ivc at all
         class Src(om.ExplicitComponent):
@@ -1041,6 +1072,22 @@ class TestGenericModelFidelity(unittest.TestCase):
         p.setup()
         p.final_setup()
 
+        self._check(p)
+
+    def test_input_to_input_without_a_real_source(self):
+        class Simple(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('y', val=1.0)
+
+        p = om.Problem()
+        p.model.add_subsystem('c1', Simple())
+        p.model.add_subsystem('c2', Simple())
+        p.model.connect('c1.x', 'c2.x')
+        p.setup()
+        p.final_setup()
+
+        # both inputs are auto_ivc sourced in OpenMDAO, so both are unconnected in the spec
         self._check(p)
 
     def test_subtree(self):

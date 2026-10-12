@@ -471,6 +471,18 @@ def _connections(group, warnings):
     """
     conns = []
     for tgt, (src, src_indices) in group._manual_connections.items():
+        if src.startswith(_AUTO_IVC + '.'):
+            # An input-to-input connect whose chain reaches no real output is rewritten by
+            # OpenMDAO into a connection from the auto_ivc output that sources it
+            # (Group.transform_input_input_connections).  om4 has no auto_ivc, so there is no
+            # such connection to make; the target is simply an unconnected input.  The two
+            # inputs no longer share a source, which in om4 would be expressed by promoting
+            # them to the same name instead.
+            warnings.append(f"'{tgt}' is connected to the auto_ivc output '{src}', which has "
+                            "no om4 equivalent, so the connection was omitted and the input "
+                            "is left unconnected.")
+            continue
+
         conn = {'src': src, 'tgt': tgt}
         if src_indices is not None:
             inds, flat = _src_indices_json(src_indices,
