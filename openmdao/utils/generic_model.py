@@ -6,8 +6,9 @@ structure can be inspected with om4 tooling without importing any of the model's
 classes or their dependencies.
 
 Recorded: all inputs and outputs with their shapes and units, all promotions (including
-src_indices), all manual connections (including src_indices), and all
-``Group.set_input_defaults`` data.  Variable values are not recorded.
+src_indices), all manual connections (including src_indices), all ``Group.set_input_defaults``
+data, and the class of each non-default solver.  Variable values and solver options are not
+recorded.
 """
 
 import json
@@ -27,11 +28,10 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning
 
 
-# Default om4 'type' keys for the generic classes this tool targets.  These are overridable so
-# that output can be generated against om4's stock classes before the generic ones exist.
-GENERIC_GROUP_TYPE = 'om4.core.generic:GenericGroup'
-GENERIC_EXPLICIT_TYPE = 'om4.core.generic:GenericExplicitComponent'
-GENERIC_IMPLICIT_TYPE = 'om4.core.generic:GenericImplicitComponent'
+# The om4 'type' keys for the generic classes this tool targets.
+GENERIC_GROUP_TYPE = 'om4.utils.generic_systems:GenericGroup'
+GENERIC_EXPLICIT_TYPE = 'om4.utils.generic_systems:GenericExplicitComponent'
+GENERIC_IMPLICIT_TYPE = 'om4.utils.generic_systems:GenericImplicitComponent'
 
 _DEFAULT_OUTFILE = 'generic_model.json'
 
@@ -41,6 +41,28 @@ _AUTO_IVC = '_auto_ivc'
 
 # Name given to the single subsystem of the group generated to wrap a dumped Component.
 _WRAPPED_COMP_NAME = 'comp'
+
+# OpenMDAO solver class name -> the om4 'type' key for the equivalent solver.  Only the class
+# is carried over; solver options are not, since this dump is structural.  A solver whose class
+# is not here, or a subclass of one of these, is matched through its MRO.
+_SOLVER_TYPES = {
+    # nonlinear
+    'NonlinearRunOnce': 'om4.solvers.nonlinear.nonlinear_runonce:NonlinearRunOnce',
+    'NonlinearBlockGS': 'om4.solvers.nonlinear.nonlinear_block_gs:NonlinearBlockGS',
+    'NewtonSolver': 'om4.solvers.nonlinear.newton.newton:NewtonSolver',
+    # linear
+    'LinearRunOnce': 'om4.solvers.linear.linear_runonce:LinearRunOnce',
+    'LinearBlockGS': 'om4.solvers.linear.linear_block_gs:LinearBlockGS',
+    'DirectSolver': 'om4.solvers.linear.direct:DirectSolver',
+    'PETScDirectSolver': 'om4.solvers.linear.petsc_direct:PETScDirectSolver',
+    'PETScKrylov': 'om4.solvers.linear.petsc_krylov:PETScKrylov',
+    # OpenMDAO's ScipyKrylov only offers gmres, so it maps to om4's gmres class
+    'ScipyKrylov': 'om4.solvers.linear.scipy_krylov:ScipyGMRES',
+}
+
+# The solvers a Group gets when nothing was assigned.  Omitting these keeps the spec minimal
+# and lets om4 apply its own defaults.
+_DEFAULT_SOLVERS = frozenset(('NonlinearRunOnce', 'LinearRunOnce'))
 
 
 class _UnsupportedIndexError(Exception):
@@ -390,6 +412,47 @@ def _promotes_specs(subsys, warnings):
             _promotes_entries(entries['output'], subsys.pathname, warnings))
 
 
+def _solvers(system, warnings):
+    """
+    Build the solver specs for a system.
+
+    Only the solver class is translated.  Solver options are not carried over, so the dumped
+    model says which kind of solver a group needs without claiming anything about how it was
+    tuned.  A solver OpenMDAO has and om4 does not is skipped with a warning rather than
+    silently replaced by a different algorithm.
+
+    Parameters
+    ----------
+    system : System
+        The system whose solvers are being dumped.
+    warnings : list
+        List that messages about lossy conversions are appended to.
+
+    Returns
+    -------
+    dict
+        Mapping of om4 field name to an om4 solver spec, omitting unset and default solvers.
+    """
+    specs = {}
+
+    for field in ('nonlinear_solver', 'linear_solver'):
+        solver = getattr(system, field, None)
+        if solver is None or type(solver).__name__ in _DEFAULT_SOLVERS:
+            continue
+
+        # a user subclass of a known solver is recorded as its nearest mapped ancestor
+        for klass in type(solver).__mro__:
+            if klass.__name__ in _SOLVER_TYPES:
+                specs[field] = {'type': _SOLVER_TYPES[klass.__name__]}
+                break
+        else:
+            warnings.append(f"The {field} on '{system.pathname}' is a "
+                            f"{type(solver).__name__}, which has no om4 equivalent, so it was "
+                            "omitted.")
+
+    return specs
+
+
 def _connections(group, warnings):
     """
     Build the connection specs for the manual connections owned by a group.
@@ -485,6 +548,9 @@ def _system_dict(system, types, warnings, is_root=False):
 
     if not isinstance(system, Group):
         sdict.update(_component_vars(system, warnings))
+        if isinstance(system, ImplicitComponent):
+            # only om4's implicit components can own solvers
+            sdict.update(_solvers(system, warnings))
         return sdict
 
     children = [(s.name, _system_dict(s, types, warnings))
@@ -511,6 +577,16 @@ def _system_dict(system, types, warnings, is_root=False):
     defaults = _input_defaults(system)
     if defaults:
         sdict['input_defaults'] = defaults
+
+    solvers = _solvers(system, warnings)
+    sdict.update(solvers)
+
+    if 'nonlinear_solver' in solvers:
+        # In OpenMDAO a group's nonlinear solver covers everything inside the group.  om4
+        # defaults to collapsing only cycles and hoisting the rest, which would leave a
+        # non-cyclic implicit child uncovered by the solver we just recorded, so the whole
+        # group is collapsed into one execution node to match OpenMDAO.
+        sdict['collapse_by'] = 'group'
 
     if isinstance(system, ParallelGroup):
         sdict['parallel'] = True
@@ -637,15 +713,6 @@ def _dump_generic_setup_parser(parser):
     parser.add_argument('-p', '--problem', action='store', dest='problem', help='Problem name.')
     parser.add_argument('--system', action='store', dest='system', default='',
                         help='Pathname of the system to dump. Defaults to the whole model.')
-    parser.add_argument('--group-type', action='store', dest='group_type',
-                        default=GENERIC_GROUP_TYPE,
-                        help="om4 'type' string to use for groups.")
-    parser.add_argument('--explicit-type', action='store', dest='explicit_type',
-                        default=GENERIC_EXPLICIT_TYPE,
-                        help="om4 'type' string to use for explicit components.")
-    parser.add_argument('--implicit-type', action='store', dest='implicit_type',
-                        default=GENERIC_IMPLICIT_TYPE,
-                        help="om4 'type' string to use for implicit components.")
 
 
 def _dump_generic_cmd(options, user_args):
@@ -665,10 +732,7 @@ def _dump_generic_cmd(options, user_args):
         return options.problem is not None or '/' not in prob._get_inst_id()
 
     def _dump(prob):
-        dump_generic_model(prob, outfile=options.outfile, system=options.system,
-                           group_type=options.group_type,
-                           explicit_type=options.explicit_type,
-                           implicit_type=options.implicit_type)
+        dump_generic_model(prob, outfile=options.outfile, system=options.system)
         print(f"Generic model written to '{options.outfile}'.")
 
     def _dump_after_setup(prob):
