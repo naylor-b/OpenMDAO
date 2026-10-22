@@ -187,6 +187,12 @@ def _load_and_exec(script_name, user_args):
     dict
         The globals dictionary of the executed script.
     """
+    from openmdao.utils.hooks import _set_baseline_hooks
+
+    # Any hooks registered by now belong to the command line tool that is about to run this
+    # file.  Recording them means user code that resets the hooks does not discard them.
+    _set_baseline_hooks()
+
     if ':' in script_name and not isfile(script_name):
         return _load_and_run_test(script_name)
 

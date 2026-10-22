@@ -17,6 +17,10 @@ from inspect import getmro
 # 'fname'.
 _hooks = {}
 
+# Hooks registered before any user code ran, which _reset_all_hooks restores instead of
+# clearing.  None means there is no baseline and a reset clears everything.
+_baseline_hooks = None
+
 # use this to keep hook ordering consistent across multiple calls to register_hook
 _hook_counter = 0
 
@@ -25,9 +29,57 @@ _hook_counter = 0
 use_hooks = True
 
 
+def _copy_hook_registry(registry):
+    """
+    Copy the nested dicts of a hook registry, sharing the _HookMeta objects themselves.
+
+    Parameters
+    ----------
+    registry : dict
+        A hook registry of the form {class_name: {inst_id: {funcname: [hooks]}}}.
+
+    Returns
+    -------
+    dict
+        A copy whose dicts and lists are new, so that registering or deactivating a hook in one
+        copy does not affect the other.
+    """
+    copied = {}
+    for class_name, classmeta in registry.items():
+        copied[class_name] = {inst_id: {fname: list(hooklist)
+                                        for fname, hooklist in instmeta.items()}
+                              for inst_id, instmeta in classmeta.items()}
+    return copied
+
+
 def _reset_all_hooks():
     global _hooks
-    _hooks = {}
+    # Keep the hooks that were in place before the user's code ran.  A command line tool
+    # registers its hooks up front and is entitled to have them survive, but anything the
+    # user's code registered is still cleared.
+    _hooks = {} if _baseline_hooks is None else _copy_hook_registry(_baseline_hooks)
+
+
+def _set_baseline_hooks():
+    """
+    Record the currently registered hooks as the set that a reset restores.
+
+    Called once the command line machinery has registered its hooks and before any user code
+    runs, so that user code resetting the hooks (for example a test calling
+    ``_clear_problem_names``) does not throw away the tool's own hooks.
+    """
+    global _baseline_hooks
+    _baseline_hooks = _copy_hook_registry(_hooks)
+
+
+def _clear_baseline_hooks():
+    """
+    Forget the baseline, so that a reset clears the registry outright again.
+
+    Used to isolate tests that run in the same process as something that set a baseline.
+    """
+    global _baseline_hooks
+    _baseline_hooks = None
 
 
 def _hook_class_factory(pass_args, pass_return):

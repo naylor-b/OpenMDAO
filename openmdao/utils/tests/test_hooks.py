@@ -34,12 +34,14 @@ def make_hook_pass_args_pass_return(name):
 def hooks_active(f):
     # turn hooks on and off around a hooks test
     def _wrapper(*args, **kwargs):
+        hooks._clear_baseline_hooks()  # start from a registry with no tool hooks to preserve
         hooks._reset_all_hooks()
         hooks.use_hooks = True
         try:
             f(*args, **kwargs)
         finally:
             hooks.use_hooks = False
+            hooks._clear_baseline_hooks()
     return _wrapper
 
 
@@ -363,6 +365,79 @@ class HooksTestCase(unittest.TestCase):
         prob.run_model()
 
         self.assertEqual(prob.calls, ['inherited_pre', 'inherited_post', 'base_post', 'inherited_pre', 'inherited_post', 'base_post'])
+
+
+class BaselineHooksTestCase(unittest.TestCase):
+    """
+    A command line tool's hooks have to survive user code resetting the hook registry.
+    """
+
+    def setUp(self):
+        hooks._clear_baseline_hooks()
+        hooks._reset_all_hooks()
+        hooks.use_hooks = True
+
+    def tearDown(self):
+        hooks.use_hooks = False
+        hooks._clear_baseline_hooks()
+        hooks._reset_all_hooks()
+
+    def test_reset_clears_without_a_baseline(self):
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('f'))
+        hooks._reset_all_hooks()
+        self.assertEqual(hooks._hooks, {})
+
+    def test_baseline_survives_a_reset(self):
+        # this is what _clear_problem_names does in a user's setUp, and it used to throw away
+        # the hooks the command had just registered
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('tool'))
+        hooks._set_baseline_hooks()
+
+        openmdao.core.problem._clear_problem_names()
+
+        self.assertIn('Problem', hooks._hooks)
+        self.assertIn('final_setup', hooks._hooks['Problem'][None])
+
+    def test_user_hooks_are_still_cleared(self):
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('tool'))
+        hooks._set_baseline_hooks()
+
+        # as if the user's code registered its own hook afterwards
+        hooks._register_hook('run_model', 'Problem', post=make_hook('user'))
+        self.assertIn('run_model', hooks._hooks['Problem'][None])
+
+        hooks._reset_all_hooks()
+
+        self.assertIn('final_setup', hooks._hooks['Problem'][None])
+        self.assertNotIn('run_model', hooks._hooks['Problem'][None])
+
+    def test_baseline_is_not_mutated_by_later_registration(self):
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('tool'))
+        hooks._set_baseline_hooks()
+
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('user'))
+        self.assertEqual(len(hooks._hooks['Problem'][None]['final_setup']), 2)
+
+        hooks._reset_all_hooks()
+        self.assertEqual(len(hooks._hooks['Problem'][None]['final_setup']), 1)
+
+    def test_hook_fires_after_a_user_reset(self):
+        prob = om.Problem(name='baseline_prob')
+        prob.calls = []
+
+        hooks._register_hook('final_setup', 'Problem', post=make_hook('final_setup'))
+        hooks._set_baseline_hooks()
+
+        openmdao.core.problem._clear_problem_names()
+
+        # the Problem is built after the reset, which is the ordering that was broken
+        prob2 = om.Problem(name='baseline_prob2')
+        prob2.calls = []
+        prob2.model.add_subsystem('comp', om.ExecComp('y=2.0*x'))
+        prob2.setup()
+        prob2.final_setup()
+
+        self.assertEqual(prob2.calls, ['final_setup'])
 
 
 class MyProblem(om.Problem):

@@ -7,8 +7,8 @@ classes or their dependencies.
 
 Recorded: all inputs and outputs with their shapes and units, all promotions (including
 src_indices), all manual connections (including src_indices), all ``Group.set_input_defaults``
-data, and the class of each non-default solver.  Variable values and solver options are not
-recorded.
+data, the class of each non-default solver, and all design variables, constraints and
+objectives.  Variable values, solver options and optimizer scaling are not recorded.
 """
 
 import json
@@ -19,6 +19,7 @@ import numpy as np
 from openmdao.core.constants import _SetupStatus
 from openmdao.core.group import Group
 from openmdao.core.implicitcomponent import ImplicitComponent
+from openmdao.core.indepvarcomp import IndepVarComp
 from openmdao.core.parallel_group import ParallelGroup
 from openmdao.core.problem import Problem
 from openmdao.core.system import System
@@ -63,6 +64,181 @@ _SOLVER_TYPES = {
 # The solvers a Group gets when nothing was assigned.  Omitting these keeps the spec minimal
 # and lets om4 apply its own defaults.
 _DEFAULT_SOLVERS = frozenset(('NonlinearRunOnce', 'LinearRunOnce'))
+
+
+class _RemovedIvcs(object):
+    """
+    Bookkeeping for the IndepVarComps that are dropped from a dump.
+
+    om4 has no IndepVarComp: an unconnected input is its own source, and a design variable has
+    to sit on one (``om4/variables/design_var.py`` raises for a design variable on an output).
+    So every IndepVarComp is removed, the connections from its outputs are dropped so that the
+    inputs they fed become unconnected, and any design variable or response on one of its
+    outputs is moved onto those inputs.
+
+    Parameters
+    ----------
+    model : Group
+        The root of the model being dumped.
+    keep : str or None
+        Pathname of a system to leave alone, used when the dump was asked for that system
+        specifically and removing it would leave nothing to look at.
+
+    Attributes
+    ----------
+    pathnames : set of str
+        Pathnames of the IndepVarComps being removed.
+    src2tgts : dict
+        Absolute IndepVarComp output name mapped to the absolute inputs it feeds.
+    """
+
+    def __init__(self, model, keep=None, warnings=None):
+        self.pathnames = set()
+        self.src2tgts = {}
+        self.promotions = {}
+        self.shared = {}
+        self._model = model
+
+        for comp in model.system_iter(include_self=True, recurse=True, typ=IndepVarComp):
+            # _auto_ivc is already excluded from the tree, and OpenMDAO already reports an
+            # auto_ivc sourced design variable against the input it feeds, so it needs none of
+            # this handling.
+            if comp.name == _AUTO_IVC or comp.pathname == keep:
+                continue
+            self.pathnames.add(comp.pathname)
+
+        for abs_in, abs_out in model._conn_global_abs_in2out.items():
+            if self.owns(abs_out):
+                self.src2tgts.setdefault(abs_out, []).append(abs_in)
+
+        if warnings is not None:
+            self._plan_promotions(warnings)
+
+    def _plan_promotions(self, warnings):
+        """
+        Work out the promotions that keep each optimizer variable a single variable.
+
+        An IndepVarComp output often fans out to several separate inputs, and in OpenMDAO that
+        is one design variable driving all of them.  Splitting it into one design variable per
+        input would change the optimization problem, so instead the fed inputs are promoted to
+        a single shared name and the design variable stays on that name.  om4 supports one
+        promoted input fanning out to many leaves, so this is the faithful translation.
+
+        Parameters
+        ----------
+        warnings : list
+            List that messages about lossy conversions are appended to.
+        """
+        for system in self._model.system_iter(include_self=True, recurse=True):
+            for metadata in (system._design_vars, system._responses):
+                for meta in metadata.values():
+                    abs_out = meta.get('source', '')
+                    if self.owns(abs_out) and abs_out not in self.shared:
+                        self._unify(system, abs_out, meta['name'], warnings)
+
+    def _unify(self, owner, abs_out, declared, warnings):
+        """
+        Plan promotions giving every input fed by one IndepVarComp output a shared name.
+
+        Parameters
+        ----------
+        owner : System
+            The system that declared the optimizer variable.
+        abs_out : str
+            Absolute name of the IndepVarComp output.
+        declared : str
+            The output's promoted name in the owner's scope, which the optimizer variable uses.
+        warnings : list
+            List that messages about lossy conversions are appended to.
+        """
+        model = self._model
+        # An unpromoted output's name is dotted and cannot name a promoted input, so fall back
+        # to its local name.
+        desired = declared.rsplit('.', 1)[-1]
+
+        # the shared name has to be free once the IndepVarComps are gone
+        for other in owner._resolver.absnames(desired, 'output', report_error=False) or ():
+            if not self.owns(other):
+                warnings.append(f"Inputs fed by '{abs_out}' could not be promoted to a shared "
+                                f"name, because '{desired}' is already the promoted name of "
+                                f"output '{other}'.")
+                return
+
+        prefix = owner.pathname + '.' if owner.pathname else ''
+        planned = []
+
+        for abs_in in self.src2tgts[abs_out]:
+            if not abs_in.startswith(prefix) or not owner._resolver.contains(abs_in, 'input'):
+                warnings.append(f"Inputs fed by '{abs_out}' could not be promoted to a shared "
+                                f"name, because '{abs_in}' is outside '{owner.pathname}'.")
+                return
+
+            if owner._resolver.abs2prom(abs_in, 'input') == desired:
+                continue  # already shares the name, so nothing to synthesize
+
+            child = owner._get_subsystem(abs_in[len(prefix):].split('.')[0])
+            from_name = child._resolver.abs2prom(abs_in, 'input')
+
+            # src_indices on the dropped connection have to move onto the promotion
+            inds_list = model._var_abs2meta['input'].get(abs_in, {}).get('src_inds_list') or []
+            if len(inds_list) > 1:
+                warnings.append(f"Inputs fed by '{abs_out}' could not be promoted to a shared "
+                                f"name, because '{abs_in}' has more than one level of "
+                                "src_indices.")
+                return
+
+            src_shape = model._var_allprocs_abs2meta['output'][abs_out]['shape']
+            planned.append((child.pathname, from_name, desired,
+                            inds_list[0] if inds_list else None, src_shape))
+
+        for pathname, from_name, name, indexer, src_shape in planned:
+            self.promotions.setdefault(pathname, []).append((from_name, name, indexer,
+                                                             src_shape))
+
+        self.shared[abs_out] = desired
+
+    def owns(self, abs_out):
+        """
+        Return True if an absolute output name belongs to an IndepVarComp being removed.
+
+        Parameters
+        ----------
+        abs_out : str
+            Absolute name of an output.
+
+        Returns
+        -------
+        bool
+            True if the output's component is being removed.
+        """
+        return '.' in abs_out and abs_out.rsplit('.', 1)[0] in self.pathnames
+
+    def targets(self, system, abs_out):
+        """
+        Return the promoted names, in a system's scope, of the inputs an output feeds.
+
+        Parameters
+        ----------
+        system : System
+            The system whose scope the names are wanted in.
+        abs_out : str
+            Absolute name of the IndepVarComp output.
+
+        Returns
+        -------
+        list of str
+            Promoted input names, deduplicated and in connection order.
+        """
+        resolver = system._resolver
+        names = []
+        for abs_in in self.src2tgts.get(abs_out, ()):
+            if not resolver.contains(abs_in, 'input'):
+                continue
+            prom = resolver.abs2prom(abs_in, 'input')
+            if prom not in names:
+                names.append(prom)
+
+        return names
 
 
 class _UnsupportedIndexError(Exception):
@@ -370,7 +546,51 @@ def _promotes_entries(entries, where, warnings):
     return specs
 
 
-def _promotes_specs(subsys, warnings):
+def _synthesized_promotes(subsys, ivcs, warnings):
+    """
+    Build the promotion specs added to give inputs fed by one IndepVarComp a shared name.
+
+    Parameters
+    ----------
+    subsys : System
+        The subsystem whose promotions are being dumped.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed.
+    warnings : list
+        List that messages about lossy conversions are appended to.
+
+    Returns
+    -------
+    list
+        List of om4 PromotesSpec dicts.
+    """
+    groups = {}
+    order = []
+
+    for from_name, name, indexer, src_shape in ivcs.promotions.get(subsys.pathname, ()):
+        pattern = name if from_name == name else [from_name, name]
+
+        if indexer is None:
+            sig, extra = None, {}
+        else:
+            inds, flat = _src_indices_json(indexer,
+                                           f"promotion of '{from_name}' on "
+                                           f"'{subsys.pathname}'", warnings)
+            extra = {'src_indices': inds, 'flat_src': flat}
+            if src_shape is not None:
+                extra['src_shape'] = _shape_json(src_shape)
+            sig = json.dumps(extra, sort_keys=True)
+
+        if sig not in groups:
+            groups[sig] = (extra, [])
+            order.append(sig)
+        groups[sig][1].append(pattern)
+
+    return [{'patterns': patterns, **extra}
+            for extra, patterns in (groups[sig] for sig in order)]
+
+
+def _promotes_specs(subsys, warnings, ivcs):
     """
     Build the promotes_inputs and promotes_outputs specs for a subsystem.
 
@@ -385,6 +605,8 @@ def _promotes_specs(subsys, warnings):
         The subsystem whose promotions are being dumped.
     warnings : list
         List that messages about lossy conversions are appended to.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed, which may add promotions of their own.
 
     Returns
     -------
@@ -408,8 +630,10 @@ def _promotes_specs(subsys, warnings):
                 warnings.append(f"Promotion pattern '{key}' on '{subsys.pathname}' matched no "
                                 "variables and was omitted.")
 
-    return (_promotes_entries(entries['input'], subsys.pathname, warnings),
-            _promotes_entries(entries['output'], subsys.pathname, warnings))
+    proms_in = (_promotes_entries(entries['input'], subsys.pathname, warnings) +
+                _synthesized_promotes(subsys, ivcs, warnings))
+
+    return proms_in, _promotes_entries(entries['output'], subsys.pathname, warnings)
 
 
 def _solvers(system, warnings):
@@ -453,7 +677,186 @@ def _solvers(system, warnings):
     return specs
 
 
-def _connections(group, warnings):
+def _opt_var(meta, key, where, warnings):
+    """
+    Build the om4 spec for one design variable, constraint or objective.
+
+    Bounds, indices and units are carried over because they are what the declaration means.
+    Scaling is not: OpenMDAO's scaler/adder/ref/ref0 have no field on om4's OptimizerVar, where
+    scaling is a Transform, and it is optimizer tuning rather than model structure.
+
+    Parameters
+    ----------
+    meta : dict
+        OpenMDAO metadata for the design variable or response.
+    key : str
+        The name the variable is keyed by, which is its alias if it has one.
+    where : str
+        Description of the declaration, used in warning messages.
+    warnings : list
+        List that messages about lossy conversions are appended to.
+
+    Returns
+    -------
+    dict
+        The om4 DesignVar, Constraint or Objective spec.
+    """
+    spec = {}
+
+    name = meta['name']
+    if name != key:
+        # the key is an alias, so om4 needs the promoted name spelled out
+        spec['path'] = name
+
+    for bound in ('lower', 'upper', 'equals'):
+        if meta.get(bound) is not None:
+            spec[bound] = _json_val(meta[bound])
+
+    if meta.get('units') is not None:
+        spec['units'] = meta['units']
+
+    flat = bool(meta.get('flat_indices'))
+    if meta.get('indices') is not None:
+        inds, forced_flat = _src_indices_json(meta['indices'], where, warnings)
+        spec['indices'] = inds
+        flat = flat or forced_flat
+    if flat:
+        spec['flat_src'] = True
+
+    for flag in ('linear', 'cache_linear_solution'):
+        if meta.get(flag):
+            spec[flag] = True
+
+    if meta.get('parallel_deriv_color') is not None:
+        spec['parallel_deriv_color'] = meta['parallel_deriv_color']
+
+    scaling = [k for k in ('ref', 'ref0', 'scaler', 'adder') if meta.get(k) is not None]
+    if scaling:
+        warnings.append(f"The {where} declares {', '.join(sorted(scaling))}, which om4 expresses "
+                        "as a Transform rather than a field, so the scaling was omitted.")
+
+    return spec
+
+
+def _retargeted_opt_vars(system, key, meta, where, ivcs, warnings):
+    """
+    Move an optimizer variable off a removed IndepVarComp output onto the inputs it feeds.
+
+    om4 only allows a design variable on an unconnected input, and the IndepVarComp that used
+    to source these inputs is not in the dump, so the variable is redeclared against each
+    distinct promoted input name it fed.
+
+    Parameters
+    ----------
+    system : System
+        The system that declared the optimizer variable.
+    key : str
+        The name the variable is keyed by.
+    meta : dict
+        OpenMDAO metadata for the design variable or response.
+    where : str
+        Description of the declaration, used in warning messages.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed.
+    warnings : list
+        List that messages about lossy conversions are appended to.
+
+    Returns
+    -------
+    list
+        List of (key, metadata) pairs to emit in place of the original.
+    """
+    abs_out = meta['source']
+
+    shared = ivcs.shared.get(abs_out)
+    if shared is not None:
+        # the inputs it fed were promoted to one shared name, so this stays a single variable
+        new_meta = dict(meta)
+        new_meta['name'] = shared
+        return [(key if meta['name'] != key else shared, new_meta)]
+
+    names = ivcs.targets(system, abs_out)
+
+    if not names:
+        warnings.append(f"The {where} is on the IndepVarComp output '{abs_out}', which feeds no "
+                        "input visible here, so it could not be moved onto an input and was "
+                        "omitted.")
+        return []
+
+    is_alias = meta['name'] != key
+    if len(names) > 1:
+        warnings.append(f"The {where} is on the IndepVarComp output '{abs_out}', which feeds "
+                        f"{len(names)} separately promoted inputs, so it became that many "
+                        f"optimizer variables: {', '.join(repr(n) for n in names)}.")
+        if is_alias:
+            warnings.append(f"The alias '{key}' could not be kept, since it cannot name more "
+                            "than one variable.")
+            is_alias = False
+
+    retargeted = []
+    for name in names:
+        new_meta = dict(meta)
+        new_meta['name'] = name
+        # a single aliased variable keeps its alias as the key, so om4 still needs the
+        # promoted name, which _opt_var emits as 'path'
+        retargeted.append((key if is_alias else name, new_meta))
+
+    return retargeted
+
+
+def _opt_vars(system, warnings, ivcs):
+    """
+    Build the design variable, constraint and objective specs declared on a system.
+
+    Parameters
+    ----------
+    system : System
+        The system whose optimizer variables are being dumped.
+    warnings : list
+        List that messages about lossy conversions are appended to.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed.
+
+    Returns
+    -------
+    dict
+        Mapping of om4 field name to a dict of specs, omitting empty ones.
+    """
+    specs = {}
+    groups = {'design_vars': {}, 'constraints': {}, 'objectives': {}}
+
+    sources = [('design variable', system._design_vars, 'design_vars'),
+               ('response', system._responses, None)]
+
+    for label, metadata, fixed_field in sources:
+        for key, meta in metadata.items():
+            where = f"{label} '{key}' on '{system.pathname}'"
+
+            if meta.get('discrete'):
+                warnings.append(f"The {where} is discrete, which om4 does not support for "
+                                "optimizer variables, so it was omitted.")
+                continue
+
+            field = fixed_field
+            if field is None:
+                field = 'objectives' if meta.get('type') == 'obj' else 'constraints'
+
+            if ivcs.owns(meta.get('source', '')):
+                entries = _retargeted_opt_vars(system, key, meta, where, ivcs, warnings)
+            else:
+                entries = [(key, meta)]
+
+            for new_key, new_meta in entries:
+                groups[field][new_key] = _opt_var(new_meta, new_key, where, warnings)
+
+    for field, entries in groups.items():
+        if entries:
+            specs[field] = entries
+
+    return specs
+
+
+def _connections(group, warnings, ivcs):
     """
     Build the connection specs for the manual connections owned by a group.
 
@@ -463,6 +866,8 @@ def _connections(group, warnings):
         The group whose connections are being dumped.
     warnings : list
         List that messages about lossy conversions are appended to.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed.
 
     Returns
     -------
@@ -470,8 +875,18 @@ def _connections(group, warnings):
         List of om4 Connection dicts.
     """
     conns = []
+    resolver = group._resolver
+    auto_prefix = _AUTO_IVC + '.'
     for tgt, (src, src_indices) in group._manual_connections.items():
-        if src.startswith(_AUTO_IVC + '.'):
+        if resolver.contains(src, 'output'):
+            absnames = resolver.absnames(src, 'output', report_error=False)
+            # a connection from an IndepVarComp that is not in the dump has no source to come
+            # from; dropping it is what leaves the target as an unconnected input, which is how
+            # om4 sources it
+            if absnames and ivcs.owns(absnames[0]):
+                continue
+
+        if src.startswith(auto_prefix):
             # An input-to-input connect whose chain reaches no real output is rewritten by
             # OpenMDAO into a connection from the auto_ivc output that sources it
             # (Group.transform_input_input_connections).  om4 has no auto_ivc, so there is no
@@ -524,7 +939,7 @@ def _input_defaults(group):
     return defaults
 
 
-def _system_dict(system, types, warnings, is_root=False):
+def _system_dict(system, types, warnings, ivcs, is_root=False):
     """
     Build the om4 spec for a System and, recursively, everything under it.
 
@@ -536,6 +951,8 @@ def _system_dict(system, types, warnings, is_root=False):
         Mapping of 'group', 'explicit' and 'implicit' to om4 type strings.
     warnings : list
         List that messages about lossy conversions are appended to.
+    ivcs : _RemovedIvcs
+        The IndepVarComps being removed.
     is_root : bool
         If True, this system is the root of the dump and has no promotions to record.
 
@@ -552,11 +969,15 @@ def _system_dict(system, types, warnings, is_root=False):
         sdict = {'type': types['explicit']}
 
     if not is_root:
-        proms_in, proms_out = _promotes_specs(system, warnings)
+        proms_in, proms_out = _promotes_specs(system, warnings, ivcs)
         if proms_in:
             sdict['promotes_inputs'] = proms_in
         if proms_out:
             sdict['promotes_outputs'] = proms_out
+
+    # Design vars and responses are recorded on the system that declared them, which is where
+    # om4 keeps them too, so names stay in that system's scope on both sides.
+    sdict.update(_opt_vars(system, warnings, ivcs))
 
     if not isinstance(system, Group):
         sdict.update(_component_vars(system, warnings))
@@ -565,8 +986,9 @@ def _system_dict(system, types, warnings, is_root=False):
             sdict.update(_solvers(system, warnings))
         return sdict
 
-    children = [(s.name, _system_dict(s, types, warnings))
-                for s in system._subsystems_myproc if s.name != _AUTO_IVC]
+    children = [(s.name, _system_dict(s, types, warnings, ivcs))
+                for s in system._subsystems_myproc
+                if s.name != _AUTO_IVC and s.pathname not in ivcs.pathnames]
 
     if system.comm.size > 1:
         # Only one rank per subsystem reports it, then all ranks are merged so that subsystems
@@ -582,7 +1004,7 @@ def _system_dict(system, types, warnings, is_root=False):
 
     sdict['subsystems'] = dict(children)
 
-    conns = _connections(system, warnings)
+    conns = _connections(system, warnings, ivcs)
     if conns:
         sdict['connections'] = conns
 
@@ -664,7 +1086,14 @@ def generic_model_dict(source, system=None, group_type=GENERIC_GROUP_TYPE,
     types = {'group': group_type, 'explicit': explicit_type, 'implicit': implicit_type}
     warnings = []
 
-    tree = _system_dict(target, types, warnings, is_root=True)
+    # The model root owns the resolved connections, so the IndepVarComps are worked out from
+    # there even when only a subtree is being dumped.  A component asked for by name is kept,
+    # since removing it would leave nothing to look at.
+    ivcs = _RemovedIvcs(prob_meta['model_ref'](),
+                        keep=target.pathname if isinstance(target, IndepVarComp) else None,
+                        warnings=warnings)
+
+    tree = _system_dict(target, types, warnings, ivcs, is_root=True)
 
     if not isinstance(target, Group):
         # om4 only wraps a Group in a Problem when loading a spec, so a lone component is
@@ -766,7 +1195,7 @@ def _dump_generic_cmd(options, user_args):
 
     hooks._register_hook('_check_collected_errors', class_name='Problem',
                          inst_id=options.problem, pre=_dump_with_errors)
-    hooks._register_hook('final_setup', class_name='Problem', inst_id=options.problem,
+    hooks._register_hook('setup', class_name='Problem', inst_id=options.problem,
                          post=_dump_after_setup)
 
     _load_and_exec(options.file[0], user_args)

@@ -172,6 +172,9 @@ def _om_truth(model):
     """
     Collect the promoted input names and connection sources that OpenMDAO resolved.
 
+    An input sourced by auto_ivc or by an IndepVarComp is reported as unconnected, because
+    neither exists in the dump: om4 sources an unconnected input directly.
+
     Parameters
     ----------
     model : Group
@@ -181,18 +184,27 @@ def _om_truth(model):
     -------
     tuple
         A dict of {absolute input: promoted name} and a dict of {absolute input: absolute
-        output}, with auto_ivc sources reported as None.
+        output}, with sources that the dump removes reported as None.
     """
     resolver = model._resolver
     prefix = model.pathname + '.' if model.pathname else ''
 
+    # the IndepVarComps are found from the root, since a source can sit outside a dumped subtree
+    root = model._problem_meta['model_ref']()
+    removed = {s.pathname for s in root.system_iter(include_self=True, recurse=True,
+                                                    typ=om.IndepVarComp)}
+
     abs2prom = {}
     conns = {}
     for absname in resolver.abs_iter('input'):
-        abs2prom[absname[len(prefix):]] = resolver.abs2prom(absname, 'input')
+        rel = absname[len(prefix):]
+        abs2prom[rel] = resolver.abs2prom(absname, 'input')
         src = resolver.source(absname)
-        conns[absname[len(prefix):]] = None if src.startswith('_auto_ivc.') \
-            else src[len(prefix):]
+        owner = src.rsplit('.', 1)[0] if '.' in src else ''
+        if owner in removed:
+            conns[rel] = None
+        else:
+            conns[rel] = src[len(prefix):] if src.startswith(prefix) else src
 
     return abs2prom, conns
 
@@ -674,6 +686,390 @@ class TestDumpGenericModelFile(unittest.TestCase):
         self.assertEqual(spec['subsystems']['b']['inputs']['x']['units'], 'ft')
 
 
+class OptComp(om.ExplicitComponent):
+    """
+    A component with an array output and a scalar output, for optimizer variable tests.
+    """
+
+    def setup(self):
+        self.add_input('x', shape=(4,), units='m')
+        self.add_output('y', shape=(4,))
+        self.add_output('z', val=1.0)
+
+    def compute(self, inputs, outputs):
+        outputs['y'] = inputs['x']
+        outputs['z'] = np.sum(inputs['x'])
+
+
+class TestOptVars(unittest.TestCase):
+    """
+    Design variables, constraints and objectives map onto om4's OptimizerVar fields.
+    """
+
+    def _spec(self, declare, system=None):
+        p = om.Problem()
+        p.model.add_subsystem('c', OptComp(), promotes=['*'])
+        declare(p.model)
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        return spec if system is None else spec['subsystems'][system]
+
+    def test_design_var(self):
+        spec = self._spec(lambda m: m.add_design_var('x', lower=-1.0, upper=10.0, units='ft',
+                                                     indices=[0, 1],
+                                                     cache_linear_solution=True))
+        self.assertEqual(spec['design_vars'], {
+            'x': {'lower': -1.0, 'upper': 10.0, 'units': 'ft', 'indices': [0, 1],
+                  'cache_linear_solution': True},
+        })
+
+    def test_design_var_minimal(self):
+        spec = self._spec(lambda m: m.add_design_var('x'))
+        self.assertEqual(spec['design_vars'], {'x': {}})
+
+    def test_objective(self):
+        spec = self._spec(lambda m: m.add_objective('z'))
+        self.assertEqual(spec['objectives'], {'z': {}})
+        self.assertNotIn('constraints', spec)
+        self.assertNotIn('design_vars', spec)
+
+    def test_constraint_bounds(self):
+        spec = self._spec(lambda m: m.add_constraint('y', lower=0.0, upper=5.0))
+        self.assertEqual(spec['constraints'], {'y': {'lower': 0.0, 'upper': 5.0}})
+
+    def test_constraint_equality(self):
+        spec = self._spec(lambda m: m.add_constraint('y', equals=3.0))
+        self.assertEqual(spec['constraints'], {'y': {'equals': 3.0}})
+
+    def test_constraint_linear(self):
+        spec = self._spec(lambda m: m.add_constraint('y', equals=0.0, linear=True))
+        self.assertIs(spec['constraints']['y']['linear'], True)
+
+    def test_alias_becomes_path(self):
+        def declare(m):
+            m.add_constraint('y', lower=0.0, indices=[0], alias='y_lo')
+            m.add_constraint('y', equals=3.0, indices=[2], alias='y_eq')
+
+        spec = self._spec(declare)
+        self.assertEqual(sorted(spec['constraints']), ['y_eq', 'y_lo'])
+        # the key is the alias, so om4 needs the promoted name spelled out
+        self.assertEqual(spec['constraints']['y_lo']['path'], 'y')
+        self.assertEqual(spec['constraints']['y_eq']['path'], 'y')
+
+    def test_no_path_without_alias(self):
+        spec = self._spec(lambda m: m.add_constraint('y', equals=0.0))
+        self.assertNotIn('path', spec['constraints']['y'])
+
+    def test_slice_indices(self):
+        spec = self._spec(lambda m: m.add_constraint('y', lower=0.0,
+                                                     indices=om.slicer[0:2]))
+        self.assertEqual(spec['constraints']['y']['indices'], '0:2:1')
+
+    def test_flat_indices(self):
+        spec = self._spec(lambda m: m.add_design_var('x', indices=[0, 1],
+                                                     flat_indices=True))
+        self.assertIs(spec['design_vars']['x']['flat_src'], True)
+
+    def test_parallel_deriv_color(self):
+        spec = self._spec(lambda m: m.add_constraint('y', lower=0.0,
+                                                     parallel_deriv_color='pdc'))
+        self.assertEqual(spec['constraints']['y']['parallel_deriv_color'], 'pdc')
+
+    def test_none_declared(self):
+        spec = self._spec(lambda m: None)
+        for field in ('design_vars', 'constraints', 'objectives'):
+            self.assertNotIn(field, spec)
+
+    def test_scaling_warns_and_is_omitted(self):
+        for kwargs, names in (({'scaler': 2.0}, 'scaler'),
+                              ({'adder': 1.0}, 'adder'),
+                              ({'ref': 10.0}, 'ref'),
+                              ({'ref': 10.0, 'ref0': 1.0}, 'ref, ref0')):
+            with self.subTest(**kwargs):
+                msg = (f"The design variable 'x' on '' declares {names}, which om4 expresses "
+                       "as a Transform rather than a field, so the scaling was omitted.")
+                with assert_warning(UserWarning, msg, contains_msg=True):
+                    spec = self._spec(lambda m: m.add_design_var('x', **kwargs))
+
+                emitted = spec['design_vars']['x']
+                for key in ('scaler', 'adder', 'ref', 'ref0', 'transform',
+                            'total_scaler', 'total_adder'):
+                    self.assertNotIn(key, emitted)
+
+    def test_bounds_are_physical_not_scaled(self):
+        # OpenMDAO stores the declared bounds, and om4's lower/upper are physical too, so they
+        # carry over directly even though the scaling does not
+        with assert_warning(UserWarning, 'scaler', contains_msg=True):
+            spec = self._spec(lambda m: m.add_design_var('x', lower=-1.0, upper=10.0,
+                                                         scaler=2.0))
+        self.assertEqual(spec['design_vars']['x']['lower'], -1.0)
+        self.assertEqual(spec['design_vars']['x']['upper'], 10.0)
+
+    def test_declared_on_subgroup(self):
+        p = om.Problem()
+        g = p.model.add_subsystem('g', om.Group(), promotes=['*'])
+        g.add_subsystem('c', OptComp(), promotes=['*'])
+        g.add_constraint('y', lower=0.0)
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        # recorded on the system that declared it, with that system's promoted name, which is
+        # how om4 resolves it too
+        self.assertNotIn('constraints', spec)
+        self.assertEqual(spec['subsystems']['g']['constraints'], {'y': {'lower': 0.0}})
+
+    def test_declared_on_component(self):
+        p = om.Problem()
+        comp = p.model.add_subsystem('c', OptComp())
+        comp.add_constraint('y', lower=0.0)
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertNotIn('constraints', spec)
+        self.assertEqual(spec['subsystems']['c']['constraints'], {'y': {'lower': 0.0}})
+
+    def test_json_serializable_with_array_bounds(self):
+        spec = self._spec(lambda m: m.add_constraint('y', lower=np.zeros(4),
+                                                     upper=np.ones(4) * 5))
+        reloaded = json.loads(json.dumps(spec))
+        self.assertEqual(reloaded['constraints']['y']['lower'], [0.0] * 4)
+        self.assertEqual(reloaded['constraints']['y']['upper'], [5.0] * 4)
+
+
+class TestIndepVarComps(unittest.TestCase):
+    """
+    om4 has no IndepVarComp, and a design variable there must sit on an unconnected input.
+    """
+
+    def _fanout(self, nvars=3, src_indices=None):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', shape=(2,) if src_indices is None else (1,))
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', np.ones(2))
+        for i in range(nvars):
+            p.model.add_subsystem(f'c{i}', Sink())
+            p.model.connect('x', f'c{i}.x', src_indices=src_indices)
+        p.model.add_design_var('x', lower=0.0, upper=1.0)
+        p.setup()
+        p.final_setup()
+
+        return p
+
+    def test_ivc_removed_from_subsystems(self):
+        spec = generic_model_dict(self._fanout())
+        self.assertNotIn('indeps', spec['subsystems'])
+        self.assertEqual(sorted(spec['subsystems']), ['c0', 'c1', 'c2'])
+
+    def test_ivc_connections_dropped(self):
+        spec = generic_model_dict(self._fanout())
+        self.assertNotIn('connections', spec)
+
+    def test_fanout_becomes_one_design_var_on_a_shared_promotion(self):
+        # the whole point: one OpenMDAO design variable driving three inputs stays one design
+        # variable, rather than becoming three independent ones
+        spec = generic_model_dict(self._fanout())
+
+        self.assertEqual(spec['design_vars'], {'x': {'lower': 0.0, 'upper': 1.0}})
+        for name in ('c0', 'c1', 'c2'):
+            self.assertEqual(spec['subsystems'][name]['promotes_inputs'],
+                             [{'patterns': ['x']}])
+
+    def test_fanout_with_src_indices_moves_them_onto_the_promotion(self):
+        spec = generic_model_dict(self._fanout(nvars=2, src_indices=[1]))
+
+        self.assertEqual(spec['design_vars'], {'x': {'lower': 0.0, 'upper': 1.0}})
+        for name in ('c0', 'c1'):
+            proms = spec['subsystems'][name]['promotes_inputs']
+            self.assertEqual(proms, [{'patterns': ['x'], 'src_indices': [1],
+                                      'flat_src': True, 'src_shape': [2]}])
+
+    def test_rename_when_input_name_differs(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('foo', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c', Sink())
+        p.model.connect('x', 'c.foo')
+        p.model.add_design_var('x')
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertEqual(spec['design_vars'], {'x': {}})
+        self.assertEqual(spec['subsystems']['c']['promotes_inputs'],
+                         [{'patterns': [['foo', 'x']]}])
+
+    def test_already_promoted_needs_no_synthesis(self):
+        # when the inputs were already promoted to the output's name they already share it
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c0', Sink(), promotes_inputs=['x'])
+        p.model.add_subsystem('c1', Sink(), promotes_inputs=['x'])
+        p.model.add_design_var('x', lower=0.0)
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertEqual(spec['design_vars'], {'x': {'lower': 0.0}})
+        # the author's own promotion is what shares the name, so nothing is added
+        for name in ('c0', 'c1'):
+            self.assertEqual(spec['subsystems'][name]['promotes_inputs'],
+                             [{'patterns': ['x']}])
+
+    def test_nested_target_promoted_by_dotted_rename(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        g = p.model.add_subsystem('g', om.Group())
+        g.add_subsystem('c', Sink())
+        p.model.connect('x', 'g.c.x')
+        p.model.add_design_var('x')
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertEqual(spec['design_vars'], {'x': {}})
+        # the promotion is added on the owner's direct child, lifting the dotted inner name
+        self.assertEqual(spec['subsystems']['g']['promotes_inputs'],
+                         [{'patterns': [['c.x', 'x']]}])
+
+    def test_unpromoted_ivc_output_uses_its_local_name(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp())
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c', Sink())
+        p.model.connect('indeps.x', 'c.x')
+        p.model.add_design_var('indeps.x')
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        # 'indeps.x' cannot name a promoted input, so the output's local name is used
+        self.assertEqual(spec['design_vars'], {'x': {}})
+        self.assertEqual(spec['subsystems']['c']['promotes_inputs'],
+                         [{'patterns': ['x']}])
+
+    def test_name_collision_falls_back_to_splitting(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        class Clash(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('q', val=1.0)
+                self.add_output('x', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp())
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('clash', Clash(), promotes_outputs=['x'])
+        p.model.add_subsystem('c0', Sink())
+        p.model.add_subsystem('c1', Sink())
+        p.model.connect('indeps.x', ['c0.x', 'c1.x'])
+        p.model.add_design_var('indeps.x')
+        p.setup()
+        p.final_setup()
+
+        with assert_warning(UserWarning, "already the promoted name of output 'clash.x'",
+                            contains_msg=True):
+            spec = generic_model_dict(p)
+
+        # unification is impossible, so it splits and says so
+        self.assertEqual(sorted(spec['design_vars']), ['c0.x', 'c1.x'])
+
+    def test_no_design_var_still_removes_the_ivc(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c', Sink(), promotes_inputs=['x'])
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertEqual(list(spec['subsystems']), ['c'])
+        self.assertNotIn('design_vars', spec)
+
+    def test_system_option_on_an_ivc_keeps_it(self):
+        # asking to see an IndepVarComp and getting an empty group back would be useless
+        p = self._fanout()
+        spec = generic_model_dict(p, system='indeps')
+
+        self.assertEqual(list(spec['subsystems']), ['comp'])
+        self.assertIn('x', spec['subsystems']['comp']['outputs'])
+
+    def test_response_on_an_ivc_output_is_retargeted(self):
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c', Sink())
+        p.model.connect('x', 'c.x')
+        p.model.add_constraint('x', lower=0.0)
+        p.setup()
+        p.final_setup()
+
+        spec = generic_model_dict(p)
+        self.assertEqual(spec['constraints'], {'x': {'lower': 0.0}})
+        self.assertEqual(spec['subsystems']['c']['promotes_inputs'],
+                         [{'patterns': ['x']}])
+
+    def test_user_ivc_subclass_is_removed(self):
+        class MyIvc(om.IndepVarComp):
+            pass
+
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', MyIvc(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        p.model.add_subsystem('c', Sink(), promotes_inputs=['x'])
+        p.setup()
+        p.final_setup()
+
+        self.assertEqual(list(generic_model_dict(p)['subsystems']), ['c'])
+
+
 class TestSolvers(unittest.TestCase):
     """
     Only the solver class is carried over, mapped to the om4 equivalent's type key.
@@ -1005,7 +1401,9 @@ class TestGenericModelFidelity(unittest.TestCase):
     """
     Interpret the emitted spec independently and check it against what OpenMDAO resolved.
 
-    This catches promotion routing and connection bugs that reading the JSON would not.
+    This catches promotion routing and connection bugs that reading the JSON would not.  It
+    applies only to models where no promotion was synthesized: removing an IndepVarComp
+    replaces its connections with a shared promotion, which changes promoted names on purpose.
     """
 
     def _check(self, p, system=None):
@@ -1073,6 +1471,38 @@ class TestGenericModelFidelity(unittest.TestCase):
         p.final_setup()
 
         self._check(p)
+
+    def test_indepvarcomp_fanout(self):
+        # the removed IndepVarComp's targets must end up unconnected and sharing one promoted
+        # name, which is what makes them a single design variable in om4
+        class Sink(om.ExplicitComponent):
+            def setup(self):
+                self.add_input('x', val=1.0)
+                self.add_output('g', val=1.0)
+
+        p = om.Problem()
+        ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', 1.0)
+        for i in range(3):
+            p.model.add_subsystem(f'c{i}', Sink())
+            p.model.connect('x', f'c{i}.x')
+        p.model.add_design_var('x')
+        p.setup()
+        p.final_setup()
+
+        # _check does not apply here: removing the IndepVarComp deliberately changes the
+        # promoted names, from 'c0.x' and friends to the shared 'x'.  What has to hold is that
+        # the leaves OpenMDAO fed from the IndepVarComp end up unconnected and sharing one
+        # name, so the design variable still covers exactly those leaves.
+        _, om_conns = _om_truth(p.model)
+        self.assertEqual(om_conns, {'c0.x': None, 'c1.x': None, 'c2.x': None})
+
+        spec = generic_model_dict(p)
+        proms, conns = _resolve_spec(spec)
+
+        self.assertEqual(sorted(proms['input']['x']), ['c0.x', 'c1.x', 'c2.x'])
+        self.assertEqual(conns, {})
+        self.assertEqual(spec['design_vars'], {'x': {}})
 
     def test_input_to_input_without_a_real_source(self):
         class Simple(om.ExplicitComponent):
